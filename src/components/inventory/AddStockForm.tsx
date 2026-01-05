@@ -2,6 +2,23 @@ import { useState, useEffect } from 'react'
 import { products, inventory, type Product } from '../../lib/api'
 import BarcodeScanner from '../scanner/BarcodeScanner'
 
+// Custom hook for debouncing values
+function useDebounce<T>(value: T, delay: number): T {
+    const [debouncedValue, setDebouncedValue] = useState<T>(value)
+
+    useEffect(() => {
+        const handler = setTimeout(() => {
+            setDebouncedValue(value)
+        }, delay)
+
+        return () => {
+            clearTimeout(handler)
+        }
+    }, [value, delay])
+
+    return debouncedValue
+}
+
 interface AddStockFormProps {
     onSuccess?: () => void
     onClose?: () => void
@@ -13,6 +30,7 @@ export default function AddStockForm({ onSuccess, onClose }: AddStockFormProps) 
     const [mode, setMode] = useState<FormMode>('select')
     const [allProducts, setAllProducts] = useState<Product[]>([])
     const [searchQuery, setSearchQuery] = useState('')
+    const debouncedSearchQuery = useDebounce(searchQuery, 300)
     const [selectedProduct, setSelectedProduct] = useState<Product | null>(null)
     const [quantity, setQuantity] = useState('')
     const [unitCost, setUnitCost] = useState('')
@@ -70,11 +88,18 @@ export default function AddStockForm({ onSuccess, onClose }: AddStockFormProps) 
         setError(null)
 
         try {
+            // Convert date to ISO datetime format if provided
+            let expiresAtISO: string | undefined
+            if (expiresAt) {
+                // Add time to make it a valid ISO datetime string
+                expiresAtISO = new Date(expiresAt + 'T23:59:59.999Z').toISOString()
+            }
+
             await inventory.addLot({
                 productId: selectedProduct.id,
                 quantity: parseFloat(quantity),
                 unitCost: parseFloat(unitCost),
-                expiresAt: expiresAt || undefined,
+                expiresAt: expiresAtISO,
             })
             onSuccess?.()
             onClose?.()
@@ -87,8 +112,8 @@ export default function AddStockForm({ onSuccess, onClose }: AddStockFormProps) 
 
     const filteredProducts = allProducts.filter(
         (p) =>
-            p.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-            p.barcode?.toLowerCase().includes(searchQuery.toLowerCase())
+            p.name.toLowerCase().includes(debouncedSearchQuery.toLowerCase()) ||
+            p.barcode?.toLowerCase().includes(debouncedSearchQuery.toLowerCase())
     )
 
     // Scanner mode

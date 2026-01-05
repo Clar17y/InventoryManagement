@@ -11,7 +11,7 @@
 | Phase | Status | Progress |
 |-------|--------|----------|
 | 1A: Foundation | ✅ Complete | 7/7 tasks |
-| 1B: Core Data | 🔄 Partial | 4/5 tasks |
+| 1B: Core Data | ✅ Complete | 5/5 tasks |
 | 1C: Hampers | ❌ Not Started | 0/4 tasks |
 | 1D: Sales & Margins | ❌ Not Started | 0/7 tasks |
 | 1E: Polish | ❌ Not Started | 0/5 tasks |
@@ -32,18 +32,19 @@
 
 ---
 
-## Phase 1B: Core Data Management 🔄 IN PROGRESS
+## Phase 1B: Core Data Management ✅ COMPLETE
 
 - [x] Categories CRUD UI
 - [x] Products CRUD UI
 - [x] **Add Stock Form** ✅ DONE
 - [x] Barcode scanner component ✅ DONE
-- [ ] Stock levels display (enhanced version)
+- [x] Stock levels display ✅ DONE
 
 ### Notes
-- Backend API for inventory lots exists at `POST /api/inventory/lots`
 - Barcode scanner uses `html5-qrcode` library
-- Add Stock form at `src/components/inventory/AddStockForm.tsx`
+- Stock level bars with color coding (green/amber/red)
+- Expandable lot breakdown per product
+- Dashboard shows live alerts for low stock and expiring lots
 
 ---
 
@@ -94,6 +95,7 @@
 |------|-------|------|--------|--------|
 | 2026-01-05 | - | Documentation setup | ✅ Done | main |
 | 2026-01-05 | Antigravity | Add Stock Form + Barcode Scanner | ✅ Done | main |
+| 2026-01-05 | Antigravity | Enhanced Stock Levels Display | ✅ Done | main |
 
 ---
 
@@ -104,16 +106,16 @@
 **Last Updated:** 2026-01-05
 
 **Current State:**
-- Add Stock Form and Barcode Scanner implemented
-- Dev auth bypass added for local testing (VITE_DEV_BYPASS_AUTH=true)
-- Inventory page now shows products by category
+- Phase 1B: Core Data Management is COMPLETE
+- Dashboard shows live stats and alerts
+- Inventory page has stock level bars and expandable lot breakdown
 
 **Next Steps:**
-1. Enhanced stock levels display (possibly with charts or alerts)
-2. Begin Phase 1C: Hampers
+1. Begin Phase 1C: Hampers
    - Hamper CRUD UI
-   - Requirement management
+   - Requirement management (add categories to hamper)
    - Availability calculation UI
+   - Display "can make X" on hamper list
 
 **Known Issues:**
 - None currently

@@ -91,6 +91,10 @@ export const inventory = {
   lots: (productId: string) => request<InventoryLot[]>(`/inventory/lots/${productId}`),
   addLot: (data: { productId: string; quantity: number; unitCost: number; expiresAt?: string }) =>
     request<InventoryLot>('/inventory/lots', { method: 'POST', body: JSON.stringify(data) }),
+  updateLot: (id: string, data: { quantity?: number; remaining?: number; unitCost?: number; expiresAt?: string | null }) =>
+    request<InventoryLot>(`/inventory/lots/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+  deleteLot: (id: string) =>
+    request<void>(`/inventory/lots/${id}`, { method: 'DELETE' }),
   lowStock: (threshold?: number) =>
     request<Product[]>(`/inventory/alerts/low-stock${threshold ? `?threshold=${threshold}` : ''}`),
   expiring: (days?: number) =>

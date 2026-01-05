@@ -130,6 +130,57 @@ router.post('/lots', async (req, res) => {
   }
 })
 
+// Zod schema for updating a lot
+const updateLotSchema = z.object({
+  quantity: z.number().positive().optional(),
+  remaining: z.number().nonnegative().optional(),
+  unitCost: z.number().nonnegative().optional(),
+  expiresAt: z.string().datetime().nullable().optional(),
+})
+
+// PUT update inventory lot
+router.put('/lots/:id', async (req, res) => {
+  try {
+    const data = updateLotSchema.parse(req.body)
+
+    const lot = await prisma.inventoryLot.update({
+      where: { id: req.params.id },
+      data: {
+        ...(data.quantity !== undefined && { quantity: data.quantity }),
+        ...(data.remaining !== undefined && { remaining: data.remaining }),
+        ...(data.unitCost !== undefined && { unitCost: data.unitCost }),
+        ...(data.expiresAt !== undefined && {
+          expiresAt: data.expiresAt ? new Date(data.expiresAt) : null
+        }),
+      },
+      include: { product: true },
+    })
+
+    res.json(lot)
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      return res.status(400).json({ error: 'Validation failed', details: error.errors })
+    }
+    console.error('Error updating inventory lot:', error)
+    res.status(500).json({ error: 'Failed to update lot' })
+  }
+})
+
+// DELETE inventory lot
+router.delete('/lots/:id', async (req, res) => {
+  try {
+    // Set remaining to 0 (soft delete - keeps history)
+    await prisma.inventoryLot.update({
+      where: { id: req.params.id },
+      data: { remaining: 0 },
+    })
+    res.status(204).send()
+  } catch (error) {
+    console.error('Error deleting inventory lot:', error)
+    res.status(500).json({ error: 'Failed to delete lot' })
+  }
+})
+
 // GET low stock alerts
 router.get('/alerts/low-stock', async (req, res) => {
   try {

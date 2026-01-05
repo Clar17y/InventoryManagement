@@ -11,6 +11,13 @@ export default function Inventory() {
   const [isLoading, setIsLoading] = useState(true)
   const [lowStockCount, setLowStockCount] = useState(0)
   const [expiringCount, setExpiringCount] = useState(0)
+  // Edit lot state
+  const [editingLot, setEditingLot] = useState<string | null>(null)
+  const [editForm, setEditForm] = useState<{
+    remaining: string
+    unitCost: string
+    expiresAt: string
+  }>({ remaining: '', unitCost: '', expiresAt: '' })
 
   const loadProducts = async () => {
     setIsLoading(true)
@@ -70,6 +77,61 @@ export default function Inventory() {
 
   const formatDate = (dateStr: string) => {
     return new Date(dateStr).toLocaleDateString()
+  }
+
+  const handleDeleteLot = async (lotId: string, productId: string) => {
+    if (!confirm('Are you sure you want to delete this lot? This cannot be undone.')) {
+      return
+    }
+
+    try {
+      await inventory.deleteLot(lotId)
+      // Reload lots for this product
+      const lots = await inventory.lots(productId)
+      setProductLots(prev => ({ ...prev, [productId]: lots }))
+      // Reload products to update stock counts
+      await loadProducts()
+    } catch (err) {
+      console.error('Failed to delete lot', err)
+      alert('Failed to delete lot. Please try again.')
+    }
+  }
+
+  const startEditLot = (lot: InventoryLot) => {
+    setEditingLot(lot.id)
+    setEditForm({
+      remaining: String(lot.remaining),
+      unitCost: String(lot.unitCost),
+      expiresAt: lot.expiresAt?.split('T')[0] ?? '',
+    })
+  }
+
+  const handleSaveEdit = async (lotId: string, productId: string) => {
+    try {
+      // Convert expiry date to ISO if provided
+      let expiresAtISO: string | null | undefined
+      if (editForm.expiresAt) {
+        expiresAtISO = new Date(editForm.expiresAt + 'T23:59:59.999Z').toISOString()
+      } else {
+        expiresAtISO = null
+      }
+
+      await inventory.updateLot(lotId, {
+        remaining: parseFloat(editForm.remaining),
+        unitCost: parseFloat(editForm.unitCost),
+        expiresAt: expiresAtISO,
+      })
+
+      setEditingLot(null)
+      // Reload lots for this product
+      const lots = await inventory.lots(productId)
+      setProductLots(prev => ({ ...prev, [productId]: lots }))
+      // Reload products to update stock counts
+      await loadProducts()
+    } catch (err) {
+      console.error('Failed to update lot', err)
+      alert('Failed to update lot. Please try again.')
+    }
   }
 
   // Group products by category
@@ -189,25 +251,105 @@ export default function Inventory() {
                           {productLots[product.id]?.length ? (
                             <div className="space-y-2">
                               {productLots[product.id]?.map((lot) => (
-                                <div key={lot.id} className="flex items-center justify-between text-sm">
-                                  <div>
-                                    <span className="text-gray-600">
-                                      Received {formatDate(lot.receivedAt)}
-                                    </span>
-                                    {lot.expiresAt && (
-                                      <span className="text-amber-600 ml-2">
-                                        · Expires {formatDate(lot.expiresAt)}
-                                      </span>
-                                    )}
-                                  </div>
-                                  <div className="flex items-center gap-3">
-                                    <span className="text-gray-500">
-                                      £{Number(lot.unitCost).toFixed(2)}
-                                    </span>
-                                    <span className="font-medium text-gray-900">
-                                      {Number(lot.remaining).toFixed(0)} left
-                                    </span>
-                                  </div>
+                                <div key={lot.id} className="text-sm bg-white rounded-lg p-2 border border-gray-100">
+                                  {editingLot === lot.id ? (
+                                    // Edit mode
+                                    <div className="space-y-2">
+                                      <div className="grid grid-cols-3 gap-2">
+                                        <div>
+                                          <label className="block text-xs text-gray-500 mb-1">Remaining</label>
+                                          <input
+                                            type="number"
+                                            step="any"
+                                            min="0"
+                                            value={editForm.remaining}
+                                            onChange={(e) => setEditForm(f => ({ ...f, remaining: e.target.value }))}
+                                            className="w-full px-2 py-1 border border-gray-300 rounded text-sm"
+                                          />
+                                        </div>
+                                        <div>
+                                          <label className="block text-xs text-gray-500 mb-1">Unit Cost (£)</label>
+                                          <input
+                                            type="number"
+                                            step="0.01"
+                                            min="0"
+                                            value={editForm.unitCost}
+                                            onChange={(e) => setEditForm(f => ({ ...f, unitCost: e.target.value }))}
+                                            className="w-full px-2 py-1 border border-gray-300 rounded text-sm"
+                                          />
+                                        </div>
+                                        <div>
+                                          <label className="block text-xs text-gray-500 mb-1">Expires</label>
+                                          <input
+                                            type="date"
+                                            value={editForm.expiresAt}
+                                            onChange={(e) => setEditForm(f => ({ ...f, expiresAt: e.target.value }))}
+                                            className="w-full px-2 py-1 border border-gray-300 rounded text-sm"
+                                          />
+                                        </div>
+                                      </div>
+                                      <div className="flex justify-end gap-2">
+                                        <button
+                                          onClick={() => setEditingLot(null)}
+                                          className="px-3 py-1 text-gray-600 hover:bg-gray-100 rounded text-sm"
+                                        >
+                                          Cancel
+                                        </button>
+                                        <button
+                                          onClick={() => handleSaveEdit(lot.id, product.id)}
+                                          className="px-3 py-1 bg-indigo-600 text-white rounded text-sm hover:bg-indigo-700"
+                                        >
+                                          Save
+                                        </button>
+                                      </div>
+                                    </div>
+                                  ) : (
+                                    // Display mode
+                                    <div className="flex items-center justify-between">
+                                      <div className="flex-1">
+                                        <span className="text-gray-600">
+                                          Received {formatDate(lot.receivedAt)}
+                                        </span>
+                                        {lot.expiresAt && (
+                                          <span className="text-amber-600 ml-2">
+                                            · Expires {formatDate(lot.expiresAt)}
+                                          </span>
+                                        )}
+                                      </div>
+                                      <div className="flex items-center gap-3">
+                                        <span className="text-gray-500">
+                                          £{Number(lot.unitCost).toFixed(2)}
+                                        </span>
+                                        <span className="font-medium text-gray-900">
+                                          {Number(lot.remaining).toFixed(0)} left
+                                        </span>
+                                        <button
+                                          onClick={(e) => {
+                                            e.stopPropagation()
+                                            startEditLot(lot)
+                                          }}
+                                          className="p-1 text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 rounded transition-colors"
+                                          title="Edit lot"
+                                        >
+                                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                                          </svg>
+                                        </button>
+                                        <button
+                                          onClick={(e) => {
+                                            e.stopPropagation()
+                                            handleDeleteLot(lot.id, product.id)
+                                          }}
+                                          className="p-1 text-red-400 hover:text-red-600 hover:bg-red-50 rounded transition-colors"
+                                          title="Delete lot"
+                                        >
+                                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                          </svg>
+                                        </button>
+                                      </div>
+                                    </div>
+                                  )}
                                 </div>
                               ))}
                             </div>

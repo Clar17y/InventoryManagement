@@ -10,6 +10,9 @@ import Settings from './pages/Settings'
 import Categories from './pages/Categories'
 import Products from './pages/Products'
 
+// Dev bypass for testing without Supabase magic link
+const DEV_BYPASS_AUTH = import.meta.env.VITE_DEV_BYPASS_AUTH === 'true'
+
 function LoadingScreen() {
   return (
     <div className="min-h-screen bg-gray-50 flex items-center justify-center">
@@ -24,11 +27,11 @@ function LoadingScreen() {
 export default function App() {
   const { user, loading } = useAuth()
 
-  if (loading) {
+  if (loading && !DEV_BYPASS_AUTH) {
     return <LoadingScreen />
   }
 
-  if (!user) {
+  if (!user && !DEV_BYPASS_AUTH) {
     return <Login />
   }
 

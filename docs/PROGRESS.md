@@ -11,7 +11,7 @@
 | Phase | Status | Progress |
 |-------|--------|----------|
 | 1A: Foundation | ✅ Complete | 7/7 tasks |
-| 1B: Core Data | 🔄 Partial | 2/5 tasks |
+| 1B: Core Data | 🔄 Partial | 4/5 tasks |
 | 1C: Hampers | ❌ Not Started | 0/4 tasks |
 | 1D: Sales & Margins | ❌ Not Started | 0/7 tasks |
 | 1E: Polish | ❌ Not Started | 0/5 tasks |
@@ -36,13 +36,14 @@
 
 - [x] Categories CRUD UI
 - [x] Products CRUD UI
-- [ ] **Add Stock Form** ← PRIORITY
-- [ ] Barcode scanner component
-- [ ] Stock levels display
+- [x] **Add Stock Form** ✅ DONE
+- [x] Barcode scanner component ✅ DONE
+- [ ] Stock levels display (enhanced version)
 
 ### Notes
 - Backend API for inventory lots exists at `POST /api/inventory/lots`
-- Consider `html5-qrcode` library for barcode scanning
+- Barcode scanner uses `html5-qrcode` library
+- Add Stock form at `src/components/inventory/AddStockForm.tsx`
 
 ---
 
@@ -92,7 +93,7 @@
 | Date | Agent | Task | Status | Branch |
 |------|-------|------|--------|--------|
 | 2026-01-05 | - | Documentation setup | ✅ Done | main |
-| | | | | |
+| 2026-01-05 | Antigravity | Add Stock Form + Barcode Scanner | ✅ Done | main |
 
 ---
 
@@ -103,13 +104,16 @@
 **Last Updated:** 2026-01-05
 
 **Current State:**
-- Documentation structure created
-- Ready to begin Add Stock Form implementation
+- Add Stock Form and Barcode Scanner implemented
+- Dev auth bypass added for local testing (VITE_DEV_BYPASS_AUTH=true)
+- Inventory page now shows products by category
 
 **Next Steps:**
-1. Create Add Stock form component at `src/components/inventory/AddStockForm.tsx`
-2. Integrate barcode scanner using `html5-qrcode`
-3. Connect to `POST /api/inventory/lots` endpoint
+1. Enhanced stock levels display (possibly with charts or alerts)
+2. Begin Phase 1C: Hampers
+   - Hamper CRUD UI
+   - Requirement management
+   - Availability calculation UI
 
 **Known Issues:**
 - None currently

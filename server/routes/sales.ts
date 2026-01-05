@@ -412,7 +412,16 @@ router.get('/', async (req, res) => {
     const sales = await prisma.sale.findMany({
       include: {
         lines: {
-          include: { hamper: true },
+          include: {
+            hamper: true,
+            consumptions: {
+              include: {
+                lot: {
+                  include: { product: true },
+                },
+              },
+            },
+          },
         },
       },
       orderBy: { saleDate: 'desc' },

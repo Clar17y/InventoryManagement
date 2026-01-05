@@ -13,10 +13,10 @@
 | 1A: Foundation | ✅ Complete | 7/7 tasks |
 | 1B: Core Data | ✅ Complete | 5/5 tasks |
 | 1C: Hampers | ✅ Complete | 4/4 tasks |
-| 1D: Sales & Margins | ❌ Not Started | 0/7 tasks |
+| 1D: Sales & Margins | ✅ Complete | 7/7 tasks |
 | 1E: Polish | ❌ Not Started | 0/5 tasks |
 
-**Current Focus:** Phase 1D - Sales & Margins
+**Current Focus:** Phase 1E - Polish & Alerts
 
 ---
 
@@ -63,19 +63,22 @@
 
 ---
 
-## Phase 1D: Sales & Margins ❌ NOT STARTED
+## Phase 1D: Sales & Margins ✅ COMPLETE
 
-- [ ] Stock allocation algorithm (exists in API)
-- [ ] Sale preview endpoint integration
-- [ ] Record sale UI with allocation preview
-- [ ] Override capability per line
-- [ ] Confirm and consume stock
-- [ ] Etsy fee and overhead application
-- [ ] Margin calculation and display
+- [x] Stock allocation algorithm (exists in API)
+- [x] Sale preview endpoint integration
+- [x] Record sale UI with allocation preview
+- [x] Override capability per line
+- [x] Confirm and consume stock
+- [x] Etsy fee and overhead application
+- [x] Margin calculation and display
 
 ### Notes
-- All API routes exist, waiting on frontend UI
-- Stock allocation uses FIFO/FEFO/Cheapest based on category pickRule
+- Sales page complete with record sale flow and history view
+- Live allocation preview shows which products will be used
+- Manual lot override: click pencil icon on any requirement to select specific lots
+- Expandable sale details show full financial breakdown
+- New API endpoint: `GET /api/inventory/lots-by-category/:categoryId`
 
 ---
 
@@ -99,6 +102,7 @@
 | 2026-01-05 | Antigravity | Add Stock Form + Barcode Scanner | ✅ Done | main |
 | 2026-01-05 | Antigravity | Enhanced Stock Levels Display | ✅ Done | main |
 | 2026-01-05 | Antigravity | Phase 1C: Hampers | ✅ Done | main |
+| 2026-01-05 | Claude Code | Phase 1D: Sales & Margins | 🔄 In Progress | main |
 
 ---
 
@@ -109,19 +113,25 @@
 **Last Updated:** 2026-01-05
 
 **Current State:**
-- Phase 1C: Hampers is COMPLETE
-- Hampers page has full CRUD, requirement management, and availability display
-- Color-coded "Can make: X" badges and expandable detail views
+- Phase 1D: Sales & Margins is COMPLETE (7/7 tasks)
+- Sales page (`src/pages/Sales.tsx`) has:
+  - Record Sale flow with hamper selection
+  - Live allocation preview from API
+  - Manual lot override (click pencil icon on any requirement)
+  - Cost/margin summary display
+  - Sales history list with expandable details
+  - Full financial breakdown (gross, fees, packaging, cost, margin)
+- API client updated with sales types (`src/lib/api.ts`)
+- New endpoint: `GET /api/inventory/lots-by-category/:categoryId`
 
 **Next Steps:**
-1. Begin Phase 1D: Sales & Margins
-   - Stock allocation algorithm integration
-   - Sale preview endpoint
-   - Record sale UI with allocation preview
-   - Override capability per line
-   - Confirm and consume stock
-   - Etsy fee and overhead application
-   - Margin calculation and display
+1. Test the Sales page end-to-end with manual overrides
+2. Begin Phase 1E: Polish & Alerts
+   - Dashboard with quick actions
+   - Low stock alerts display
+   - Expiring lots warnings
+   - Sales history and margin reports
+   - Mobile UX polish
 
 **Known Issues:**
 - None currently

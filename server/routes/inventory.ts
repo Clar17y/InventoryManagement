@@ -71,6 +71,39 @@ router.get('/lots/:productId', async (req, res) => {
   }
 })
 
+// GET available lots by category (for manual allocation override)
+router.get('/lots-by-category/:categoryId', async (req, res) => {
+  try {
+    const products = await prisma.product.findMany({
+      where: {
+        categoryId: req.params.categoryId,
+        isActive: true,
+      },
+      include: {
+        lots: {
+          where: { remaining: { gt: 0 } },
+          orderBy: { receivedAt: 'asc' },
+        },
+      },
+      orderBy: { name: 'asc' },
+    })
+
+    // Flatten to a list of lots with product info
+    const lots = products.flatMap((product) =>
+      product.lots.map((lot) => ({
+        ...lot,
+        productId: product.id,
+        productName: product.name,
+      }))
+    )
+
+    res.json(lots)
+  } catch (error) {
+    console.error('Error fetching lots by category:', error)
+    res.status(500).json({ error: 'Failed to fetch lots' })
+  }
+})
+
 // POST add inventory lot (receive stock)
 router.post('/lots', async (req, res) => {
   try {

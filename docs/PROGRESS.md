@@ -12,11 +12,11 @@
 |-------|--------|----------|
 | 1A: Foundation | ✅ Complete | 7/7 tasks |
 | 1B: Core Data | ✅ Complete | 5/5 tasks |
-| 1C: Hampers | ❌ Not Started | 0/4 tasks |
+| 1C: Hampers | ✅ Complete | 4/4 tasks |
 | 1D: Sales & Margins | ❌ Not Started | 0/7 tasks |
 | 1E: Polish | ❌ Not Started | 0/5 tasks |
 
-**Current Focus:** Phase 1B - Add Stock Form + Barcode Scanner
+**Current Focus:** Phase 1D - Sales & Margins
 
 ---
 
@@ -48,16 +48,18 @@
 
 ---
 
-## Phase 1C: Hampers ❌ NOT STARTED
+## Phase 1C: Hampers ✅ COMPLETE
 
-- [ ] Hamper CRUD UI
-- [ ] Requirement management (add categories to hamper)
-- [ ] Availability calculation UI (API logic exists)
-- [ ] Display "can make X" on hamper list
+- [x] Hamper CRUD UI
+- [x] Requirement management (add categories to hamper)
+- [x] Availability calculation UI (API logic exists)
+- [x] Display "can make X" on hamper list
 
 ### Notes
-- API endpoints exist: `GET /api/hampers`, `POST /api/hampers`, etc.
-- Availability calculation logic is in the backend
+- Full CRUD with create/edit forms and soft delete
+- Requirement management with category selection, quantity, and optional flag
+- Color-coded availability badges: green (5+), amber (1-4), red (0)
+- Expandable detail view shows per-requirement stock levels, estimated cost, and margin
 
 ---
 
@@ -96,6 +98,7 @@
 | 2026-01-05 | - | Documentation setup | ✅ Done | main |
 | 2026-01-05 | Antigravity | Add Stock Form + Barcode Scanner | ✅ Done | main |
 | 2026-01-05 | Antigravity | Enhanced Stock Levels Display | ✅ Done | main |
+| 2026-01-05 | Antigravity | Phase 1C: Hampers | ✅ Done | main |
 
 ---
 
@@ -106,16 +109,19 @@
 **Last Updated:** 2026-01-05
 
 **Current State:**
-- Phase 1B: Core Data Management is COMPLETE
-- Dashboard shows live stats and alerts
-- Inventory page has stock level bars and expandable lot breakdown
+- Phase 1C: Hampers is COMPLETE
+- Hampers page has full CRUD, requirement management, and availability display
+- Color-coded "Can make: X" badges and expandable detail views
 
 **Next Steps:**
-1. Begin Phase 1C: Hampers
-   - Hamper CRUD UI
-   - Requirement management (add categories to hamper)
-   - Availability calculation UI
-   - Display "can make X" on hamper list
+1. Begin Phase 1D: Sales & Margins
+   - Stock allocation algorithm integration
+   - Sale preview endpoint
+   - Record sale UI with allocation preview
+   - Override capability per line
+   - Confirm and consume stock
+   - Etsy fee and overhead application
+   - Margin calculation and display
 
 **Known Issues:**
 - None currently

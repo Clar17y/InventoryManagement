@@ -114,3 +114,55 @@ export interface DashboardStats {
 export const settings = {
   dashboardStats: () => request<DashboardStats>('/settings/dashboard-stats'),
 }
+
+// Hampers
+export interface HamperRequirement {
+  id: string
+  categoryId: string
+  category: { id: string; name: string }
+  quantity: number
+  isOptional: boolean
+}
+
+export interface HamperRequirementDetail extends HamperRequirement {
+  quantityRequired: number
+  availableStock: number
+  canFulfill: number
+  estimatedCost: number
+}
+
+export interface Hamper {
+  id: string
+  name: string
+  sellingPrice: number
+  etsyListingId: string | null
+  isActive: boolean
+  createdAt: string
+  updatedAt: string
+  requirements: HamperRequirement[]
+  canMake: number
+}
+
+export interface HamperDetail extends Omit<Hamper, 'requirements'> {
+  requirements: HamperRequirementDetail[]
+  estimatedCost: number
+  estimatedMargin: number
+}
+
+export interface HamperCreateData {
+  name: string
+  sellingPrice: number
+  etsyListingId?: string
+  requirements: { categoryId: string; quantity: number; isOptional?: boolean }[]
+}
+
+export const hampers = {
+  list: () => request<Hamper[]>('/hampers'),
+  get: (id: string) => request<HamperDetail>(`/hampers/${id}`),
+  create: (data: HamperCreateData) =>
+    request<Hamper>('/hampers', { method: 'POST', body: JSON.stringify(data) }),
+  update: (id: string, data: Partial<HamperCreateData>) =>
+    request<Hamper>(`/hampers/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+  delete: (id: string) =>
+    request<void>(`/hampers/${id}`, { method: 'DELETE' }),
+}

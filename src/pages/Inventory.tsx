@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { products, inventory, type Product, type InventoryLot } from '../lib/api'
+import { formatUnitCost } from '../lib/formatting'
 import AddStockForm from '../components/inventory/AddStockForm'
 import StockLevelBar from '../components/inventory/StockLevelBar'
 
@@ -334,7 +335,7 @@ export default function Inventory() {
                                       </div>
                                       <div className="flex items-center gap-3">
                                         <span className="text-gray-500">
-                                          £{Number(lot.unitCost).toFixed(2)}
+                                          {formatUnitCost(lot.unitCost)}
                                         </span>
                                         <span className="font-medium text-gray-900">
                                           {Number(lot.remaining).toFixed(0)} left
@@ -375,7 +376,7 @@ export default function Inventory() {
                           {product.currentCost && (
                             <div className="mt-3 pt-3 border-t border-gray-200">
                               <span className="text-sm text-gray-600">
-                                Current cost: <strong>£{Number(product.currentCost).toFixed(2)}</strong> per {product.unit}
+                                Current cost: <strong>{formatUnitCost(product.currentCost, product.unit)}</strong>
                               </span>
                             </div>
                           )}

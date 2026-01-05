@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { PlusIcon, PencilIcon, TrashIcon } from '@heroicons/react/24/outline'
 import { products, categories, Product, Category } from '../lib/api'
+import { formatUnitCost } from '../lib/formatting'
 
 interface ProductFormData {
   name: string
@@ -242,7 +243,7 @@ export default function Products() {
                     </span>
                   )}
                   {product.currentCost !== null && product.currentCost !== undefined && (
-                    <span>Cost: £{Number(product.currentCost).toFixed(2)}/{product.unit}</span>
+                    <span>Cost: {formatUnitCost(product.currentCost, product.unit)}</span>
                   )}
                   {product.barcode && <span>#{product.barcode}</span>}
                 </div>

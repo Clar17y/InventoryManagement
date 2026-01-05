@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { products, inventory, categories, type Product, type Category } from '../../lib/api'
+import { formatPrice, formatCurrency } from '../../lib/formatting'
 import BarcodeScanner from '../scanner/BarcodeScanner'
 
 // Custom hook for debouncing values
@@ -251,7 +252,7 @@ export default function AddStockForm({ onSuccess, onClose }: AddStockFormProps) 
                                                 </p>
                                                 {product.currentCost && (
                                                     <p className="text-xs text-gray-500">
-                                                        £{Number(product.currentCost).toFixed(2)}
+                                                        {formatPrice(product.currentCost)}
                                                     </p>
                                                 )}
                                             </div>
@@ -404,13 +405,13 @@ export default function AddStockForm({ onSuccess, onClose }: AddStockFormProps) 
                                         {costMode === 'unit' && (
                                             <p className="text-sm text-indigo-600 mt-1">
                                                 <span className="font-medium">Total:</span>{' '}
-                                                £{(() => {
+                                                {formatCurrency((() => {
                                                     const qty = parseFloat(quantity)
                                                     const cost = parseFloat(costValue)
                                                     let total = cost * qty
                                                     if (excludesVAT) total *= 1.2
-                                                    return total.toFixed(2)
-                                                })()}
+                                                    return total
+                                                })())}
                                             </p>
                                         )}
                                     </div>

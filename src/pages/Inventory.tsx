@@ -144,9 +144,14 @@ export default function Inventory() {
     productsByCategory[catName].push(p)
   })
 
-  // Calculate totals
+  // Calculate totals - for unit products sum remaining, for others count lots
   const totalProducts = allProducts.length
-  const totalStock = allProducts.reduce((sum, p) => sum + (p.totalStock ?? 0), 0)
+  const totalUnitItems = allProducts
+    .filter(p => p.unit === 'units')
+    .reduce((sum, p) => sum + (p.totalStock ?? 0), 0)
+  const totalLots = allProducts
+    .filter(p => p.unit !== 'units')
+    .reduce((sum, p) => sum + (p.lotCount ?? 0), 0)
 
   return (
     <div className="space-y-4">
@@ -188,9 +193,11 @@ export default function Inventory() {
       <div className="card">
         <div className="flex justify-between items-center mb-2">
           <span className="text-sm font-medium text-gray-700">Total Inventory</span>
-          <span className="text-sm text-gray-500">{totalStock} units</span>
+          <span className="text-sm text-gray-500">
+            {totalUnitItems} items + {totalLots} bulk lots
+          </span>
         </div>
-        <StockLevelBar current={totalStock} max={100} showLabel={false} />
+        <StockLevelBar current={totalUnitItems + totalLots} max={100} showLabel={false} />
       </div>
 
       {/* Product List */}
@@ -229,7 +236,16 @@ export default function Inventory() {
                         </p>
                       </div>
                       <div className="flex items-center gap-4">
-                        <div className="w-24">
+                        <div className="text-right text-sm">
+                          {product.unit === 'units' ? (
+                            <span className="text-gray-600">{product.totalStock ?? 0}</span>
+                          ) : (
+                            <span className="text-gray-600">
+                              {product.lotCount ?? 0} lot{(product.lotCount ?? 0) !== 1 ? 's' : ''}
+                            </span>
+                          )}
+                        </div>
+                        <div className="w-20">
                           <StockLevelBar current={product.totalStock ?? 0} size="sm" />
                         </div>
                         <svg

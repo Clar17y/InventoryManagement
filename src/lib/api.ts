@@ -53,7 +53,9 @@ export interface Product {
   category?: Category
   unit: string
   isActive: boolean
-  totalStock?: number
+  totalStock?: number       // For units: sum of remaining, for others: lot count
+  totalRemaining?: number   // Actual sum of remaining quantities
+  lotCount?: number         // Number of lots with remaining stock
   currentCost?: number | null
   createdAt: string
   updatedAt: string

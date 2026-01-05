@@ -232,11 +232,17 @@ router.get('/alerts/low-stock', async (req, res) => {
 
     const lowStock = products
       .map((product) => {
-        const totalStock = product.lots.reduce(
+        const totalRemaining = product.lots.reduce(
           (sum, lot) => sum + Number(lot.remaining),
           0
         )
-        return { ...product, totalStock, lots: undefined }
+        const lotCount = product.lots.length
+
+        // For "units" products: use sum of remaining
+        // For continuous products: use lot count
+        const totalStock = product.unit === 'units' ? totalRemaining : lotCount
+
+        return { ...product, totalStock, totalRemaining, lotCount, lots: undefined }
       })
       .filter((product) => product.totalStock <= threshold)
       .sort((a, b) => a.totalStock - b.totalStock)

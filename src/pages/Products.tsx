@@ -233,9 +233,16 @@ export default function Products() {
                   {product.category?.name || 'Unknown category'}
                 </div>
                 <div className="flex gap-3 text-xs text-gray-400 mt-1">
-                  <span>Stock: {product.totalStock ?? 0} {product.unit}</span>
+                  {product.unit === 'units' ? (
+                    <span>Stock: {product.totalStock ?? 0} {product.unit}</span>
+                  ) : (
+                    <span>
+                      {product.lotCount ?? 0} lot{(product.lotCount ?? 0) !== 1 ? 's' : ''}
+                      ({product.totalRemaining ?? 0} {product.unit} total)
+                    </span>
+                  )}
                   {product.currentCost !== null && product.currentCost !== undefined && (
-                    <span>Cost: £{Number(product.currentCost).toFixed(2)}</span>
+                    <span>Cost: £{Number(product.currentCost).toFixed(2)}/{product.unit}</span>
                   )}
                   {product.barcode && <span>#{product.barcode}</span>}
                 </div>

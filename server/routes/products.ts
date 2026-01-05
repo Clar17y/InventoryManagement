@@ -40,15 +40,25 @@ router.get('/', async (req, res) => {
     })
 
     // Calculate total stock for each product
+    // For "units" products: sum the remaining quantity
+    // For continuous products (metres, grams, etc.): count number of lots
     const productsWithStock = products.map((product) => {
-      const totalStock = product.lots.reduce(
+      const totalRemaining = product.lots.reduce(
         (sum, lot) => sum + Number(lot.remaining),
         0
       )
+      const lotCount = product.lots.length
+
+      // For non-unit products, totalStock = number of lots
+      // For unit products, totalStock = sum of remaining quantities
+      const totalStock = product.unit === 'units' ? totalRemaining : lotCount
+
       const currentCost = product.costs[0]?.unitCost || null
       return {
         ...product,
         totalStock,
+        totalRemaining, // Always include the actual remaining quantity
+        lotCount,
         currentCost,
         lots: undefined,
         costs: undefined,

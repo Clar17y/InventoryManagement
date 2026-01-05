@@ -158,7 +158,7 @@ router.get('/dashboard-stats', async (_, res) => {
       hamperCount,
       todaySales,
       weekSales,
-      lowStockCount,
+      productsWithLots,
     ] = await Promise.all([
       prisma.product.count({ where: { isActive: true } }),
       prisma.componentCategory.count({ where: { isActive: true } }),
@@ -173,16 +173,32 @@ router.get('/dashboard-stats', async (_, res) => {
         _sum: { grossRevenue: true, margin: true },
         _count: true,
       }),
-      // Count products with low stock (< 5 units)
-      prisma.product.count({
-        where: {
-          isActive: true,
+      // Fetch products with their lots to calculate low stock properly
+      prisma.product.findMany({
+        where: { isActive: true },
+        select: {
+          unit: true,
           lots: {
-            none: { remaining: { gt: 5 } },
+            where: { remaining: { gt: 0 } },
+            select: { remaining: true },
           },
         },
       }),
     ])
+
+    // Calculate low stock count using consistent logic:
+    // For "units" products: sum remaining quantities, check if <= 5
+    // For continuous products (metres, grams, etc.): count lots, check if <= 5
+    const LOW_STOCK_THRESHOLD = 5
+    const lowStockCount = productsWithLots.filter((product) => {
+      if (product.unit === 'units') {
+        const totalRemaining = product.lots.reduce((sum, lot) => sum + Number(lot.remaining), 0)
+        return totalRemaining <= LOW_STOCK_THRESHOLD
+      } else {
+        // For continuous products, count lots
+        return product.lots.length <= LOW_STOCK_THRESHOLD
+      }
+    }).length
 
     res.json({
       products: productCount,

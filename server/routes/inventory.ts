@@ -1,0 +1,197 @@
+import { Router } from 'express'
+import { z } from 'zod'
+import { prisma } from '../lib/prisma'
+
+const router = Router()
+
+const addLotSchema = z.object({
+  productId: z.string().cuid(),
+  quantity: z.number().positive(),
+  unitCost: z.number().nonnegative(),
+  expiresAt: z.string().datetime().optional(),
+})
+
+// GET inventory summary by category
+router.get('/by-category', async (_, res) => {
+  try {
+    const categories = await prisma.componentCategory.findMany({
+      where: { isActive: true },
+      include: {
+        products: {
+          where: { isActive: true },
+          include: {
+            lots: {
+              where: { remaining: { gt: 0 } },
+              select: { remaining: true },
+            },
+          },
+        },
+      },
+      orderBy: { name: 'asc' },
+    })
+
+    const summary = categories.map((cat) => {
+      const totalStock = cat.products.reduce((catSum, prod) => {
+        const productStock = prod.lots.reduce(
+          (prodSum, lot) => prodSum + Number(lot.remaining),
+          0
+        )
+        return catSum + productStock
+      }, 0)
+
+      return {
+        id: cat.id,
+        name: cat.name,
+        productCount: cat.products.length,
+        totalStock,
+      }
+    })
+
+    res.json(summary)
+  } catch (error) {
+    console.error('Error fetching inventory by category:', error)
+    res.status(500).json({ error: 'Failed to fetch inventory' })
+  }
+})
+
+// GET lots for a product
+router.get('/lots/:productId', async (req, res) => {
+  try {
+    const lots = await prisma.inventoryLot.findMany({
+      where: {
+        productId: req.params.productId,
+        remaining: { gt: 0 },
+      },
+      orderBy: { receivedAt: 'asc' },
+    })
+    res.json(lots)
+  } catch (error) {
+    console.error('Error fetching lots:', error)
+    res.status(500).json({ error: 'Failed to fetch lots' })
+  }
+})
+
+// POST add inventory lot (receive stock)
+router.post('/lots', async (req, res) => {
+  try {
+    const data = addLotSchema.parse(req.body)
+
+    // Create lot and update/create cost record in a transaction
+    const result = await prisma.$transaction(async (tx) => {
+      // Create the inventory lot
+      const lot = await tx.inventoryLot.create({
+        data: {
+          productId: data.productId,
+          quantity: data.quantity,
+          remaining: data.quantity,
+          unitCost: data.unitCost,
+          expiresAt: data.expiresAt ? new Date(data.expiresAt) : null,
+        },
+        include: { product: true },
+      })
+
+      // Close any existing cost record and create new one if cost changed
+      const currentCost = await tx.productCost.findFirst({
+        where: {
+          productId: data.productId,
+          effectiveTo: null,
+        },
+        orderBy: { effectiveFrom: 'desc' },
+      })
+
+      if (!currentCost || Number(currentCost.unitCost) !== data.unitCost) {
+        // Close existing cost record
+        if (currentCost) {
+          await tx.productCost.update({
+            where: { id: currentCost.id },
+            data: { effectiveTo: new Date() },
+          })
+        }
+
+        // Create new cost record
+        await tx.productCost.create({
+          data: {
+            productId: data.productId,
+            unitCost: data.unitCost,
+          },
+        })
+      }
+
+      return lot
+    })
+
+    res.status(201).json(result)
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      return res.status(400).json({ error: 'Validation failed', details: error.errors })
+    }
+    console.error('Error adding inventory lot:', error)
+    res.status(500).json({ error: 'Failed to add inventory' })
+  }
+})
+
+// GET low stock alerts
+router.get('/alerts/low-stock', async (req, res) => {
+  try {
+    const threshold = Number(req.query.threshold) || 5
+
+    const products = await prisma.product.findMany({
+      where: { isActive: true },
+      include: {
+        category: true,
+        lots: {
+          where: { remaining: { gt: 0 } },
+          select: { remaining: true },
+        },
+      },
+    })
+
+    const lowStock = products
+      .map((product) => {
+        const totalStock = product.lots.reduce(
+          (sum, lot) => sum + Number(lot.remaining),
+          0
+        )
+        return { ...product, totalStock, lots: undefined }
+      })
+      .filter((product) => product.totalStock <= threshold)
+      .sort((a, b) => a.totalStock - b.totalStock)
+
+    res.json(lowStock)
+  } catch (error) {
+    console.error('Error fetching low stock alerts:', error)
+    res.status(500).json({ error: 'Failed to fetch alerts' })
+  }
+})
+
+// GET expiring lots
+router.get('/alerts/expiring', async (req, res) => {
+  try {
+    const daysAhead = Number(req.query.days) || 30
+    const futureDate = new Date()
+    futureDate.setDate(futureDate.getDate() + daysAhead)
+
+    const expiringLots = await prisma.inventoryLot.findMany({
+      where: {
+        remaining: { gt: 0 },
+        expiresAt: {
+          not: null,
+          lte: futureDate,
+        },
+      },
+      include: {
+        product: {
+          include: { category: true },
+        },
+      },
+      orderBy: { expiresAt: 'asc' },
+    })
+
+    res.json(expiringLots)
+  } catch (error) {
+    console.error('Error fetching expiring lots:', error)
+    res.status(500).json({ error: 'Failed to fetch expiring lots' })
+  }
+})
+
+export default router

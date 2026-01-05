@@ -1,0 +1,164 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum PickRule {
+  FIFO
+  FEFO
+  CHEAPEST
+  MANUAL
+}
+
+model ComponentCategory {
+  id          String   @id @default(cuid())
+  name        String   @unique
+  description String?
+  pickRule    PickRule @default(FIFO)
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  products           Product[]
+  hamperRequirements HamperRequirement[]
+}
+
+model Product {
+  id         String            @id @default(cuid())
+  name       String
+  barcode    String?           @unique
+  categoryId String
+  category   ComponentCategory @relation(fields: [categoryId], references: [id])
+  unit       String            @default("units") // units, grams, ml, metres
+  isActive   Boolean           @default(true)
+  createdAt  DateTime          @default(now())
+  updatedAt  DateTime          @updatedAt
+
+  costs ProductCost[]
+  lots  InventoryLot[]
+}
+
+model ProductCost {
+  id            String    @id @default(cuid())
+  productId     String
+  product       Product   @relation(fields: [productId], references: [id], onDelete: Cascade)
+  unitCost      Decimal   @db.Decimal(10, 4)
+  effectiveFrom DateTime  @default(now())
+  effectiveTo   DateTime?
+  createdAt     DateTime  @default(now())
+
+  @@index([productId, effectiveFrom])
+}
+
+model InventoryLot {
+  id         String    @id @default(cuid())
+  productId  String
+  product    Product   @relation(fields: [productId], references: [id], onDelete: Cascade)
+  quantity   Decimal   @db.Decimal(10, 3)
+  remaining  Decimal   @db.Decimal(10, 3)
+  unitCost   Decimal   @db.Decimal(10, 4)
+  receivedAt DateTime  @default(now())
+  expiresAt  DateTime?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  consumptions SaleConsumption[]
+
+  @@index([productId, receivedAt])
+  @@index([productId, expiresAt])
+}
+
+model Hamper {
+  id            String   @id @default(cuid())
+  name          String
+  etsyListingId String?  @unique
+  sellingPrice  Decimal  @db.Decimal(10, 2)
+  isActive      Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  requirements HamperRequirement[]
+  saleLines    SaleLine[]
+}
+
+model HamperRequirement {
+  id         String            @id @default(cuid())
+  hamperId   String
+  hamper     Hamper            @relation(fields: [hamperId], references: [id], onDelete: Cascade)
+  categoryId String
+  category   ComponentCategory @relation(fields: [categoryId], references: [id])
+  quantity   Decimal           @db.Decimal(10, 3)
+  isOptional Boolean           @default(false)
+  createdAt  DateTime          @default(now())
+  updatedAt  DateTime          @updatedAt
+
+  @@unique([hamperId, categoryId])
+}
+
+model Sale {
+  id                String    @id @default(cuid())
+  saleDate          DateTime  @default(now())
+  etsyOrderId       String?   @unique
+  grossRevenue      Decimal   @db.Decimal(10, 2)
+  etsyFees          Decimal   @db.Decimal(10, 2) @default(0)
+  packagingOverhead Decimal   @db.Decimal(10, 2) @default(0)
+  netRevenue        Decimal   @db.Decimal(10, 2)
+  totalCost         Decimal   @db.Decimal(10, 2)
+  margin            Decimal   @db.Decimal(10, 2)
+  notes             String?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  lines SaleLine[]
+}
+
+model SaleLine {
+  id        String   @id @default(cuid())
+  saleId    String
+  sale      Sale     @relation(fields: [saleId], references: [id], onDelete: Cascade)
+  hamperId  String
+  hamper    Hamper   @relation(fields: [hamperId], references: [id])
+  quantity  Int      @default(1)
+  unitPrice Decimal  @db.Decimal(10, 2)
+  lineCost  Decimal  @db.Decimal(10, 2)
+  createdAt DateTime @default(now())
+
+  consumptions SaleConsumption[]
+}
+
+model SaleConsumption {
+  id         String       @id @default(cuid())
+  saleLineId String
+  saleLine   SaleLine     @relation(fields: [saleLineId], references: [id], onDelete: Cascade)
+  lotId      String
+  lot        InventoryLot @relation(fields: [lotId], references: [id])
+  quantity   Decimal      @db.Decimal(10, 3)
+  unitCost   Decimal      @db.Decimal(10, 4)
+  createdAt  DateTime     @default(now())
+}
+
+model EtsyFeeConfig {
+  id            String    @id @default(cuid())
+  name          String
+  percentageFee Decimal   @db.Decimal(5, 4)
+  fixedFee      Decimal   @db.Decimal(10, 2)
+  paymentFee    Decimal   @db.Decimal(5, 4)
+  effectiveFrom DateTime  @default(now())
+  effectiveTo   DateTime?
+  isActive      Boolean   @default(true)
+  createdAt     DateTime  @default(now())
+}
+
+model PackagingOverhead {
+  id            String    @id @default(cuid())
+  name          String
+  costPerOrder  Decimal   @db.Decimal(10, 4)
+  effectiveFrom DateTime  @default(now())
+  effectiveTo   DateTime?
+  isActive      Boolean   @default(true)
+  createdAt     DateTime  @default(now())
+}

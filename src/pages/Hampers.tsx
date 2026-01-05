@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import {
   PlusIcon,
   PencilIcon,
@@ -9,6 +9,26 @@ import {
 } from '@heroicons/react/24/outline'
 import { hampers, categories, Hamper, HamperDetail, Category } from '../lib/api'
 import { formatCurrency } from '../lib/formatting'
+
+type HamperSortOption =
+  | 'canmake-desc' | 'canmake-asc'
+  | 'name-asc' | 'name-desc'
+  | 'price-asc' | 'price-desc'
+  | 'reqs-asc' | 'reqs-desc'
+  | 'date-desc' | 'date-asc'
+
+const HAMPER_SORT_OPTIONS: { value: HamperSortOption; label: string }[] = [
+  { value: 'canmake-desc', label: 'Can Make (high→low)' },
+  { value: 'canmake-asc', label: 'Can Make (low→high)' },
+  { value: 'name-asc', label: 'Name (A→Z)' },
+  { value: 'name-desc', label: 'Name (Z→A)' },
+  { value: 'price-asc', label: 'Price (low→high)' },
+  { value: 'price-desc', label: 'Price (high→low)' },
+  { value: 'reqs-asc', label: 'Fewest requirements' },
+  { value: 'reqs-desc', label: 'Most requirements' },
+  { value: 'date-desc', label: 'Newest first' },
+  { value: 'date-asc', label: 'Oldest first' },
+]
 
 interface RequirementInput {
   categoryId: string
@@ -47,6 +67,9 @@ export default function Hampers() {
   const [saving, setSaving] = useState(false)
   const [expandedId, setExpandedId] = useState<string | null>(null)
   const [expandedDetail, setExpandedDetail] = useState<HamperDetail | null>(null)
+  const [sortBy, setSortBy] = useState<HamperSortOption>(
+    () => (localStorage.getItem('hampers-sort') as HamperSortOption) || 'canmake-desc'
+  )
 
   const loadData = async () => {
     try {
@@ -68,6 +91,48 @@ export default function Hampers() {
   useEffect(() => {
     loadData()
   }, [])
+
+  useEffect(() => {
+    localStorage.setItem('hampers-sort', sortBy)
+  }, [sortBy])
+
+  // Sort hampers based on selected option
+  const sortedHampers = useMemo(() => {
+    const sorted = [...hamperList]
+    switch (sortBy) {
+      case 'canmake-desc':
+        sorted.sort((a, b) => b.canMake - a.canMake)
+        break
+      case 'canmake-asc':
+        sorted.sort((a, b) => a.canMake - b.canMake)
+        break
+      case 'name-asc':
+        sorted.sort((a, b) => a.name.localeCompare(b.name))
+        break
+      case 'name-desc':
+        sorted.sort((a, b) => b.name.localeCompare(a.name))
+        break
+      case 'price-asc':
+        sorted.sort((a, b) => Number(a.sellingPrice) - Number(b.sellingPrice))
+        break
+      case 'price-desc':
+        sorted.sort((a, b) => Number(b.sellingPrice) - Number(a.sellingPrice))
+        break
+      case 'reqs-asc':
+        sorted.sort((a, b) => a.requirements.length - b.requirements.length)
+        break
+      case 'reqs-desc':
+        sorted.sort((a, b) => b.requirements.length - a.requirements.length)
+        break
+      case 'date-desc':
+        sorted.sort((a, b) => new Date(b.createdAt ?? 0).getTime() - new Date(a.createdAt ?? 0).getTime())
+        break
+      case 'date-asc':
+        sorted.sort((a, b) => new Date(a.createdAt ?? 0).getTime() - new Date(b.createdAt ?? 0).getTime())
+        break
+    }
+    return sorted
+  }, [hamperList, sortBy])
 
   const handleExpand = async (id: string) => {
     if (expandedId === id) {
@@ -179,14 +244,29 @@ export default function Hampers() {
 
   return (
     <div className="space-y-4">
-      <div className="flex justify-between items-center">
+      <div className="flex justify-between items-center gap-3">
         <h2 className="text-xl font-semibold">Hampers</h2>
-        {!showForm && (
-          <button onClick={() => setShowForm(true)} className="btn-primary flex items-center gap-1">
-            <PlusIcon className="h-5 w-5" />
-            New Hamper
-          </button>
-        )}
+        <div className="flex items-center gap-3">
+          {!showForm && (
+            <select
+              value={sortBy}
+              onChange={(e) => setSortBy(e.target.value as HamperSortOption)}
+              className="px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+            >
+              {HAMPER_SORT_OPTIONS.map((opt) => (
+                <option key={opt.value} value={opt.value}>
+                  {opt.label}
+                </option>
+              ))}
+            </select>
+          )}
+          {!showForm && (
+            <button onClick={() => setShowForm(true)} className="btn-primary flex items-center gap-1">
+              <PlusIcon className="h-5 w-5" />
+              New Hamper
+            </button>
+          )}
+        </div>
       </div>
 
       {error && <div className="bg-red-50 text-red-700 p-3 rounded-lg text-sm">{error}</div>}
@@ -306,14 +386,14 @@ export default function Hampers() {
         </form>
       )}
 
-      {hamperList.length === 0 ? (
+      {sortedHampers.length === 0 ? (
         <div className="card text-gray-500 text-center py-12">
           <p className="mb-4">No hampers defined yet</p>
           <p className="text-sm">Create your first hamper to start tracking availability</p>
         </div>
       ) : (
         <div className="space-y-3">
-          {hamperList.map((hamper) => (
+          {sortedHampers.map((hamper) => (
             <div key={hamper.id} className="card">
               <div className="flex justify-between items-start">
                 <button

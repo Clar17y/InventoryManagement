@@ -17,6 +17,7 @@ import {
   Hamper,
   CategoryLot,
 } from '../lib/api'
+import { formatCurrency, formatUnitCost } from '../lib/formatting'
 
 interface SaleLineInput {
   hamperId: string
@@ -41,10 +42,6 @@ function formatDate(dateStr: string): string {
     hour: '2-digit',
     minute: '2-digit',
   })
-}
-
-function formatCurrency(value: number): string {
-  return `£${value.toFixed(2)}`
 }
 
 function MarginBadge({ margin, revenue }: { margin: number; revenue: number }) {
@@ -764,7 +761,7 @@ function OverrideEditor({
             <div className="flex-1">
               <div className="font-medium">{lot.productName}</div>
               <div className="text-xs text-gray-500">
-                {formatCurrency(Number(lot.unitCost))}/unit • {Number(lot.remaining).toFixed(1)} available
+                {formatUnitCost(lot.unitCost, 'unit')} • {Number(lot.remaining).toFixed(1)} available
                 {lot.expiresAt && ` • Exp: ${new Date(lot.expiresAt).toLocaleDateString()}`}
               </div>
             </div>

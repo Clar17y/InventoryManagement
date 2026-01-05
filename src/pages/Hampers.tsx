@@ -8,6 +8,7 @@ import {
   XMarkIcon,
 } from '@heroicons/react/24/outline'
 import { hampers, categories, Hamper, HamperDetail, Category } from '../lib/api'
+import { formatCurrency } from '../lib/formatting'
 
 interface RequirementInput {
   categoryId: string
@@ -322,7 +323,7 @@ export default function Hampers() {
                   <div className="flex-1 min-w-0">
                     <div className="font-medium">{hamper.name}</div>
                     <div className="text-sm text-gray-500">
-                      £{Number(hamper.sellingPrice).toFixed(2)} • {hamper.requirements.length} requirements
+                      {formatCurrency(hamper.sellingPrice)} • {hamper.requirements.length} requirements
                     </div>
                   </div>
                   <div className="flex items-center gap-2">
@@ -351,16 +352,16 @@ export default function Hampers() {
                   <div className="grid grid-cols-3 gap-4 mb-4 text-center">
                     <div className="bg-gray-50 p-3 rounded-lg">
                       <div className="text-xs text-gray-500">Selling Price</div>
-                      <div className="font-semibold">£{Number(expandedDetail.sellingPrice).toFixed(2)}</div>
+                      <div className="font-semibold">{formatCurrency(expandedDetail.sellingPrice)}</div>
                     </div>
                     <div className="bg-gray-50 p-3 rounded-lg">
                       <div className="text-xs text-gray-500">Est. Cost</div>
-                      <div className="font-semibold">£{expandedDetail.estimatedCost.toFixed(2)}</div>
+                      <div className="font-semibold">{formatCurrency(expandedDetail.estimatedCost)}</div>
                     </div>
                     <div className="bg-gray-50 p-3 rounded-lg">
                       <div className="text-xs text-gray-500">Est. Margin</div>
                       <div className={`font-semibold ${expandedDetail.estimatedMargin >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                        £{expandedDetail.estimatedMargin.toFixed(2)}
+                        {formatCurrency(expandedDetail.estimatedMargin)}
                       </div>
                     </div>
                   </div>

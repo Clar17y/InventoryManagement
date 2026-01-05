@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
 import { settings, inventory, type Product, type InventoryLot } from '../lib/api'
+import { formatCurrency } from '../lib/formatting'
 import AlertCard from '../components/ui/AlertCard'
 
 interface DashboardStats {
@@ -37,11 +38,6 @@ export default function Dashboard() {
     }
     loadData()
   }, [])
-
-  const formatCurrency = (value: number | string) => {
-    const num = typeof value === 'string' ? parseFloat(value) : value
-    return `£${num.toFixed(2)}`
-  }
 
   const getDaysUntilExpiry = (expiresAt: string) => {
     const expiry = new Date(expiresAt)

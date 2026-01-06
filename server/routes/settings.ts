@@ -179,11 +179,15 @@ router.get('/dashboard-stats', async (_, res) => {
         _sum: { grossRevenue: true, margin: true },
         _count: true,
       }),
-      // Fetch products with their lots to calculate low stock properly
+      // Fetch products with their lots and thresholds to calculate low stock properly
       prisma.product.findMany({
-        where: { isActive: true },
+        where: {
+          isActive: true,
+          lowStockThreshold: { gt: 0 }, // Exclude products with alerts disabled
+        },
         select: {
           unit: true,
+          lowStockThreshold: true,
           lots: {
             where: { remaining: { gt: 0 } },
             select: { remaining: true },
@@ -192,17 +196,16 @@ router.get('/dashboard-stats', async (_, res) => {
       }),
     ])
 
-    // Calculate low stock count using consistent logic:
-    // For "units" products: sum remaining quantities, check if <= 5
-    // For continuous products (metres, grams, etc.): count lots, check if <= 5
-    const LOW_STOCK_THRESHOLD = 5
+    // Calculate low stock count using per-product thresholds:
+    // For "units" products: sum remaining quantities, check if <= product.lowStockThreshold
+    // For continuous products (metres, grams, etc.): count lots, check if <= product.lowStockThreshold
     const lowStockCount = productsWithLots.filter((product) => {
       if (product.unit === 'units') {
         const totalRemaining = product.lots.reduce((sum, lot) => sum + Number(lot.remaining), 0)
-        return totalRemaining <= LOW_STOCK_THRESHOLD
+        return totalRemaining <= product.lowStockThreshold
       } else {
         // For continuous products, count lots
-        return product.lots.length <= LOW_STOCK_THRESHOLD
+        return product.lots.length <= product.lowStockThreshold
       }
     }).length
 

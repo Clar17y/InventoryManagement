@@ -39,16 +39,27 @@ model ComponentCategory {
 model Product {
   id         String            @id @default(cuid())
   name       String
-  barcode    String?           @unique
   categoryId String
   category   ComponentCategory @relation(fields: [categoryId], references: [id])
   unit       String            @default("units") // units, grams, ml, metres
+  lowStockThreshold Int        @default(5) // Alert when stock <= this value, 0 = no alert
   isActive   Boolean           @default(true)
   createdAt  DateTime          @default(now())
   updatedAt  DateTime          @updatedAt
 
-  costs ProductCost[]
-  lots  InventoryLot[]
+  barcodes ProductBarcode[]
+  costs    ProductCost[]
+  lots     InventoryLot[]
+}
+
+model ProductBarcode {
+  id        String   @id @default(cuid())
+  barcode   String   @unique
+  productId String
+  product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+  
+  @@index([productId])
 }
 
 model ProductCost {

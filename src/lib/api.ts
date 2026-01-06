@@ -52,6 +52,7 @@ export interface Product {
   categoryId: string
   category?: Category
   unit: string
+  lowStockThreshold: number
   isActive: boolean
   totalStock?: number       // For units: sum of remaining, for others: lot count
   totalRemaining?: number   // Actual sum of remaining quantities
@@ -66,9 +67,9 @@ export const products = {
     request<Product[]>(`/products${categoryId ? `?categoryId=${categoryId}` : ''}`),
   get: (id: string) => request<Product>(`/products/${id}`),
   getByBarcode: (barcode: string) => request<Product>(`/products/barcode/${barcode}`),
-  create: (data: { name: string; barcode?: string; categoryId: string; unit?: string }) =>
+  create: (data: { name: string; barcode?: string; categoryId: string; unit?: string; lowStockThreshold?: number }) =>
     request<Product>('/products', { method: 'POST', body: JSON.stringify(data) }),
-  update: (id: string, data: Partial<{ name: string; barcode: string; categoryId: string; unit: string }>) =>
+  update: (id: string, data: Partial<{ name: string; barcode: string; categoryId: string; unit: string; lowStockThreshold: number }>) =>
     request<Product>(`/products/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
   delete: (id: string) =>
     request<void>(`/products/${id}`, { method: 'DELETE' }),
@@ -102,8 +103,8 @@ export const inventory = {
     request<InventoryLot>(`/inventory/lots/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
   deleteLot: (id: string) =>
     request<void>(`/inventory/lots/${id}`, { method: 'DELETE' }),
-  lowStock: (threshold?: number) =>
-    request<Product[]>(`/inventory/alerts/low-stock${threshold ? `?threshold=${threshold}` : ''}`),
+  lowStock: () =>
+    request<Product[]>('/inventory/alerts/low-stock'),
   expiring: (days?: number) =>
     request<InventoryLot[]>(`/inventory/alerts/expiring${days ? `?days=${days}` : ''}`),
 }

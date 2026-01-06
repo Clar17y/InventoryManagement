@@ -8,9 +8,10 @@ interface ProductFormData {
   barcode: string
   categoryId: string
   unit: string
+  lowStockThreshold: number
 }
 
-const emptyForm: ProductFormData = { name: '', barcode: '', categoryId: '', unit: 'units' }
+const emptyForm: ProductFormData = { name: '', barcode: '', categoryId: '', unit: 'units', lowStockThreshold: 5 }
 
 export default function Products() {
   const [productList, setProductList] = useState<Product[]>([])
@@ -55,6 +56,7 @@ export default function Products() {
         barcode: formData.barcode || undefined,
         categoryId: formData.categoryId,
         unit: formData.unit,
+        lowStockThreshold: formData.lowStockThreshold,
       }
 
       if (editingId) {
@@ -79,6 +81,7 @@ export default function Products() {
       barcode: product.barcode || '',
       categoryId: product.categoryId,
       unit: product.unit,
+      lowStockThreshold: product.lowStockThreshold,
     })
     setEditingId(product.id)
     setShowForm(true)
@@ -202,6 +205,20 @@ export default function Products() {
               <option value="ml">Millilitres (ml)</option>
               <option value="metres">Metres (m)</option>
             </select>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Low Stock Alert Threshold</label>
+            <input
+              type="number"
+              min="0"
+              value={formData.lowStockThreshold}
+              onChange={(e) => setFormData({ ...formData, lowStockThreshold: Math.max(0, parseInt(e.target.value) || 0) })}
+              className="input"
+            />
+            <p className="text-xs text-gray-500 mt-1">
+              Alert when stock falls to this level. Set to 0 to disable alerts.
+            </p>
           </div>
 
           <div className="flex gap-2">

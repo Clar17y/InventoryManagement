@@ -10,6 +10,7 @@ const createProductSchema = z.object({
   barcode: z.string().max(50).optional(),
   categoryId: z.string().cuid(),
   unit: z.string().max(20).default('units'),
+  lowStockThreshold: z.number().int().min(0).default(5),
 })
 
 const updateProductSchema = createProductSchema.partial()
@@ -142,6 +143,7 @@ router.post('/', async (req, res) => {
         barcode: data.barcode || null,
         categoryId: data.categoryId,
         unit: data.unit,
+        lowStockThreshold: data.lowStockThreshold,
       },
       include: { category: true },
     })
@@ -173,6 +175,7 @@ router.put('/:id', async (req, res) => {
         ...(data.barcode !== undefined && { barcode: data.barcode || null }),
         ...(data.categoryId && { categoryId: data.categoryId }),
         ...(data.unit && { unit: data.unit }),
+        ...(data.lowStockThreshold !== undefined && { lowStockThreshold: data.lowStockThreshold }),
       },
       include: { category: true },
     })

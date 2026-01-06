@@ -92,7 +92,7 @@ See the [`docs/`](./docs) folder for:
 | Sales & Margins | ✅ Complete |
 | Finance Tracking | ✅ Complete |
 | Historical Import | ✅ Complete |
-| Polish & Alerts | 🔄 In Progress |
+| Polish & Alerts | ✅ Complete |
 
 ## License
 

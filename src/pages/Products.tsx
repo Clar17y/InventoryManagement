@@ -1,17 +1,16 @@
 import { useState, useEffect } from 'react'
-import { PlusIcon, PencilIcon, TrashIcon } from '@heroicons/react/24/outline'
+import { PlusIcon, PencilIcon, TrashIcon, XMarkIcon } from '@heroicons/react/24/outline'
 import { products, categories, Product, Category } from '../lib/api'
 import { formatUnitCost } from '../lib/formatting'
 
 interface ProductFormData {
   name: string
-  barcode: string
   categoryId: string
   unit: string
   lowStockThreshold: number
 }
 
-const emptyForm: ProductFormData = { name: '', barcode: '', categoryId: '', unit: 'units', lowStockThreshold: 5 }
+const emptyForm: ProductFormData = { name: '', categoryId: '', unit: 'units', lowStockThreshold: 5 }
 
 export default function Products() {
   const [productList, setProductList] = useState<Product[]>([])
@@ -20,9 +19,14 @@ export default function Products() {
   const [error, setError] = useState<string | null>(null)
   const [showForm, setShowForm] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
+  const [editingProduct, setEditingProduct] = useState<Product | null>(null)
   const [formData, setFormData] = useState<ProductFormData>(emptyForm)
   const [saving, setSaving] = useState(false)
   const [filterCategory, setFilterCategory] = useState<string>('')
+
+  // Barcode management state
+  const [newBarcode, setNewBarcode] = useState('')
+  const [addingBarcode, setAddingBarcode] = useState(false)
 
   const loadData = async () => {
     try {
@@ -53,7 +57,6 @@ export default function Products() {
     try {
       const data = {
         name: formData.name,
-        barcode: formData.barcode || undefined,
         categoryId: formData.categoryId,
         unit: formData.unit,
         lowStockThreshold: formData.lowStockThreshold,
@@ -66,6 +69,7 @@ export default function Products() {
       }
       setShowForm(false)
       setEditingId(null)
+      setEditingProduct(null)
       setFormData(emptyForm)
       await loadData()
     } catch (err) {
@@ -78,12 +82,12 @@ export default function Products() {
   const handleEdit = (product: Product) => {
     setFormData({
       name: product.name,
-      barcode: product.barcode || '',
       categoryId: product.categoryId,
       unit: product.unit,
       lowStockThreshold: product.lowStockThreshold,
     })
     setEditingId(product.id)
+    setEditingProduct(product)
     setShowForm(true)
   }
 
@@ -101,13 +105,54 @@ export default function Products() {
   const handleCancel = () => {
     setShowForm(false)
     setEditingId(null)
+    setEditingProduct(null)
     setFormData(emptyForm)
+    setNewBarcode('')
     setError(null)
   }
 
   const handleAddNew = () => {
     setFormData({ ...emptyForm, categoryId: filterCategory || categoryList[0]?.id || '' })
     setShowForm(true)
+  }
+
+  const handleAddBarcode = async () => {
+    if (!editingId || !newBarcode.trim()) return
+
+    setAddingBarcode(true)
+    setError(null)
+    try {
+      await products.addBarcode(editingId, newBarcode.trim())
+      setNewBarcode('')
+      // Refresh the product to get updated barcodes
+      const updatedProducts = await products.list(filterCategory || undefined)
+      setProductList(updatedProducts)
+      const updatedProduct = updatedProducts.find(p => p.id === editingId)
+      if (updatedProduct) {
+        setEditingProduct(updatedProduct)
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to add barcode')
+    } finally {
+      setAddingBarcode(false)
+    }
+  }
+
+  const handleRemoveBarcode = async (barcodeId: string) => {
+    if (!editingId) return
+
+    try {
+      await products.removeBarcode(editingId, barcodeId)
+      // Refresh the product to get updated barcodes
+      const updatedProducts = await products.list(filterCategory || undefined)
+      setProductList(updatedProducts)
+      const updatedProduct = updatedProducts.find(p => p.id === editingId)
+      if (updatedProduct) {
+        setEditingProduct(updatedProduct)
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to remove barcode')
+    }
   }
 
   if (loading && productList.length === 0) {
@@ -180,20 +225,6 @@ export default function Products() {
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Barcode</label>
-            <input
-              type="text"
-              value={formData.barcode}
-              onChange={(e) => setFormData({ ...formData, barcode: e.target.value })}
-              className="input"
-              placeholder="EAN/UPC barcode (optional)"
-            />
-            <p className="text-xs text-gray-500 mt-1">
-              Used for barcode scanning when adding stock
-            </p>
-          </div>
-
-          <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Unit</label>
             <select
               value={formData.unit}
@@ -220,6 +251,56 @@ export default function Products() {
               Alert when stock falls to this level. Set to 0 to disable alerts.
             </p>
           </div>
+
+          {/* Barcodes Section - only show when editing */}
+          {editingId && editingProduct && (
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">Barcodes</label>
+
+              {/* Existing barcodes */}
+              {editingProduct.barcodes && editingProduct.barcodes.length > 0 ? (
+                <div className="space-y-2 mb-3">
+                  {editingProduct.barcodes.map((bc) => (
+                    <div key={bc.id} className="flex items-center gap-2 bg-gray-50 px-3 py-2 rounded-lg">
+                      <span className="font-mono text-sm flex-1">{bc.barcode}</span>
+                      <button
+                        type="button"
+                        onClick={() => handleRemoveBarcode(bc.id)}
+                        className="p-1 text-gray-400 hover:text-red-500 transition-colors"
+                        title="Remove barcode"
+                      >
+                        <XMarkIcon className="h-4 w-4" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-sm text-gray-500 mb-3">No barcodes linked to this product</p>
+              )}
+
+              {/* Add new barcode */}
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={newBarcode}
+                  onChange={(e) => setNewBarcode(e.target.value)}
+                  className="input flex-1"
+                  placeholder="Enter barcode to add..."
+                />
+                <button
+                  type="button"
+                  onClick={handleAddBarcode}
+                  disabled={!newBarcode.trim() || addingBarcode}
+                  className="btn-secondary disabled:opacity-50"
+                >
+                  {addingBarcode ? '...' : 'Add'}
+                </button>
+              </div>
+              <p className="text-xs text-gray-500 mt-1">
+                Barcodes can also be linked by scanning in Add Stock
+              </p>
+            </div>
+          )}
 
           <div className="flex gap-2">
             <button type="submit" disabled={saving || categoryList.length === 0} className="btn-primary">
@@ -250,7 +331,7 @@ export default function Products() {
                 <div className="text-sm text-gray-500">
                   {product.category?.name || 'Unknown category'}
                 </div>
-                <div className="flex gap-3 text-xs text-gray-400 mt-1">
+                <div className="flex flex-wrap gap-x-3 gap-y-1 text-xs text-gray-400 mt-1">
                   {product.unit === 'units' ? (
                     <span>Stock: {product.totalStock ?? 0} {product.unit}</span>
                   ) : (
@@ -262,7 +343,15 @@ export default function Products() {
                   {product.currentCost !== null && product.currentCost !== undefined && (
                     <span>Cost: {formatUnitCost(product.currentCost, product.unit)}</span>
                   )}
-                  {product.barcode && <span>#{product.barcode}</span>}
+                  {/* Show all barcodes */}
+                  {product.barcodes && product.barcodes.length > 0 && (
+                    <span className="font-mono">
+                      {product.barcodes.length === 1
+                        ? `#${product.barcodes[0].barcode}`
+                        : `${product.barcodes.length} barcodes`
+                      }
+                    </span>
+                  )}
                 </div>
               </div>
               <div className="flex gap-1 ml-2">

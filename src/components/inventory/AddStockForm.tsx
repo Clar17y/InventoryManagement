@@ -9,7 +9,7 @@ interface AddStockFormProps {
     onClose?: () => void
 }
 
-type FormMode = 'select' | 'scan' | 'form' | 'newProduct'
+type FormMode = 'select' | 'scan' | 'form' | 'newProduct' | 'linkBarcode'
 
 export default function AddStockForm({ onSuccess, onClose }: AddStockFormProps) {
     const [mode, setMode] = useState<FormMode>('select')
@@ -432,161 +432,287 @@ export default function AddStockForm({ onSuccess, onClose }: AddStockFormProps) 
                                 <p className="text-amber-700 text-sm">
                                     No product found for barcode: <span className="font-mono font-bold">{scannedBarcode}</span>
                                 </p>
-                                <p className="text-amber-600 text-xs mt-2">
-                                    Create a new product with this barcode below.
+                            </div>
+
+                            {/* Two options: Create new or Link to existing */}
+                            <div className="space-y-3">
+                                <button
+                                    onClick={() => setMode('linkBarcode')}
+                                    className="w-full flex items-center gap-3 p-4 bg-white border-2 border-indigo-200 rounded-xl hover:border-indigo-400 hover:bg-indigo-50 transition-colors text-left"
+                                >
+                                    <div className="w-10 h-10 rounded-full bg-indigo-100 flex items-center justify-center flex-shrink-0">
+                                        <svg className="w-5 h-5 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
+                                        </svg>
+                                    </div>
+                                    <div>
+                                        <p className="font-medium text-gray-900">Link to Existing Product</p>
+                                        <p className="text-sm text-gray-500">This barcode is for a product already in your inventory</p>
+                                    </div>
+                                </button>
+
+                                <div className="relative">
+                                    <div className="absolute inset-0 flex items-center">
+                                        <div className="w-full border-t border-gray-200" />
+                                    </div>
+                                    <div className="relative flex justify-center text-sm">
+                                        <span className="px-2 bg-white text-gray-500">or</span>
+                                    </div>
+                                </div>
+
+                                <p className="text-sm text-gray-600 font-medium">Create a New Product</p>
+
+                                <form
+                                    onSubmit={async (e) => {
+                                        e.preventDefault()
+                                        if (!newProductName.trim() || !scannedBarcode || !newProductCategoryId) return
+
+                                        setIsSubmitting(true)
+                                        setError(null)
+                                        try {
+                                            const newProduct = await products.create({
+                                                name: newProductName.trim(),
+                                                unit: newProductUnit,
+                                                barcode: scannedBarcode,
+                                                categoryId: newProductCategoryId,
+                                            })
+                                            setSelectedProduct(newProduct)
+                                            setMode('form')
+                                        } catch (err) {
+                                            setError(err instanceof Error ? err.message : 'Failed to create product')
+                                        } finally {
+                                            setIsSubmitting(false)
+                                        }
+                                    }}
+                                    className="space-y-4"
+                                >
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-700 mb-1">
+                                            Product Name *
+                                        </label>
+                                        <input
+                                            type="text"
+                                            value={newProductName}
+                                            onChange={(e) => setNewProductName(e.target.value)}
+                                            required
+                                            className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                                            placeholder="e.g., Organic Milk 1L"
+                                        />
+                                    </div>
+
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-700 mb-1">
+                                            Category *
+                                        </label>
+                                        {isCreatingCategory ? (
+                                            <div className="space-y-2">
+                                                <div className="flex gap-2">
+                                                    <input
+                                                        type="text"
+                                                        value={newCategoryName}
+                                                        onChange={(e) => setNewCategoryName(e.target.value)}
+                                                        placeholder="New category name..."
+                                                        autoFocus
+                                                        className="flex-1 px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                                                    />
+                                                    <button
+                                                        type="button"
+                                                        disabled={!newCategoryName.trim() || isCreatingCategoryLoading}
+                                                        onClick={async () => {
+                                                            if (!newCategoryName.trim()) return
+                                                            setIsCreatingCategoryLoading(true)
+                                                            try {
+                                                                const newCat = await categories.create({ name: newCategoryName.trim() })
+                                                                setAllCategories(prev => [...prev, newCat])
+                                                                setNewProductCategoryId(newCat.id)
+                                                                setIsCreatingCategory(false)
+                                                                setNewCategoryName('')
+                                                            } catch (err) {
+                                                                setError(err instanceof Error ? err.message : 'Failed to create category')
+                                                            } finally {
+                                                                setIsCreatingCategoryLoading(false)
+                                                            }
+                                                        }}
+                                                        className="px-4 py-3 bg-indigo-600 text-white rounded-xl font-medium hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                                                    >
+                                                        {isCreatingCategoryLoading ? '...' : 'Add'}
+                                                    </button>
+                                                </div>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => {
+                                                        setIsCreatingCategory(false)
+                                                        setNewCategoryName('')
+                                                    }}
+                                                    className="text-sm text-gray-500 hover:text-gray-700"
+                                                >
+                                                    ← Back to category list
+                                                </button>
+                                            </div>
+                                        ) : (
+                                            <>
+                                                <select
+                                                    value={newProductCategoryId}
+                                                    onChange={(e) => setNewProductCategoryId(e.target.value)}
+                                                    required
+                                                    className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                                                >
+                                                    <option value="">Select a category...</option>
+                                                    {allCategories.map((cat) => (
+                                                        <option key={cat.id} value={cat.id}>
+                                                            {cat.name}
+                                                        </option>
+                                                    ))}
+                                                </select>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => setIsCreatingCategory(true)}
+                                                    className="mt-2 text-sm text-indigo-600 hover:text-indigo-800 font-medium"
+                                                >
+                                                    + Create new category
+                                                </button>
+                                            </>
+                                        )}
+                                    </div>
+
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-700 mb-1">
+                                            Unit of Measure
+                                        </label>
+                                        <select
+                                            value={newProductUnit}
+                                            onChange={(e) => setNewProductUnit(e.target.value)}
+                                            className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                                        >
+                                            <option value="units">Units</option>
+                                            <option value="kg">Kilograms (kg)</option>
+                                            <option value="g">Grams (g)</option>
+                                            <option value="L">Litres (L)</option>
+                                            <option value="ml">Millilitres (ml)</option>
+                                            <option value="packs">Packs</option>
+                                            <option value="boxes">Boxes</option>
+                                        </select>
+                                    </div>
+
+                                    <div className="flex gap-3">
+                                        <button
+                                            type="button"
+                                            onClick={() => setMode('select')}
+                                            className="flex-1 py-3 border border-gray-300 text-gray-700 rounded-xl font-medium hover:bg-gray-50 transition-colors"
+                                        >
+                                            Cancel
+                                        </button>
+                                        <button
+                                            type="submit"
+                                            disabled={!newProductName.trim() || !newProductCategoryId || isSubmitting}
+                                            className="flex-1 py-3 bg-gradient-to-r from-indigo-500 to-purple-600 text-white rounded-xl font-medium hover:from-indigo-600 hover:to-purple-700 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                                        >
+                                            {isSubmitting ? 'Creating...' : 'Create & Continue'}
+                                        </button>
+                                    </div>
+                                </form>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Link Barcode Mode - link scanned barcode to existing product */}
+                    {mode === 'linkBarcode' && (
+                        <div className="space-y-4">
+                            <div className="p-4 bg-indigo-50 border border-indigo-200 rounded-xl">
+                                <p className="text-indigo-800 font-medium mb-1">Link Barcode to Product</p>
+                                <p className="text-indigo-700 text-sm">
+                                    Barcode: <span className="font-mono font-bold">{scannedBarcode}</span>
+                                </p>
+                                <p className="text-indigo-600 text-xs mt-1">
+                                    Search for a product to link this barcode to.
                                 </p>
                             </div>
 
-                            <form
-                                onSubmit={async (e) => {
-                                    e.preventDefault()
-                                    if (!newProductName.trim() || !scannedBarcode || !newProductCategoryId) return
+                            {/* Search input */}
+                            <div className="relative">
+                                <svg
+                                    className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400"
+                                    fill="none"
+                                    stroke="currentColor"
+                                    viewBox="0 0 24 24"
+                                >
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                                </svg>
+                                <input
+                                    type="text"
+                                    placeholder="Search for a product..."
+                                    value={searchQuery}
+                                    onChange={(e) => setSearchQuery(e.target.value)}
+                                    autoFocus
+                                    className="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                                />
+                            </div>
 
-                                    setIsSubmitting(true)
-                                    setError(null)
-                                    try {
-                                        const newProduct = await products.create({
-                                            name: newProductName.trim(),
-                                            unit: newProductUnit,
-                                            barcode: scannedBarcode,
-                                            categoryId: newProductCategoryId,
-                                        })
-                                        setSelectedProduct(newProduct)
-                                        setMode('form')
-                                    } catch (err) {
-                                        setError(err instanceof Error ? err.message : 'Failed to create product')
-                                    } finally {
-                                        setIsSubmitting(false)
-                                    }
-                                }}
-                                className="space-y-4"
-                            >
-                                <div>
-                                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                                        Product Name *
-                                    </label>
-                                    <input
-                                        type="text"
-                                        value={newProductName}
-                                        onChange={(e) => setNewProductName(e.target.value)}
-                                        required
-                                        autoFocus
-                                        className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-                                        placeholder="e.g., Organic Milk 1L"
-                                    />
-                                </div>
-
-                                <div>
-                                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                                        Category *
-                                    </label>
-                                    {isCreatingCategory ? (
-                                        <div className="space-y-2">
-                                            <div className="flex gap-2">
-                                                <input
-                                                    type="text"
-                                                    value={newCategoryName}
-                                                    onChange={(e) => setNewCategoryName(e.target.value)}
-                                                    placeholder="New category name..."
-                                                    autoFocus
-                                                    className="flex-1 px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-                                                />
-                                                <button
-                                                    type="button"
-                                                    disabled={!newCategoryName.trim() || isCreatingCategoryLoading}
-                                                    onClick={async () => {
-                                                        if (!newCategoryName.trim()) return
-                                                        setIsCreatingCategoryLoading(true)
-                                                        try {
-                                                            const newCat = await categories.create({ name: newCategoryName.trim() })
-                                                            setAllCategories(prev => [...prev, newCat])
-                                                            setNewProductCategoryId(newCat.id)
-                                                            setIsCreatingCategory(false)
-                                                            setNewCategoryName('')
-                                                        } catch (err) {
-                                                            setError(err instanceof Error ? err.message : 'Failed to create category')
-                                                        } finally {
-                                                            setIsCreatingCategoryLoading(false)
-                                                        }
-                                                    }}
-                                                    className="px-4 py-3 bg-indigo-600 text-white rounded-xl font-medium hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed"
-                                                >
-                                                    {isCreatingCategoryLoading ? '...' : 'Add'}
-                                                </button>
+                            {/* Product list */}
+                            {isLoading ? (
+                                <div className="text-center py-8 text-gray-500">Loading products...</div>
+                            ) : searchQuery && filteredProducts.length === 0 ? (
+                                <div className="text-center py-8 text-gray-500">No products found</div>
+                            ) : searchQuery ? (
+                                <div className="space-y-2 max-h-64 overflow-y-auto">
+                                    {filteredProducts.map((product) => (
+                                        <button
+                                            key={product.id}
+                                            onClick={async () => {
+                                                if (!scannedBarcode) return
+                                                setIsSubmitting(true)
+                                                setError(null)
+                                                try {
+                                                    await products.addBarcode(product.id, scannedBarcode)
+                                                    // Refresh products list
+                                                    const updatedProducts = await products.list()
+                                                    setAllProducts(updatedProducts)
+                                                    // Find the updated product
+                                                    const updatedProduct = updatedProducts.find(p => p.id === product.id)
+                                                    if (updatedProduct) {
+                                                        setSelectedProduct(updatedProduct)
+                                                        setMode('form')
+                                                    }
+                                                } catch (err) {
+                                                    setError(err instanceof Error ? err.message : 'Failed to link barcode')
+                                                } finally {
+                                                    setIsSubmitting(false)
+                                                }
+                                            }}
+                                            disabled={isSubmitting}
+                                            className="w-full flex items-center justify-between p-3 bg-gray-50 hover:bg-indigo-50 hover:border-indigo-200 border border-transparent rounded-lg transition-colors text-left disabled:opacity-50"
+                                        >
+                                            <div>
+                                                <p className="font-medium text-gray-900">{product.name}</p>
+                                                <p className="text-sm text-gray-500">
+                                                    {product.category?.name} · {product.unit}
+                                                    {product.barcode && ` · ${product.barcode}`}
+                                                </p>
                                             </div>
-                                            <button
-                                                type="button"
-                                                onClick={() => {
-                                                    setIsCreatingCategory(false)
-                                                    setNewCategoryName('')
-                                                }}
-                                                className="text-sm text-gray-500 hover:text-gray-700"
-                                            >
-                                                ← Back to category list
-                                            </button>
-                                        </div>
-                                    ) : (
-                                        <>
-                                            <select
-                                                value={newProductCategoryId}
-                                                onChange={(e) => setNewProductCategoryId(e.target.value)}
-                                                required
-                                                className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-                                            >
-                                                <option value="">Select a category...</option>
-                                                {allCategories.map((cat) => (
-                                                    <option key={cat.id} value={cat.id}>
-                                                        {cat.name}
-                                                    </option>
-                                                ))}
-                                            </select>
-                                            <button
-                                                type="button"
-                                                onClick={() => setIsCreatingCategory(true)}
-                                                className="mt-2 text-sm text-indigo-600 hover:text-indigo-800 font-medium"
-                                            >
-                                                + Create new category
-                                            </button>
-                                        </>
-                                    )}
+                                            <div className="text-right">
+                                                <p className="text-sm font-medium text-gray-700">
+                                                    Stock: {product.totalStock ?? 0}
+                                                </p>
+                                            </div>
+                                        </button>
+                                    ))}
                                 </div>
+                            ) : (
+                                <p className="text-center text-gray-500 text-sm py-4">
+                                    Start typing to search for a product
+                                </p>
+                            )}
 
-                                <div>
-                                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                                        Unit of Measure
-                                    </label>
-                                    <select
-                                        value={newProductUnit}
-                                        onChange={(e) => setNewProductUnit(e.target.value)}
-                                        className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-                                    >
-                                        <option value="units">Units</option>
-                                        <option value="kg">Kilograms (kg)</option>
-                                        <option value="g">Grams (g)</option>
-                                        <option value="L">Litres (L)</option>
-                                        <option value="ml">Millilitres (ml)</option>
-                                        <option value="packs">Packs</option>
-                                        <option value="boxes">Boxes</option>
-                                    </select>
-                                </div>
-
-                                <div className="flex gap-3">
-                                    <button
-                                        type="button"
-                                        onClick={() => setMode('select')}
-                                        className="flex-1 py-3 border border-gray-300 text-gray-700 rounded-xl font-medium hover:bg-gray-50 transition-colors"
-                                    >
-                                        Cancel
-                                    </button>
-                                    <button
-                                        type="submit"
-                                        disabled={!newProductName.trim() || isSubmitting}
-                                        className="flex-1 py-3 bg-gradient-to-r from-indigo-500 to-purple-600 text-white rounded-xl font-medium hover:from-indigo-600 hover:to-purple-700 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-                                    >
-                                        {isSubmitting ? 'Creating...' : 'Create & Continue'}
-                                    </button>
-                                </div>
-                            </form>
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    setSearchQuery('')
+                                    setMode('newProduct')
+                                }}
+                                className="w-full py-3 border border-gray-300 text-gray-700 rounded-xl font-medium hover:bg-gray-50 transition-colors"
+                            >
+                                ← Back
+                            </button>
                         </div>
                     )}
                 </div>

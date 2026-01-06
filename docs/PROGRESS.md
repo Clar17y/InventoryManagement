@@ -14,12 +14,12 @@
 | 1B: Core Data | ✅ Complete | 5/5 tasks |
 | 1C: Hampers | ✅ Complete | 4/4 tasks |
 | 1D: Sales & Margins | ✅ Complete | 7/7 tasks |
-| 1E: Polish | ❌ Not Started | 0/5 tasks |
+| 1E: Polish | ✅ Complete | 5/5 tasks |
 | **2A: Finance Backend** | ✅ Complete | 6/6 tasks |
 | **2B: Finance Frontend** | ✅ Complete | 3/3 tasks |
 | **2C: Historical Import** | ✅ Complete | 3/3 tasks |
 
-**Current Focus:** Phase 1E - Polish & Alerts
+**Current Focus:** v1.0.0 Stable Release & Deployment
 
 ---
 
@@ -87,11 +87,11 @@
 
 ## Phase 1E: Polish & Alerts ❌ NOT STARTED
 
-- [ ] Dashboard with quick actions
-- [ ] Low stock alerts display
-- [ ] Expiring lots warnings
-- [ ] Sales history and margin reports
-- [ ] Mobile UX polish
+- [x] Dashboard with quick actions
+- [x] Low stock alerts display
+- [x] Expiring lots warnings
+- [x] Sales history and margin reports
+- [x] Mobile UX polish
 
 ---
 
@@ -158,6 +158,8 @@ Goal: Replace Excel spreadsheet "Savvy Finances" with full financial tracking.
 | 2026-01-06 | Claude Code | Phase 2B: Finance Frontend | ✅ Done | main |
 | 2026-01-06 | Claude Code | Phase 2C: Historical Import | ✅ Done | feature/full-spreadsheet-migration |
 | 2026-01-06 | Antigravity | Sales Screen Upgrades | ✅ Done | main |
+| 2026-01-06 | Antigravity | v1.0.0 Stable Release | ✅ Done | main |
+
 
 ---
 
@@ -168,9 +170,11 @@ Goal: Replace Excel spreadsheet "Savvy Finances" with full financial tracking.
 **Last Updated:** 2026-01-06
 
 **Current State:**
-- Phase 2A-2C: All COMPLETE - Full finance tracking with historical import
-- Branch `feature/full-spreadsheet-migration` has all Phase 2 work
-- **Sales Screen Upgrades**: Completed by Antigravity on main branch
+- **v1.0.0 Released**: Project marked as stable and ready for use.
+- Phase 2A-2C: All COMPLETE - Full finance tracking with historical import.
+- Phase 1E: Polished and ready.
+- Everything is on main branch.
+- **Sales Screen Upgrades**: Completed by Antigravity on main branch.
 
 **Sales Screen Upgrades (Latest Changes):**
 - `server/routes/sales.ts` - Added date filtering, summary endpoint, saleDate field, **search filter**
@@ -189,8 +193,7 @@ npx tsx scripts/import-historical.ts             # Import to DB
 ```
 
 **Next Steps:**
-1. **Merge branch** to main when ready
-2. **Phase 1E: Polish & Alerts** - Dashboard improvements, mobile UX
+1. **Setup continuous backup** for PostgreSQL
 
 **Known Issues:**
 - None currently

@@ -7,13 +7,17 @@ const router = Router()
 
 const createProductSchema = z.object({
   name: z.string().min(1).max(200),
-  barcode: z.string().max(50).optional(),
+  barcode: z.string().max(50).optional(), // Initial barcode to add to ProductBarcode table
   categoryId: z.string().cuid(),
   unit: z.string().max(20).default('units'),
   lowStockThreshold: z.number().int().min(0).default(5),
 })
 
-const updateProductSchema = createProductSchema.partial()
+const addBarcodeSchema = z.object({
+  barcode: z.string().min(1).max(50),
+})
+
+const updateProductSchema = createProductSchema.partial().omit({ barcode: true })
 
 // GET all products with stock levels
 router.get('/', async (req, res) => {
@@ -27,6 +31,9 @@ router.get('/', async (req, res) => {
       },
       include: {
         category: true,
+        barcodes: {
+          select: { id: true, barcode: true },
+        },
         lots: {
           where: { remaining: { gt: 0 } },
           select: { remaining: true, unitCost: true },
@@ -55,8 +62,11 @@ router.get('/', async (req, res) => {
       const totalStock = product.unit === 'units' ? totalRemaining : lotCount
 
       const currentCost = product.costs[0]?.unitCost || null
+      // Return first barcode as primary for backward compatibility
+      const primaryBarcode = product.barcodes[0]?.barcode || null
       return {
         ...product,
+        barcode: primaryBarcode, // Backward compatibility
         totalStock,
         totalRemaining, // Always include the actual remaining quantity
         lotCount,
@@ -76,24 +86,36 @@ router.get('/', async (req, res) => {
 // GET product by barcode (for scanner)
 router.get('/barcode/:barcode', async (req, res) => {
   try {
-    const product = await prisma.product.findUnique({
+    // Query the ProductBarcode table to find the product
+    const barcodeRecord = await prisma.productBarcode.findUnique({
       where: { barcode: req.params.barcode },
       include: {
-        category: true,
-        costs: {
-          where: { effectiveTo: null },
-          take: 1,
-          orderBy: { effectiveFrom: 'desc' },
+        product: {
+          include: {
+            category: true,
+            barcodes: {
+              select: { id: true, barcode: true },
+            },
+            costs: {
+              where: { effectiveTo: null },
+              take: 1,
+              orderBy: { effectiveFrom: 'desc' },
+            },
+          },
         },
       },
     })
 
-    if (!product) {
+    if (!barcodeRecord) {
       return res.status(404).json({ error: 'Product not found', barcode: req.params.barcode })
     }
 
+    const product = barcodeRecord.product
+    const primaryBarcode = product.barcodes[0]?.barcode || null
+
     res.json({
       ...product,
+      barcode: primaryBarcode, // Backward compatibility
       currentCost: product.costs[0]?.unitCost || null,
       costs: undefined,
     })
@@ -110,6 +132,9 @@ router.get('/:id', async (req, res) => {
       where: { id: req.params.id },
       include: {
         category: true,
+        barcodes: {
+          select: { id: true, barcode: true },
+        },
         lots: {
           where: { remaining: { gt: 0 } },
           orderBy: { receivedAt: 'asc' },
@@ -125,7 +150,11 @@ router.get('/:id', async (req, res) => {
       return res.status(404).json({ error: 'Product not found' })
     }
 
-    res.json(product)
+    const primaryBarcode = product.barcodes[0]?.barcode || null
+    res.json({
+      ...product,
+      barcode: primaryBarcode, // Backward compatibility
+    })
   } catch (error) {
     console.error('Error fetching product:', error)
     res.status(500).json({ error: 'Failed to fetch product' })
@@ -140,15 +169,29 @@ router.post('/', async (req, res) => {
     const product = await prisma.product.create({
       data: {
         name: data.name,
-        barcode: data.barcode || null,
         categoryId: data.categoryId,
         unit: data.unit,
         lowStockThreshold: data.lowStockThreshold,
+        // Create initial barcode if provided
+        ...(data.barcode && {
+          barcodes: {
+            create: { barcode: data.barcode },
+          },
+        }),
       },
-      include: { category: true },
+      include: {
+        category: true,
+        barcodes: {
+          select: { id: true, barcode: true },
+        },
+      },
     })
 
-    res.status(201).json(product)
+    const primaryBarcode = product.barcodes[0]?.barcode || null
+    res.status(201).json({
+      ...product,
+      barcode: primaryBarcode, // Backward compatibility
+    })
   } catch (error) {
     if (error instanceof z.ZodError) {
       return res.status(400).json({ error: 'Validation failed', details: error.errors })
@@ -163,6 +206,68 @@ router.post('/', async (req, res) => {
   }
 })
 
+// POST add barcode to existing product
+router.post('/:id/barcodes', async (req, res) => {
+  try {
+    const data = addBarcodeSchema.parse(req.body)
+
+    // Verify product exists
+    const product = await prisma.product.findUnique({
+      where: { id: req.params.id },
+    })
+
+    if (!product) {
+      return res.status(404).json({ error: 'Product not found' })
+    }
+
+    const barcodeRecord = await prisma.productBarcode.create({
+      data: {
+        barcode: data.barcode,
+        productId: req.params.id,
+      },
+    })
+
+    res.status(201).json(barcodeRecord)
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      return res.status(400).json({ error: 'Validation failed', details: error.errors })
+    }
+    if (error instanceof Prisma.PrismaClientKnownRequestError) {
+      if (error.code === 'P2002') {
+        return res.status(409).json({ error: 'Barcode already exists' })
+      }
+    }
+    console.error('Error adding barcode:', error)
+    res.status(500).json({ error: 'Failed to add barcode' })
+  }
+})
+
+// DELETE barcode from product
+router.delete('/:id/barcodes/:barcodeId', async (req, res) => {
+  try {
+    // Verify barcode belongs to this product
+    const barcodeRecord = await prisma.productBarcode.findFirst({
+      where: {
+        id: req.params.barcodeId,
+        productId: req.params.id,
+      },
+    })
+
+    if (!barcodeRecord) {
+      return res.status(404).json({ error: 'Barcode not found' })
+    }
+
+    await prisma.productBarcode.delete({
+      where: { id: req.params.barcodeId },
+    })
+
+    res.status(204).send()
+  } catch (error) {
+    console.error('Error deleting barcode:', error)
+    res.status(500).json({ error: 'Failed to delete barcode' })
+  }
+})
+
 // PUT update product
 router.put('/:id', async (req, res) => {
   try {
@@ -172,15 +277,23 @@ router.put('/:id', async (req, res) => {
       where: { id: req.params.id },
       data: {
         ...(data.name && { name: data.name }),
-        ...(data.barcode !== undefined && { barcode: data.barcode || null }),
         ...(data.categoryId && { categoryId: data.categoryId }),
         ...(data.unit && { unit: data.unit }),
         ...(data.lowStockThreshold !== undefined && { lowStockThreshold: data.lowStockThreshold }),
       },
-      include: { category: true },
+      include: {
+        category: true,
+        barcodes: {
+          select: { id: true, barcode: true },
+        },
+      },
     })
 
-    res.json(product)
+    const primaryBarcode = product.barcodes[0]?.barcode || null
+    res.json({
+      ...product,
+      barcode: primaryBarcode, // Backward compatibility
+    })
   } catch (error) {
     if (error instanceof z.ZodError) {
       return res.status(400).json({ error: 'Validation failed', details: error.errors })

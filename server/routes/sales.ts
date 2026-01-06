@@ -127,6 +127,7 @@ const recordSaleSchema = z.object({
   postageCharged: z.number().nonnegative().default(0), // What customer pays
   postageCost: z.number().nonnegative().default(0), // What we pay Royal Mail
   saleChannel: z.enum(['etsy', 'direct', 'fair']).default('etsy'),
+  saleDate: z.string().datetime().optional(), // Allow specifying sale date
   etsyOrderId: z.string().max(100).optional(),
   notes: z.string().max(1000).optional(),
   lines: z.array(saleLineSchema).min(1),
@@ -435,6 +436,7 @@ router.post('/', async (req, res) => {
       // Create the sale record
       const createdSale = await tx.sale.create({
         data: {
+          saleDate: data.saleDate ? new Date(data.saleDate) : new Date(),
           saleChannel: data.saleChannel,
           grossRevenue: data.grossRevenue,
           postageCharged: data.postageCharged,
@@ -504,32 +506,165 @@ router.post('/', async (req, res) => {
 // GET all sales
 router.get('/', async (req, res) => {
   try {
-    const { limit = '50', offset = '0' } = req.query
+    const { limit = '50', offset = '0', startDate, endDate, search } = req.query
 
-    const sales = await prisma.sale.findMany({
-      include: {
-        lines: {
-          include: {
-            hamper: true,
-            consumptions: {
-              include: {
-                lot: {
-                  include: { product: true },
+    // Build where clause for date filtering and search
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const where: any = {}
+
+    if (startDate || endDate) {
+      where.saleDate = {}
+      if (startDate) where.saleDate.gte = new Date(startDate as string)
+      if (endDate) {
+        // Set to end of day for inclusive filtering
+        const end = new Date(endDate as string)
+        end.setHours(23, 59, 59, 999)
+        where.saleDate.lte = end
+      }
+    }
+
+    // Search across notes, etsyOrderId, and line hamper names/descriptions
+    if (search && typeof search === 'string' && search.trim()) {
+      const searchTerm = search.trim()
+      where.OR = [
+        { notes: { contains: searchTerm, mode: 'insensitive' } },
+        { etsyOrderId: { contains: searchTerm, mode: 'insensitive' } },
+        {
+          lines: {
+            some: {
+              OR: [
+                { description: { contains: searchTerm, mode: 'insensitive' } },
+                { hamper: { name: { contains: searchTerm, mode: 'insensitive' } } },
+              ],
+            },
+          },
+        },
+      ]
+    }
+
+    const [sales, total] = await Promise.all([
+      prisma.sale.findMany({
+        where,
+        include: {
+          lines: {
+            include: {
+              hamper: true,
+              consumptions: {
+                include: {
+                  lot: {
+                    include: { product: true },
+                  },
                 },
               },
             },
           },
         },
-      },
-      orderBy: { saleDate: 'desc' },
-      take: Number(limit),
-      skip: Number(offset),
-    })
+        orderBy: { saleDate: 'desc' },
+        take: Number(limit),
+        skip: Number(offset),
+      }),
+      prisma.sale.count({ where }),
+    ])
 
-    res.json(sales)
+    res.json({ sales, total })
   } catch (error) {
     console.error('Error fetching sales:', error)
     res.status(500).json({ error: 'Failed to fetch sales' })
+  }
+})
+
+// GET sales summary (like expenses summary)
+router.get('/summary', async (req, res) => {
+  try {
+    const { startDate, endDate, search } = req.query
+
+    // Build where clause for date filtering and search
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const where: any = {}
+
+    if (startDate || endDate) {
+      where.saleDate = {}
+      if (startDate) where.saleDate.gte = new Date(startDate as string)
+      if (endDate) {
+        const end = new Date(endDate as string)
+        end.setHours(23, 59, 59, 999)
+        where.saleDate.lte = end
+      }
+    }
+
+    // Search across notes, etsyOrderId, and line hamper names/descriptions
+    if (search && typeof search === 'string' && search.trim()) {
+      const searchTerm = search.trim()
+      where.OR = [
+        { notes: { contains: searchTerm, mode: 'insensitive' } },
+        { etsyOrderId: { contains: searchTerm, mode: 'insensitive' } },
+        {
+          lines: {
+            some: {
+              OR: [
+                { description: { contains: searchTerm, mode: 'insensitive' } },
+                { hamper: { name: { contains: searchTerm, mode: 'insensitive' } } },
+              ],
+            },
+          },
+        },
+      ]
+    }
+
+    const sales = await prisma.sale.findMany({
+      where,
+      include: {
+        lines: {
+          include: { hamper: true },
+        },
+      },
+    })
+
+    const totals = {
+      salesCount: sales.length,
+      totalRevenue: sales.reduce((sum, s) => sum + Number(s.grossRevenue), 0),
+      totalPostageCharged: sales.reduce((sum, s) => sum + Number(s.postageCharged), 0),
+      totalPostageCost: sales.reduce((sum, s) => sum + Number(s.postageCost), 0),
+      totalFees: sales.reduce((sum, s) => sum + Number(s.etsyFees), 0),
+      totalCost: sales.reduce((sum, s) => sum + Number(s.totalCost), 0),
+      totalMargin: sales.reduce((sum, s) => sum + Number(s.margin), 0),
+    }
+
+    // Group by channel
+    const byChannel: Record<string, { count: number; revenue: number; fees: number; margin: number }> = {}
+    for (const sale of sales) {
+      const channel = sale.saleChannel
+      if (!byChannel[channel]) {
+        byChannel[channel] = { count: 0, revenue: 0, fees: 0, margin: 0 }
+      }
+      byChannel[channel].count += 1
+      byChannel[channel].revenue += Number(sale.grossRevenue)
+      byChannel[channel].fees += Number(sale.etsyFees)
+      byChannel[channel].margin += Number(sale.margin)
+    }
+
+    // Group by hamper (including bespoke items)
+    const byHamper: Record<string, { name: string; count: number; revenue: number }> = {}
+    for (const sale of sales) {
+      for (const line of sale.lines) {
+        const key = line.hamperId || `bespoke:${line.description}`
+        const name = line.hamper?.name || line.description || 'Bespoke Item'
+        if (!byHamper[key]) {
+          byHamper[key] = { name, count: 0, revenue: 0 }
+        }
+        byHamper[key].count += line.quantity
+        byHamper[key].revenue += Number(line.unitPrice) * line.quantity
+      }
+    }
+
+    res.json({
+      totals,
+      byChannel: Object.entries(byChannel).map(([channel, data]) => ({ channel, ...data })),
+      byHamper: Object.values(byHamper).sort((a, b) => b.count - a.count),
+    })
+  } catch (error) {
+    console.error('Error fetching sales summary:', error)
+    res.status(500).json({ error: 'Failed to fetch sales summary' })
   }
 })
 

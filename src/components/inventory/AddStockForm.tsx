@@ -2,23 +2,7 @@ import { useState, useEffect } from 'react'
 import { products, inventory, categories, type Product, type Category } from '../../lib/api'
 import { formatPrice, formatCurrency } from '../../lib/formatting'
 import BarcodeScanner from '../scanner/BarcodeScanner'
-
-// Custom hook for debouncing values
-function useDebounce<T>(value: T, delay: number): T {
-    const [debouncedValue, setDebouncedValue] = useState<T>(value)
-
-    useEffect(() => {
-        const handler = setTimeout(() => {
-            setDebouncedValue(value)
-        }, delay)
-
-        return () => {
-            clearTimeout(handler)
-        }
-    }, [value, delay])
-
-    return debouncedValue
-}
+import { useDebounce } from '../../hooks/useDebounce'
 
 interface AddStockFormProps {
     onSuccess?: () => void

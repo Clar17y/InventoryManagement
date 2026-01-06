@@ -17,9 +17,9 @@
 | 1E: Polish | ❌ Not Started | 0/5 tasks |
 | **2A: Finance Backend** | ✅ Complete | 6/6 tasks |
 | **2B: Finance Frontend** | ✅ Complete | 3/3 tasks |
-| **2C: Historical Import** | ❌ Not Started | 0/3 tasks |
+| **2C: Historical Import** | ✅ Complete | 3/3 tasks |
 
-**Current Focus:** Phase 2C - Historical Import (XML spreadsheet parser)
+**Current Focus:** Phase 1E - Polish & Alerts
 
 ---
 
@@ -129,11 +129,17 @@ Goal: Replace Excel spreadsheet "Savvy Finances" with full financial tracking.
 
 ---
 
-## Phase 2C: Historical Import ❌ NOT STARTED
+## Phase 2C: Historical Import ✅ COMPLETE
 
-- [ ] XML spreadsheet parser script
-- [ ] Import sales as `isHistorical: true` records
-- [ ] Import costs sheet as BusinessExpense records
+- [x] XML spreadsheet parser script
+- [x] Import sales as `isHistorical: true` records
+- [x] Import costs sheet as BusinessExpense records
+
+### Notes
+- Script: `scripts/import-historical.ts` - run with `npx tsx scripts/import-historical.ts`
+- Supports `--dry-run` flag to preview without writing to database
+- Handles multi-item orders (same Etsy ID) by appending item suffix (e.g., `123456-1`, `123456-2`)
+- Maps cost categories to ExpenseCategory enum (Advertising, Packaging, Postage, Listing Fee, Stock)
 
 ---
 
@@ -150,7 +156,8 @@ Goal: Replace Excel spreadsheet "Savvy Finances" with full financial tracking.
 | 2026-01-05 | Claude Code | Phase 1D: Sales & Margins | ✅ Done | main |
 | 2026-01-06 | Claude Code | Phase 2A: Finance Backend | ✅ Done | main |
 | 2026-01-06 | Claude Code | Phase 2B: Finance Frontend | ✅ Done | main |
-| 2026-01-06 | Claude Code | Phase 2C: Historical Import | 🔄 Next | main |
+| 2026-01-06 | Claude Code | Phase 2C: Historical Import | ✅ Done | feature/full-spreadsheet-migration |
+| 2026-01-06 | Antigravity | Sales Screen Upgrades | ✅ Done | main |
 
 ---
 
@@ -161,37 +168,32 @@ Goal: Replace Excel spreadsheet "Savvy Finances" with full financial tracking.
 **Last Updated:** 2026-01-06
 
 **Current State:**
-- Phase 2A: Finance Backend is COMPLETE (6/6 tasks)
-- Phase 2B: Finance Frontend is COMPLETE (3/3 tasks)
-- Full financial tracking now available to replace spreadsheet
+- Phase 2A-2C: All COMPLETE - Full finance tracking with historical import
+- Branch `feature/full-spreadsheet-migration` has all Phase 2 work
+- **Sales Screen Upgrades**: Completed by Antigravity on main branch
 
-**Key Files Changed (Phase 2B):**
-- `src/pages/Expenses.tsx` - NEW: Full CRUD for business expenses with filtering and summary
-- `src/pages/Sales.tsx` - Updated: Sale channel selector, postage fields, bespoke item support
-- `src/pages/Settings.tsx` - Added link to Expenses page
-- `src/App.tsx` - Added /expenses route
+**Sales Screen Upgrades (Latest Changes):**
+- `server/routes/sales.ts` - Added date filtering, summary endpoint, saleDate field, **search filter**
+- `src/lib/api.ts` - Added SalesSummary interface, updated sales.list(), added sales.summary()
+- `src/pages/Sales.tsx` - Summary section, date filter with quick selectors, Load More pagination, sale date picker, **search input**
 
-**Features Added:**
-- **Expenses Page**: Add/edit/delete expenses, category filtering, summary by category/month
-- **Sale Channels**: Etsy (with fees), Direct (no fees), Fair/Market (no fees)
-- **Postage Tracking**: Charged vs actual cost, profit/loss display
-- **Bespoke Items**: Create sale lines without predefined hampers (description + price)
-- **Enhanced Sale Details**: Channel badges, postage breakdown in expanded view
+**Key Files Changed (Phase 2C):**
+- `scripts/import-historical.ts` - XML parser for historical sales and expenses
+- `prisma/schema.prisma` - Added `isHistorical` flag, `StockCategory` enum
+- `prisma/migrations/20260106121712_add_stock_category_and_historical_flag/` - DB migration
+
+**Import Script Usage:**
+```bash
+npx tsx scripts/import-historical.ts --dry-run  # Preview
+npx tsx scripts/import-historical.ts             # Import to DB
+```
 
 **Next Steps:**
-1. **Phase 2C: Historical Import**
-   - Create XML parser script (`scripts/import-historical.ts`)
-   - Import 3 years of spreadsheet data
-   - Sales as `isHistorical: true` records
-   - Costs as `BusinessExpense` records
+1. **Merge branch** to main when ready
+2. **Phase 1E: Polish & Alerts** - Dashboard improvements, mobile UX
 
 **Known Issues:**
 - None currently
-
-**Spreadsheet Reference:**
-- `Savvy Finances.xml` in project root contains 3 years of data
-- Sales sheet: Order ID, Date, Product, Sale Price, Postage, 6 fee columns, Net
-- Costs sheet: Category (Packaging/Advertising/Hamper Contents/Postage), Date, Payee, Description, Price inc/exc VAT
 
 ---
 

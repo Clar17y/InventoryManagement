@@ -328,6 +328,7 @@ export interface SaleCreateData {
   postageCharged?: number
   postageCost?: number
   saleChannel?: SaleChannel
+  saleDate?: string // ISO date string for backdated sales
   etsyOrderId?: string
   notes?: string
   lines: SaleLineInput[]
@@ -352,14 +353,47 @@ export interface MarginAnalytics {
   byChannel: { channel: string; count: number; revenue: number; fees: number; margin: number }[]
 }
 
+export interface SalesListResponse {
+  sales: Sale[]
+  total: number
+}
+
+export interface SalesSummary {
+  totals: {
+    salesCount: number
+    totalRevenue: number
+    totalPostageCharged: number
+    totalPostageCost: number
+    totalFees: number
+    totalCost: number
+    totalMargin: number
+  }
+  byChannel: { channel: string; count: number; revenue: number; fees: number; margin: number }[]
+  byHamper: { name: string; count: number; revenue: number }[]
+}
+
 export const sales = {
-  list: (limit = 50, offset = 0) =>
-    request<Sale[]>(`/sales?limit=${limit}&offset=${offset}`),
+  list: (params?: { limit?: number; offset?: number; startDate?: string; endDate?: string; search?: string }) => {
+    const query = new URLSearchParams()
+    if (params?.limit) query.set('limit', String(params.limit))
+    if (params?.offset) query.set('offset', String(params.offset))
+    if (params?.startDate) query.set('startDate', params.startDate)
+    if (params?.endDate) query.set('endDate', params.endDate)
+    if (params?.search) query.set('search', params.search)
+    return request<SalesListResponse>(`/sales?${query.toString()}`)
+  },
   get: (id: string) => request<Sale>(`/sales/${id}`),
   preview: (data: { lines: SaleLineInput[]; postageCharged?: number; saleChannel?: SaleChannel }) =>
     request<SalePreview>('/sales/preview', { method: 'POST', body: JSON.stringify(data) }),
   create: (data: SaleCreateData) =>
     request<Sale>('/sales', { method: 'POST', body: JSON.stringify(data) }),
+  summary: (params?: { startDate?: string; endDate?: string; search?: string }) => {
+    const query = new URLSearchParams()
+    if (params?.startDate) query.set('startDate', params.startDate)
+    if (params?.endDate) query.set('endDate', params.endDate)
+    if (params?.search) query.set('search', params.search)
+    return request<SalesSummary>(`/sales/summary?${query.toString()}`)
+  },
   analytics: (days = 30) =>
     request<MarginAnalytics>(`/sales/analytics/margins?days=${days}`),
 }

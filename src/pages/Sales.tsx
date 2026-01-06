@@ -1,4 +1,5 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
+import { useDebounce } from '../hooks/useDebounce'
 import {
   PlusIcon,
   ChevronDownIcon,
@@ -7,6 +8,8 @@ import {
   ExclamationTriangleIcon,
   CheckCircleIcon,
   PencilIcon,
+  ChartBarIcon,
+  FunnelIcon,
 } from '@heroicons/react/24/outline'
 import {
   sales,
@@ -17,6 +20,7 @@ import {
   Hamper,
   CategoryLot,
   SaleChannel,
+  SalesSummary,
 } from '../lib/api'
 import { formatCurrency, formatUnitCost } from '../lib/formatting'
 
@@ -74,9 +78,20 @@ export default function Sales() {
   const [saleList, setSaleList] = useState<Sale[]>([])
   const [hamperList, setHamperList] = useState<Hamper[]>([])
   const [loading, setLoading] = useState(true)
+  const [loadingMore, setLoadingMore] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [viewMode, setViewMode] = useState<ViewMode>('list')
   const [expandedId, setExpandedId] = useState<string | null>(null)
+
+  // Summary and filter state
+  const [showSummary, setShowSummary] = useState(false)
+  const [summary, setSummary] = useState<SalesSummary | null>(null)
+  const [startDate, setStartDate] = useState('')
+  const [endDate, setEndDate] = useState('')
+  const [searchQuery, setSearchQuery] = useState('')
+  const debouncedSearchQuery = useDebounce(searchQuery, 400) // Debounce search to avoid excessive API calls
+  const [totalSales, setTotalSales] = useState(0)
+  const PAGE_SIZE = 20
 
   // Record sale state
   const [lines, setLines] = useState<SaleLineInput[]>([{ quantity: 1 }])
@@ -87,6 +102,7 @@ export default function Sales() {
   const [saleChannel, setSaleChannel] = useState<SaleChannel>('etsy')
   const [postageCharged, setPostageCharged] = useState('5.00')
   const [postageCost, setPostageCost] = useState('5.35')
+  const [saleDate, setSaleDate] = useState(new Date().toISOString().split('T')[0] ?? '')
   const [saving, setSaving] = useState(false)
 
   // Override state
@@ -95,15 +111,29 @@ export default function Sales() {
   const [lotsLoading, setLotsLoading] = useState(false)
   const [overrides, setOverrides] = useState<Record<string, LotOverride[]>>({})
 
-  const loadData = async () => {
+  const loadData = async (isInitialLoad = false) => {
     try {
-      setLoading(true)
-      const [salesData, hampersData] = await Promise.all([
-        sales.list(),
+      // Only show full loading state on initial page load, not on filter changes
+      if (isInitialLoad) {
+        setLoading(true)
+      }
+      const params: { limit?: number; offset?: number; startDate?: string; endDate?: string; search?: string } = {
+        limit: PAGE_SIZE,
+        offset: 0,
+      }
+      if (startDate) params.startDate = startDate
+      if (endDate) params.endDate = endDate
+      if (debouncedSearchQuery) params.search = debouncedSearchQuery
+
+      const [salesData, hampersData, summaryData] = await Promise.all([
+        sales.list(params),
         hampers.list(),
+        sales.summary({ startDate: startDate || undefined, endDate: endDate || undefined, search: debouncedSearchQuery || undefined }),
       ])
-      setSaleList(salesData)
+      setSaleList(salesData.sales)
+      setTotalSales(salesData.total)
       setHamperList(hampersData)
+      setSummary(summaryData)
       setError(null)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load data')
@@ -112,9 +142,41 @@ export default function Sales() {
     }
   }
 
+  const loadMore = async () => {
+    try {
+      setLoadingMore(true)
+      const params: { limit?: number; offset?: number; startDate?: string; endDate?: string; search?: string } = {
+        limit: PAGE_SIZE,
+        offset: saleList.length,
+      }
+      if (startDate) params.startDate = startDate
+      if (endDate) params.endDate = endDate
+      if (debouncedSearchQuery) params.search = debouncedSearchQuery
+
+      const result = await sales.list(params)
+      setSaleList([...saleList, ...result.sales])
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to load more sales')
+    } finally {
+      setLoadingMore(false)
+    }
+  }
+
+  // Track if this is the first render to show loading state only initially
+  const isFirstRender = useRef(true)
+
   useEffect(() => {
-    loadData()
+    // Initial load - show loading indicator
+    loadData(true)
+    isFirstRender.current = false
   }, [])
+
+  // Re-fetch when filters change (no loading indicator - data updates in place)
+  useEffect(() => {
+    if (!isFirstRender.current) {
+      loadData(false)
+    }
+  }, [startDate, endDate, debouncedSearchQuery])
 
   // Load preview when lines change
   useEffect(() => {
@@ -204,6 +266,7 @@ export default function Sales() {
     setSaleChannel('etsy')
     setPostageCharged('5.00')
     setPostageCost('5.35')
+    setSaleDate(new Date().toISOString().split('T')[0] ?? '')
     setError(null)
     setOverrides({})
     setEditingOverride(null)
@@ -289,6 +352,7 @@ export default function Sales() {
         postageCharged: postageCharged ? parseFloat(postageCharged) : undefined,
         postageCost: postageCost ? parseFloat(postageCost) : undefined,
         saleChannel,
+        saleDate: saleDate ? new Date(saleDate).toISOString() : undefined,
         lines: validLines,
         notes: notes || undefined,
         etsyOrderId: etsyOrderId || undefined,
@@ -355,11 +419,10 @@ export default function Sales() {
                     setPostageCost('5.35')
                   }
                 }}
-                className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-                  saleChannel === channel
-                    ? channelColors[channel]
-                    : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-                }`}
+                className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${saleChannel === channel
+                  ? channelColors[channel]
+                  : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                  }`}
               >
                 {channelLabels[channel]}
               </button>
@@ -525,6 +588,16 @@ export default function Sales() {
         <div className="card space-y-4">
           <h3 className="font-medium">Optional Details</h3>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Sale Date</label>
+              <input
+                type="date"
+                value={saleDate}
+                onChange={(e) => setSaleDate(e.target.value)}
+                className="input"
+              />
+              <p className="text-xs text-gray-500 mt-1">Defaults to today</p>
+            </div>
             {saleChannel === 'etsy' && (
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Etsy Order ID</label>
@@ -590,9 +663,8 @@ export default function Sales() {
                     return (
                       <div key={req.categoryId}>
                         <div
-                          className={`flex justify-between items-center p-2 rounded ${
-                            isFulfilled ? 'bg-green-50' : 'bg-red-50'
-                          }`}
+                          className={`flex justify-between items-center p-2 rounded ${isFulfilled ? 'bg-green-50' : 'bg-red-50'
+                            }`}
                         >
                           <div className="flex items-center gap-2">
                             <span className="font-medium">{req.categoryName}</span>
@@ -742,26 +814,207 @@ export default function Sales() {
     )
   }
 
+  // Helper to set date range for quick selectors
+  const setDateRange = (start: string, end: string) => {
+    setStartDate(start)
+    setEndDate(end)
+  }
+
+  const clearDateFilter = () => {
+    setStartDate('')
+    setEndDate('')
+  }
+
+  // Get current year for quick selectors
+  const currentYear = new Date().getFullYear()
+
+  const getQuarterDates = (quarter: number, year: number) => {
+    const quarters = [
+      { start: `${year}-01-01`, end: `${year}-03-31` },
+      { start: `${year}-04-01`, end: `${year}-06-30` },
+      { start: `${year}-07-01`, end: `${year}-09-30` },
+      { start: `${year}-10-01`, end: `${year}-12-31` },
+    ]
+    return quarters[quarter - 1] || { start: '', end: '' }
+  }
+
+  // Financial year is April to March
+  const getFYDates = (year: number) => ({
+    start: `${year}-04-01`,
+    end: `${year + 1}-03-31`,
+  })
+
+  const hasMore = saleList.length < totalSales
+
   // List View (default)
   return (
     <div className="space-y-4">
       <div className="flex justify-between items-center">
         <h2 className="text-xl font-semibold">Sales</h2>
-        <button
-          onClick={() => setViewMode('record')}
-          className="btn-primary flex items-center gap-1"
-        >
-          <PlusIcon className="h-5 w-5" />
-          Record Sale
-        </button>
+        <div className="flex gap-2">
+          <button
+            onClick={() => setShowSummary(!showSummary)}
+            className={`p-2 rounded-lg ${showSummary ? 'bg-primary-100 text-primary-700' : 'bg-gray-100 text-gray-600'}`}
+            title="Toggle summary"
+          >
+            <ChartBarIcon className="h-5 w-5" />
+          </button>
+          <button
+            onClick={() => setViewMode('record')}
+            className="btn-primary flex items-center gap-1"
+          >
+            <PlusIcon className="h-5 w-5" />
+            Record Sale
+          </button>
+        </div>
       </div>
 
       {error && <div className="bg-red-50 text-red-700 p-3 rounded-lg text-sm">{error}</div>}
 
-      {saleList.length === 0 ? (
+      {/* Sales Summary */}
+      {showSummary && summary && (
+        <div className="card bg-gray-50 space-y-4">
+          <h3 className="font-medium">Sales Summary</h3>
+
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+            <div className="bg-white p-3 rounded-lg">
+              <div className="text-xs text-gray-500">Total Sales</div>
+              <div className="text-lg font-semibold">{summary.totals.salesCount}</div>
+            </div>
+            <div className="bg-white p-3 rounded-lg">
+              <div className="text-xs text-gray-500">Revenue</div>
+              <div className="text-lg font-semibold">{formatCurrency(summary.totals.totalRevenue)}</div>
+            </div>
+            <div className="bg-white p-3 rounded-lg">
+              <div className="text-xs text-gray-500">Total Fees</div>
+              <div className="text-lg font-semibold text-red-600">-{formatCurrency(summary.totals.totalFees)}</div>
+            </div>
+            <div className="bg-white p-3 rounded-lg">
+              <div className="text-xs text-gray-500">Net Margin</div>
+              <div className={`text-lg font-semibold ${summary.totals.totalMargin >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                {formatCurrency(summary.totals.totalMargin)}
+              </div>
+            </div>
+          </div>
+
+          {summary.byChannel.length > 0 && (
+            <div className="space-y-2">
+              <div className="text-sm font-medium text-gray-600">By Channel</div>
+              {summary.byChannel.map((ch) => (
+                <div key={ch.channel} className="flex justify-between items-center bg-white p-2 rounded-lg text-sm">
+                  <span className={`px-2 py-0.5 rounded text-xs ${channelColors[ch.channel as SaleChannel] || 'bg-gray-100 text-gray-800'}`}>
+                    {channelLabels[ch.channel as SaleChannel] || ch.channel}
+                  </span>
+                  <div className="flex gap-4">
+                    <span className="text-gray-500">{ch.count} sales</span>
+                    <span className="font-medium">{formatCurrency(ch.revenue)}</span>
+                    <span className={ch.margin >= 0 ? 'text-green-600' : 'text-red-600'}>
+                      {formatCurrency(ch.margin)}
+                    </span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Date Filter */}
+      <div className="card space-y-3">
+        <div className="flex items-center gap-2 flex-wrap justify-between">
+          {/* Date filters on the left */}
+          <div className="flex items-center gap-2 flex-wrap">
+            <FunnelIcon className="h-4 w-4 text-gray-400" />
+            <input
+              type="date"
+              value={startDate}
+              onChange={(e) => setStartDate(e.target.value)}
+              className="text-sm border rounded-lg px-2 py-1"
+              placeholder="Start date"
+            />
+            <span className="text-gray-400">to</span>
+            <input
+              type="date"
+              value={endDate}
+              onChange={(e) => setEndDate(e.target.value)}
+              className="text-sm border rounded-lg px-2 py-1"
+              placeholder="End date"
+            />
+            {(startDate || endDate) && (
+              <button
+                onClick={clearDateFilter}
+                className="text-xs text-gray-500 hover:text-gray-700"
+              >
+                Clear
+              </button>
+            )}
+          </div>
+
+          {/* Search on the right */}
+          <div className="flex items-center gap-2">
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="text-sm border rounded-lg px-3 py-1 w-48"
+              placeholder="Search sales..."
+            />
+            {searchQuery && (
+              <button
+                onClick={() => setSearchQuery('')}
+                className="text-xs text-gray-500 hover:text-gray-700"
+              >
+                Clear
+              </button>
+            )}
+          </div>
+        </div>
+
+        {/* Quick selectors */}
+        <div className="flex flex-wrap gap-2">
+          <span className="text-xs text-gray-500 self-center">Quick:</span>
+          {[1, 2, 3, 4].map((q) => {
+            const dates = getQuarterDates(q, currentYear)
+            return (
+              <button
+                key={q}
+                onClick={() => setDateRange(dates.start || '', dates.end || '')}
+                className="text-xs px-2 py-1 rounded bg-gray-100 hover:bg-gray-200 text-gray-700"
+              >
+                Q{q} {currentYear}
+              </button>
+            )
+          })}
+          <button
+            onClick={() => setDateRange(`${currentYear}-01-01`, `${currentYear}-12-31`)}
+            className="text-xs px-2 py-1 rounded bg-gray-100 hover:bg-gray-200 text-gray-700"
+          >
+            {currentYear}
+          </button>
+          <button
+            onClick={() => {
+              const fy = getFYDates(currentYear - 1) // Current FY started last April
+              setDateRange(fy.start, fy.end)
+            }}
+            className="text-xs px-2 py-1 rounded bg-gray-100 hover:bg-gray-200 text-gray-700"
+          >
+            FY {currentYear - 1}/{currentYear}
+          </button>
+          <button
+            onClick={clearDateFilter}
+            className="text-xs px-2 py-1 rounded bg-blue-100 hover:bg-blue-200 text-blue-700"
+          >
+            All Time
+          </button>
+        </div>
+      </div>
+
+      {loading ? (
+        <div className="text-center py-8 text-gray-500">Loading...</div>
+      ) : saleList.length === 0 ? (
         <div className="card text-gray-500 text-center py-12">
-          <p className="mb-4">No sales recorded yet</p>
-          <p className="text-sm">Record your first sale to start tracking margins</p>
+          <p className="mb-4">{startDate || endDate ? 'No sales found for this period' : 'No sales recorded yet'}</p>
+          <p className="text-sm">{startDate || endDate ? 'Try adjusting your date filter' : 'Record your first sale to start tracking margins'}</p>
         </div>
       ) : (
         <div className="space-y-3">
@@ -880,6 +1133,19 @@ export default function Sales() {
               )}
             </div>
           ))}
+
+          {/* Load More Button */}
+          {hasMore && (
+            <div className="text-center pt-2">
+              <button
+                onClick={loadMore}
+                disabled={loadingMore}
+                className="btn-secondary"
+              >
+                {loadingMore ? 'Loading...' : `Load More (${saleList.length} of ${totalSales})`}
+              </button>
+            </div>
+          )}
         </div>
       )}
     </div>

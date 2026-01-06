@@ -12,6 +12,11 @@ const settingsLinks = [
     title: 'Products',
     description: 'Manage products and their barcodes',
   },
+  {
+    to: '/expenses',
+    title: 'Business Expenses',
+    description: 'Track advertising, postage, packaging, and other costs',
+  },
 ]
 
 export default function Settings() {

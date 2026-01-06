@@ -16,10 +16,10 @@
 | 1D: Sales & Margins | ✅ Complete | 7/7 tasks |
 | 1E: Polish | ❌ Not Started | 0/5 tasks |
 | **2A: Finance Backend** | ✅ Complete | 6/6 tasks |
-| **2B: Finance Frontend** | ❌ Not Started | 0/3 tasks |
+| **2B: Finance Frontend** | ✅ Complete | 3/3 tasks |
 | **2C: Historical Import** | ❌ Not Started | 0/3 tasks |
 
-**Current Focus:** Phase 2B - Finance Frontend (Expenses page, Sales page updates)
+**Current Focus:** Phase 2C - Historical Import (XML spreadsheet parser)
 
 ---
 
@@ -115,11 +115,17 @@ Goal: Replace Excel spreadsheet "Savvy Finances" with full financial tracking.
 
 ---
 
-## Phase 2B: Finance Frontend ❌ NOT STARTED
+## Phase 2B: Finance Frontend ✅ COMPLETE
 
-- [ ] Expenses page (`/expenses`) - add/edit/list business expenses
-- [ ] Sales page updates - postage/channel/bespoke fields in UI
-- [ ] Financial dashboard - true profit visibility with cost breakdown
+- [x] Expenses page (`/expenses`) - add/edit/list business expenses
+- [x] Sales page updates - postage/channel/bespoke fields in UI
+- [x] Financial dashboard - true profit visibility with cost breakdown
+
+### Notes
+- **Expenses page**: Full CRUD with category filtering, summary view, VAT auto-calculation
+- **Sales page**: Sale channel selector (Etsy/Direct/Fair), postage fields, bespoke item support
+- **Postage tracking**: Shows postage profit/loss in sale details
+- **Bespoke items**: Can add custom items without predefined hampers
 
 ---
 
@@ -143,7 +149,8 @@ Goal: Replace Excel spreadsheet "Savvy Finances" with full financial tracking.
 | 2026-01-05 | Antigravity | Phase 1C: Hampers | ✅ Done | main |
 | 2026-01-05 | Claude Code | Phase 1D: Sales & Margins | ✅ Done | main |
 | 2026-01-06 | Claude Code | Phase 2A: Finance Backend | ✅ Done | main |
-| 2026-01-06 | Claude Code | Phase 2B: Finance Frontend | 🔄 Next | main |
+| 2026-01-06 | Claude Code | Phase 2B: Finance Frontend | ✅ Done | main |
+| 2026-01-06 | Claude Code | Phase 2C: Historical Import | 🔄 Next | main |
 
 ---
 
@@ -155,35 +162,28 @@ Goal: Replace Excel spreadsheet "Savvy Finances" with full financial tracking.
 
 **Current State:**
 - Phase 2A: Finance Backend is COMPLETE (6/6 tasks)
-- Backend changes for spreadsheet replacement:
-  - Schema extended: postage, channel, fee breakdown, bespoke lines, expenses
-  - Migration applied: `20260106082747_add_finance_tracking`
-  - New model: `BusinessExpense` with categories enum
-  - Updated: `Sale`, `SaleLine`, `EtsyFeeConfig`
-- New API routes:
-  - `server/routes/expenses.ts` - full CRUD + summary
-  - `server/routes/sales.ts` - updated for postage/channel/bespoke
-  - `server/routes/settings.ts` - updated for granular EtsyFeeConfig
-- Frontend API client updated: `src/lib/api.ts`
-- Build passes with no errors
+- Phase 2B: Finance Frontend is COMPLETE (3/3 tasks)
+- Full financial tracking now available to replace spreadsheet
 
-**Key Files Changed:**
-- `prisma/schema.prisma` - New fields and models
-- `server/routes/expenses.ts` - NEW file
-- `server/routes/sales.ts` - Updated fee calculation, bespoke support
-- `server/routes/settings.ts` - Updated EtsyFeeConfig structure
-- `src/lib/api.ts` - New types and API functions
-- `src/pages/Sales.tsx` - Minor fixes for nullable hamper
+**Key Files Changed (Phase 2B):**
+- `src/pages/Expenses.tsx` - NEW: Full CRUD for business expenses with filtering and summary
+- `src/pages/Sales.tsx` - Updated: Sale channel selector, postage fields, bespoke item support
+- `src/pages/Settings.tsx` - Added link to Expenses page
+- `src/App.tsx` - Added /expenses route
+
+**Features Added:**
+- **Expenses Page**: Add/edit/delete expenses, category filtering, summary by category/month
+- **Sale Channels**: Etsy (with fees), Direct (no fees), Fair/Market (no fees)
+- **Postage Tracking**: Charged vs actual cost, profit/loss display
+- **Bespoke Items**: Create sale lines without predefined hampers (description + price)
+- **Enhanced Sale Details**: Channel badges, postage breakdown in expanded view
 
 **Next Steps:**
-1. **Phase 2B: Finance Frontend**
-   - Create Expenses page (`src/pages/Expenses.tsx`)
-   - Update Sales page with postage/channel/bespoke fields
-   - Add financial dashboard with true profit visibility
-
-2. **Phase 2C: Historical Import**
+1. **Phase 2C: Historical Import**
    - Create XML parser script (`scripts/import-historical.ts`)
    - Import 3 years of spreadsheet data
+   - Sales as `isHistorical: true` records
+   - Costs as `BusinessExpense` records
 
 **Known Issues:**
 - None currently

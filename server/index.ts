@@ -1,6 +1,8 @@
 import 'dotenv/config'
 import express from 'express'
 import cors from 'cors'
+import path from 'path'
+import { fileURLToPath } from 'url'
 import categoriesRouter from './routes/categories'
 import productsRouter from './routes/products'
 import inventoryRouter from './routes/inventory'
@@ -11,6 +13,9 @@ import expensesRouter from './routes/expenses'
 
 const app = express()
 const PORT = process.env.PORT || 3001
+
+// ES module dirname workaround
+const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
 app.use(cors())
 app.use(express.json())
@@ -27,6 +32,16 @@ app.use('/api/expenses', expensesRouter)
 // Health check
 app.get('/api/health', (_, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() })
+})
+
+// Serve static files in production
+app.use(express.static(path.join(__dirname, '../dist')))
+
+// SPA fallback - serve index.html for all non-API routes
+app.get('*', (req, res) => {
+  if (!req.path.startsWith('/api')) {
+    res.sendFile(path.join(__dirname, '../dist/index.html'))
+  }
 })
 
 app.listen(PORT, () => {

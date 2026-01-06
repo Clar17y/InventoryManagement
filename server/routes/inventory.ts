@@ -215,12 +215,13 @@ router.delete('/lots/:id', async (req, res) => {
 })
 
 // GET low stock alerts
-router.get('/alerts/low-stock', async (req, res) => {
+router.get('/alerts/low-stock', async (_req, res) => {
   try {
-    const threshold = Number(req.query.threshold) || 5
-
     const products = await prisma.product.findMany({
-      where: { isActive: true },
+      where: {
+        isActive: true,
+        lowStockThreshold: { gt: 0 }, // Exclude products with alerts disabled
+      },
       include: {
         category: true,
         lots: {
@@ -244,7 +245,7 @@ router.get('/alerts/low-stock', async (req, res) => {
 
         return { ...product, totalStock, totalRemaining, lotCount, lots: undefined }
       })
-      .filter((product) => product.totalStock <= threshold)
+      .filter((product) => product.totalStock <= product.lowStockThreshold)
       .sort((a, b) => a.totalStock - b.totalStock)
 
     res.json(lowStock)

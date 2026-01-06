@@ -24,7 +24,7 @@ export default function Dashboard() {
       try {
         const [statsData, lowStock, expiring] = await Promise.all([
           settings.dashboardStats(),
-          inventory.lowStock(5),
+          inventory.lowStock(),
           inventory.expiring(30),
         ])
         setStats(statsData)

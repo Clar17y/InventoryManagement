@@ -45,10 +45,16 @@ export const categories = {
 }
 
 // Products
+export interface ProductBarcode {
+  id: string
+  barcode: string
+}
+
 export interface Product {
   id: string
   name: string
-  barcode: string | null
+  barcode: string | null    // Primary barcode (first one) for backward compatibility
+  barcodes?: ProductBarcode[] // All barcodes for this product
   categoryId: string
   category?: Category
   unit: string
@@ -69,10 +75,15 @@ export const products = {
   getByBarcode: (barcode: string) => request<Product>(`/products/barcode/${barcode}`),
   create: (data: { name: string; barcode?: string; categoryId: string; unit?: string; lowStockThreshold?: number }) =>
     request<Product>('/products', { method: 'POST', body: JSON.stringify(data) }),
-  update: (id: string, data: Partial<{ name: string; barcode: string; categoryId: string; unit: string; lowStockThreshold: number }>) =>
+  update: (id: string, data: Partial<{ name: string; categoryId: string; unit: string; lowStockThreshold: number }>) =>
     request<Product>(`/products/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
   delete: (id: string) =>
     request<void>(`/products/${id}`, { method: 'DELETE' }),
+  // Barcode management
+  addBarcode: (productId: string, barcode: string) =>
+    request<ProductBarcode>(`/products/${productId}/barcodes`, { method: 'POST', body: JSON.stringify({ barcode }) }),
+  removeBarcode: (productId: string, barcodeId: string) =>
+    request<void>(`/products/${productId}/barcodes/${barcodeId}`, { method: 'DELETE' }),
 }
 
 // Inventory

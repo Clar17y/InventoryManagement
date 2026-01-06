@@ -437,20 +437,22 @@ export interface ExpenseSummary {
 }
 
 export const expenses = {
-  list: (params?: { category?: ExpenseCategory; startDate?: string; endDate?: string; limit?: number; offset?: number }) => {
+  list: (params?: { category?: ExpenseCategory; startDate?: string; endDate?: string; search?: string; limit?: number; offset?: number }) => {
     const query = new URLSearchParams()
     if (params?.category) query.set('category', params.category)
     if (params?.startDate) query.set('startDate', params.startDate)
     if (params?.endDate) query.set('endDate', params.endDate)
+    if (params?.search) query.set('search', params.search)
     if (params?.limit) query.set('limit', String(params.limit))
     if (params?.offset) query.set('offset', String(params.offset))
     return request<ExpenseListResponse>(`/expenses?${query.toString()}`)
   },
   get: (id: string) => request<BusinessExpense>(`/expenses/${id}`),
-  summary: (params?: { startDate?: string; endDate?: string }) => {
+  summary: (params?: { startDate?: string; endDate?: string; search?: string }) => {
     const query = new URLSearchParams()
     if (params?.startDate) query.set('startDate', params.startDate)
     if (params?.endDate) query.set('endDate', params.endDate)
+    if (params?.search) query.set('search', params.search)
     return request<ExpenseSummary>(`/expenses/summary?${query.toString()}`)
   },
   create: (data: ExpenseCreateData) =>

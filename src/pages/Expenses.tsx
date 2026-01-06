@@ -1,7 +1,8 @@
-import { useState, useEffect } from 'react'
-import { PlusIcon, PencilIcon, TrashIcon, FunnelIcon, ChartBarIcon } from '@heroicons/react/24/outline'
+import { useState, useEffect, useRef } from 'react'
+import { PlusIcon, PencilIcon, TrashIcon, ChartBarIcon } from '@heroicons/react/24/outline'
 import { expenses, BusinessExpense, ExpenseCategory, ExpenseSummary } from '../lib/api'
 import { formatPrice } from '../lib/formatting'
+import DateSearchFilter, { useDateSearchFilter } from '../components/filters/DateSearchFilter'
 
 interface ExpenseFormData {
   date: string
@@ -51,15 +52,37 @@ export default function Expenses() {
   const [saving, setSaving] = useState(false)
   const [filterCategory, setFilterCategory] = useState<ExpenseCategory | ''>('')
 
-  const loadExpenses = async () => {
+  // Date and search filter state
+  const {
+    startDate,
+    endDate,
+    searchQuery,
+    debouncedSearchQuery,
+    setStartDate,
+    setEndDate,
+    setSearchQuery,
+  } = useDateSearchFilter()
+
+  const isFirstRender = useRef(true)
+
+  const loadExpenses = async (isInitialLoad = false) => {
     try {
-      setLoading(true)
-      const params: { category?: ExpenseCategory } = {}
+      if (isInitialLoad) {
+        setLoading(true)
+      }
+      const params: { category?: ExpenseCategory; startDate?: string; endDate?: string; search?: string } = {}
       if (filterCategory) params.category = filterCategory
+      if (startDate) params.startDate = new Date(startDate).toISOString()
+      if (endDate) {
+        const end = new Date(endDate)
+        end.setHours(23, 59, 59, 999)
+        params.endDate = end.toISOString()
+      }
+      if (debouncedSearchQuery) params.search = debouncedSearchQuery
 
       const [listRes, summaryRes] = await Promise.all([
         expenses.list(params),
-        expenses.summary(),
+        expenses.summary(params),
       ])
       setExpenseList(listRes.expenses)
       setSummary(summaryRes)
@@ -71,9 +94,18 @@ export default function Expenses() {
     }
   }
 
+  // Initial load
   useEffect(() => {
-    loadExpenses()
-  }, [filterCategory])
+    loadExpenses(true)
+    isFirstRender.current = false
+  }, [])
+
+  // Re-fetch when filters change
+  useEffect(() => {
+    if (!isFirstRender.current) {
+      loadExpenses(false)
+    }
+  }, [filterCategory, startDate, endDate, debouncedSearchQuery])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -305,8 +337,20 @@ export default function Expenses() {
       )}
 
       {/* Filter */}
+      <DateSearchFilter
+        startDate={startDate}
+        endDate={endDate}
+        searchQuery={searchQuery}
+        onStartDateChange={setStartDate}
+        onEndDateChange={setEndDate}
+        onSearchChange={setSearchQuery}
+        searchPlaceholder="Search expenses..."
+        showQuickSelectors={true}
+      />
+
+      {/* Category filter */}
       <div className="flex items-center gap-2">
-        <FunnelIcon className="h-4 w-4 text-gray-400" />
+        <span className="text-sm text-gray-500">Category:</span>
         <select
           value={filterCategory}
           onChange={(e) => setFilterCategory(e.target.value as ExpenseCategory | '')}

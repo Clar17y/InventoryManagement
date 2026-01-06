@@ -1,5 +1,4 @@
 import { useState, useEffect, useRef } from 'react'
-import { useDebounce } from '../hooks/useDebounce'
 import {
   PlusIcon,
   ChevronDownIcon,
@@ -9,8 +8,8 @@ import {
   CheckCircleIcon,
   PencilIcon,
   ChartBarIcon,
-  FunnelIcon,
 } from '@heroicons/react/24/outline'
+import DateSearchFilter, { useDateSearchFilter } from '../components/filters/DateSearchFilter'
 import {
   sales,
   hampers,
@@ -86,10 +85,18 @@ export default function Sales() {
   // Summary and filter state
   const [showSummary, setShowSummary] = useState(false)
   const [summary, setSummary] = useState<SalesSummary | null>(null)
-  const [startDate, setStartDate] = useState('')
-  const [endDate, setEndDate] = useState('')
-  const [searchQuery, setSearchQuery] = useState('')
-  const debouncedSearchQuery = useDebounce(searchQuery, 400) // Debounce search to avoid excessive API calls
+
+  // Date and search filter state
+  const {
+    startDate,
+    endDate,
+    searchQuery,
+    debouncedSearchQuery,
+    setStartDate,
+    setEndDate,
+    setSearchQuery,
+  } = useDateSearchFilter()
+
   const [totalSales, setTotalSales] = useState(0)
   const PAGE_SIZE = 20
 
@@ -814,35 +821,7 @@ export default function Sales() {
     )
   }
 
-  // Helper to set date range for quick selectors
-  const setDateRange = (start: string, end: string) => {
-    setStartDate(start)
-    setEndDate(end)
-  }
 
-  const clearDateFilter = () => {
-    setStartDate('')
-    setEndDate('')
-  }
-
-  // Get current year for quick selectors
-  const currentYear = new Date().getFullYear()
-
-  const getQuarterDates = (quarter: number, year: number) => {
-    const quarters = [
-      { start: `${year}-01-01`, end: `${year}-03-31` },
-      { start: `${year}-04-01`, end: `${year}-06-30` },
-      { start: `${year}-07-01`, end: `${year}-09-30` },
-      { start: `${year}-10-01`, end: `${year}-12-31` },
-    ]
-    return quarters[quarter - 1] || { start: '', end: '' }
-  }
-
-  // Financial year is April to March
-  const getFYDates = (year: number) => ({
-    start: `${year}-04-01`,
-    end: `${year + 1}-03-31`,
-  })
 
   const hasMore = saleList.length < totalSales
 
@@ -919,95 +898,17 @@ export default function Sales() {
         </div>
       )}
 
-      {/* Date Filter */}
-      <div className="card space-y-3">
-        <div className="flex items-center gap-2 flex-wrap justify-between">
-          {/* Date filters on the left */}
-          <div className="flex items-center gap-2 flex-wrap">
-            <FunnelIcon className="h-4 w-4 text-gray-400" />
-            <input
-              type="date"
-              value={startDate}
-              onChange={(e) => setStartDate(e.target.value)}
-              className="text-sm border rounded-lg px-2 py-1"
-              placeholder="Start date"
-            />
-            <span className="text-gray-400">to</span>
-            <input
-              type="date"
-              value={endDate}
-              onChange={(e) => setEndDate(e.target.value)}
-              className="text-sm border rounded-lg px-2 py-1"
-              placeholder="End date"
-            />
-            {(startDate || endDate) && (
-              <button
-                onClick={clearDateFilter}
-                className="text-xs text-gray-500 hover:text-gray-700"
-              >
-                Clear
-              </button>
-            )}
-          </div>
-
-          {/* Search on the right */}
-          <div className="flex items-center gap-2">
-            <input
-              type="text"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="text-sm border rounded-lg px-3 py-1 w-48"
-              placeholder="Search sales..."
-            />
-            {searchQuery && (
-              <button
-                onClick={() => setSearchQuery('')}
-                className="text-xs text-gray-500 hover:text-gray-700"
-              >
-                Clear
-              </button>
-            )}
-          </div>
-        </div>
-
-        {/* Quick selectors */}
-        <div className="flex flex-wrap gap-2">
-          <span className="text-xs text-gray-500 self-center">Quick:</span>
-          {[1, 2, 3, 4].map((q) => {
-            const dates = getQuarterDates(q, currentYear)
-            return (
-              <button
-                key={q}
-                onClick={() => setDateRange(dates.start || '', dates.end || '')}
-                className="text-xs px-2 py-1 rounded bg-gray-100 hover:bg-gray-200 text-gray-700"
-              >
-                Q{q} {currentYear}
-              </button>
-            )
-          })}
-          <button
-            onClick={() => setDateRange(`${currentYear}-01-01`, `${currentYear}-12-31`)}
-            className="text-xs px-2 py-1 rounded bg-gray-100 hover:bg-gray-200 text-gray-700"
-          >
-            {currentYear}
-          </button>
-          <button
-            onClick={() => {
-              const fy = getFYDates(currentYear - 1) // Current FY started last April
-              setDateRange(fy.start, fy.end)
-            }}
-            className="text-xs px-2 py-1 rounded bg-gray-100 hover:bg-gray-200 text-gray-700"
-          >
-            FY {currentYear - 1}/{currentYear}
-          </button>
-          <button
-            onClick={clearDateFilter}
-            className="text-xs px-2 py-1 rounded bg-blue-100 hover:bg-blue-200 text-blue-700"
-          >
-            All Time
-          </button>
-        </div>
-      </div>
+      {/* Filters */}
+      <DateSearchFilter
+        startDate={startDate}
+        endDate={endDate}
+        searchQuery={searchQuery}
+        onStartDateChange={setStartDate}
+        onEndDateChange={setEndDate}
+        onSearchChange={setSearchQuery}
+        searchPlaceholder="Search sales..."
+        showQuickSelectors={true}
+      />
 
       {loading ? (
         <div className="text-center py-8 text-gray-500">Loading...</div>

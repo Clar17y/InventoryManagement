@@ -21,6 +21,7 @@ const listQuerySchema = z.object({
   category: z.nativeEnum(ExpenseCategory).optional(),
   startDate: z.string().datetime().optional(),
   endDate: z.string().datetime().optional(),
+  search: z.string().optional(),
   limit: z.coerce.number().int().positive().default(50),
   offset: z.coerce.number().int().nonnegative().default(0),
 })
@@ -30,11 +31,8 @@ router.get('/', async (req, res) => {
   try {
     const query = listQuerySchema.parse(req.query)
 
-    const where: {
-      isActive: boolean
-      category?: ExpenseCategory
-      date?: { gte?: Date; lte?: Date }
-    } = {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const where: any = {
       isActive: true,
     }
 
@@ -46,6 +44,15 @@ router.get('/', async (req, res) => {
       where.date = {}
       if (query.startDate) where.date.gte = new Date(query.startDate)
       if (query.endDate) where.date.lte = new Date(query.endDate)
+    }
+
+    // Search across description and supplier
+    if (query.search && query.search.trim()) {
+      const searchTerm = query.search.trim()
+      where.OR = [
+        { description: { contains: searchTerm, mode: 'insensitive' } },
+        { supplier: { contains: searchTerm, mode: 'insensitive' } },
+      ]
     }
 
     const [expenses, total] = await Promise.all([
@@ -75,13 +82,12 @@ router.get('/summary', async (req, res) => {
       .object({
         startDate: z.string().datetime().optional(),
         endDate: z.string().datetime().optional(),
+        search: z.string().optional(),
       })
       .parse(req.query)
 
-    const where: {
-      isActive: boolean
-      date?: { gte?: Date; lte?: Date }
-    } = {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const where: any = {
       isActive: true,
     }
 
@@ -89,6 +95,15 @@ router.get('/summary', async (req, res) => {
       where.date = {}
       if (query.startDate) where.date.gte = new Date(query.startDate)
       if (query.endDate) where.date.lte = new Date(query.endDate)
+    }
+
+    // Search across description and supplier
+    if (query.search && query.search.trim()) {
+      const searchTerm = query.search.trim()
+      where.OR = [
+        { description: { contains: searchTerm, mode: 'insensitive' } },
+        { supplier: { contains: searchTerm, mode: 'insensitive' } },
+      ]
     }
 
     // Get totals by category

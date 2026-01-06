@@ -193,20 +193,24 @@ export interface RequirementAllocation {
 }
 
 export interface SaleLinePreview {
-  hamperId: string
+  hamperId: string | null
   hamperName: string
+  description?: string
   quantity: number
   unitPrice: number
   requirements: RequirementAllocation[]
   totalCost: number
   canFulfill: boolean
+  isBespoke?: boolean
 }
 
 export interface SalePreview {
   lines: SaleLinePreview[]
   summary: {
     totalGross: number
+    postageCharged: number
     totalCost: number
+    estimatedFees: number
     estimatedMargin: number
   }
 }
@@ -221,34 +225,57 @@ export interface SaleConsumption {
 
 export interface SaleLine {
   id: string
-  hamperId: string
-  hamper: { id: string; name: string; sellingPrice: number }
+  hamperId: string | null
+  hamper: { id: string; name: string; sellingPrice: number } | null
+  description: string | null
   quantity: number
   unitPrice: number
   lineCost: number
   consumptions: SaleConsumption[]
 }
 
+export type SaleChannel = 'etsy' | 'direct' | 'fair'
+
 export interface Sale {
   id: string
   saleDate: string
+  saleChannel: SaleChannel
   etsyOrderId: string | null
   grossRevenue: number
+  postageCharged: number
+  postageCost: number
   etsyFees: number
+  transactionFee: number
+  postageTransactionFee: number
+  regulatoryFee: number
+  processingFee: number
+  vatOnProcessingFee: number
+  listingFee: number
   packagingOverhead: number
   netRevenue: number
   totalCost: number
   margin: number
   notes: string | null
+  isHistorical: boolean
   createdAt: string
   lines: SaleLine[]
 }
 
+export interface SaleLineInput {
+  hamperId?: string // Optional for bespoke items
+  description?: string // For bespoke items
+  quantity: number
+  unitPrice?: number // Required for bespoke items
+}
+
 export interface SaleCreateData {
   grossRevenue: number
+  postageCharged?: number
+  postageCost?: number
+  saleChannel?: SaleChannel
   etsyOrderId?: string
   notes?: string
-  lines: { hamperId: string; quantity: number }[]
+  lines: SaleLineInput[]
   allocationOverrides?: Record<string, { lotId: string; quantity: number }[]>
 }
 
@@ -257,23 +284,90 @@ export interface MarginAnalytics {
   summary: {
     salesCount: number
     totalRevenue: number
+    totalPostageCharged: number
+    totalPostageCost: number
+    postageProfit: number
     totalFees: number
     totalOverhead: number
     totalCost: number
     totalMargin: number
     marginPercent: number
   }
-  byHamper: { name: string; count: number; revenue: number; margin: number }[]
+  byHamper: { name: string; count: number; revenue: number }[]
+  byChannel: { channel: string; count: number; revenue: number; fees: number; margin: number }[]
 }
 
 export const sales = {
   list: (limit = 50, offset = 0) =>
     request<Sale[]>(`/sales?limit=${limit}&offset=${offset}`),
   get: (id: string) => request<Sale>(`/sales/${id}`),
-  preview: (lines: { hamperId: string; quantity: number }[]) =>
-    request<SalePreview>('/sales/preview', { method: 'POST', body: JSON.stringify({ lines }) }),
+  preview: (data: { lines: SaleLineInput[]; postageCharged?: number; saleChannel?: SaleChannel }) =>
+    request<SalePreview>('/sales/preview', { method: 'POST', body: JSON.stringify(data) }),
   create: (data: SaleCreateData) =>
     request<Sale>('/sales', { method: 'POST', body: JSON.stringify(data) }),
   analytics: (days = 30) =>
     request<MarginAnalytics>(`/sales/analytics/margins?days=${days}`),
+}
+
+// Business Expenses
+export type ExpenseCategory = 'ADVERTISING' | 'LISTING_FEE' | 'POSTAGE' | 'PACKAGING' | 'OTHER'
+
+export interface BusinessExpense {
+  id: string
+  date: string
+  category: ExpenseCategory
+  supplier: string | null
+  description: string
+  amountIncVat: number
+  amountExcVat: number
+  isActive: boolean
+  createdAt: string
+  updatedAt: string
+}
+
+export interface ExpenseCreateData {
+  date?: string
+  category: ExpenseCategory
+  supplier?: string
+  description: string
+  amountIncVat: number
+  amountExcVat: number
+}
+
+export interface ExpenseListResponse {
+  expenses: BusinessExpense[]
+  total: number
+  limit: number
+  offset: number
+}
+
+export interface ExpenseSummary {
+  byCategory: { category: ExpenseCategory; totalIncVat: number; totalExcVat: number; count: number }[]
+  byMonth: { month: string; totalIncVat: number; totalExcVat: number; count: number }[]
+  totals: { totalIncVat: number; totalExcVat: number; count: number }
+}
+
+export const expenses = {
+  list: (params?: { category?: ExpenseCategory; startDate?: string; endDate?: string; limit?: number; offset?: number }) => {
+    const query = new URLSearchParams()
+    if (params?.category) query.set('category', params.category)
+    if (params?.startDate) query.set('startDate', params.startDate)
+    if (params?.endDate) query.set('endDate', params.endDate)
+    if (params?.limit) query.set('limit', String(params.limit))
+    if (params?.offset) query.set('offset', String(params.offset))
+    return request<ExpenseListResponse>(`/expenses?${query.toString()}`)
+  },
+  get: (id: string) => request<BusinessExpense>(`/expenses/${id}`),
+  summary: (params?: { startDate?: string; endDate?: string }) => {
+    const query = new URLSearchParams()
+    if (params?.startDate) query.set('startDate', params.startDate)
+    if (params?.endDate) query.set('endDate', params.endDate)
+    return request<ExpenseSummary>(`/expenses/summary?${query.toString()}`)
+  },
+  create: (data: ExpenseCreateData) =>
+    request<BusinessExpense>('/expenses', { method: 'POST', body: JSON.stringify(data) }),
+  update: (id: string, data: Partial<ExpenseCreateData>) =>
+    request<BusinessExpense>(`/expenses/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+  delete: (id: string) =>
+    request<void>(`/expenses/${id}`, { method: 'DELETE' }),
 }

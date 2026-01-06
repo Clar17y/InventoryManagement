@@ -1,7 +1,7 @@
 # Savvy Hampers - Development Progress
 
-> **Multi-Agent Tracking Document**  
-> This file is the single source of truth for development progress across all AI agents (Antigravity, Kiro, Claude Code, Codex).  
+> **Multi-Agent Tracking Document**
+> This file is the single source of truth for development progress across all AI agents (Antigravity, Kiro, Claude Code, Codex).
 > Always read this file at the start of a session and update it when completing work.
 
 ---
@@ -15,8 +15,11 @@
 | 1C: Hampers | ✅ Complete | 4/4 tasks |
 | 1D: Sales & Margins | ✅ Complete | 7/7 tasks |
 | 1E: Polish | ❌ Not Started | 0/5 tasks |
+| **2A: Finance Backend** | ✅ Complete | 6/6 tasks |
+| **2B: Finance Frontend** | ❌ Not Started | 0/3 tasks |
+| **2C: Historical Import** | ❌ Not Started | 0/3 tasks |
 
-**Current Focus:** Phase 1E - Polish & Alerts
+**Current Focus:** Phase 2B - Finance Frontend (Expenses page, Sales page updates)
 
 ---
 
@@ -92,6 +95,42 @@
 
 ---
 
+## Phase 2A: Finance Backend ✅ COMPLETE
+
+Goal: Replace Excel spreadsheet "Savvy Finances" with full financial tracking.
+
+- [x] Schema updates - postage, channel, fee breakdown, bespoke lines, expenses
+- [x] Database migration (`20260106082747_add_finance_tracking`)
+- [x] Expenses API (`/api/expenses`) - full CRUD + summary endpoint
+- [x] Sales API updates - postage, channel (etsy/direct/fair), bespoke items
+- [x] EtsyFeeConfig granular rates (6 fee types matching actual Etsy structure)
+- [x] Frontend API client types updated
+
+### Notes
+- **Postage tracking**: `postageCharged` (customer pays) vs `postageCost` (we pay)
+- **Sale channels**: `etsy` (with fees), `direct` (no fees), `fair` (no fees)
+- **Bespoke items**: SaleLine.hamperId now optional, description field added
+- **Fee breakdown**: 6 separate fee fields on Sale model
+- **ExpenseCategory enum**: ADVERTISING, LISTING_FEE, POSTAGE, PACKAGING, OTHER
+
+---
+
+## Phase 2B: Finance Frontend ❌ NOT STARTED
+
+- [ ] Expenses page (`/expenses`) - add/edit/list business expenses
+- [ ] Sales page updates - postage/channel/bespoke fields in UI
+- [ ] Financial dashboard - true profit visibility with cost breakdown
+
+---
+
+## Phase 2C: Historical Import ❌ NOT STARTED
+
+- [ ] XML spreadsheet parser script
+- [ ] Import sales as `isHistorical: true` records
+- [ ] Import costs sheet as BusinessExpense records
+
+---
+
 ## Active Work Log
 
 > Update this table when starting/completing work
@@ -102,7 +141,9 @@
 | 2026-01-05 | Antigravity | Add Stock Form + Barcode Scanner | ✅ Done | main |
 | 2026-01-05 | Antigravity | Enhanced Stock Levels Display | ✅ Done | main |
 | 2026-01-05 | Antigravity | Phase 1C: Hampers | ✅ Done | main |
-| 2026-01-05 | Claude Code | Phase 1D: Sales & Margins | 🔄 In Progress | main |
+| 2026-01-05 | Claude Code | Phase 1D: Sales & Margins | ✅ Done | main |
+| 2026-01-06 | Claude Code | Phase 2A: Finance Backend | ✅ Done | main |
+| 2026-01-06 | Claude Code | Phase 2B: Finance Frontend | 🔄 Next | main |
 
 ---
 
@@ -110,31 +151,47 @@
 
 > Leave notes here when ending a session so the next agent knows where you left off
 
-**Last Updated:** 2026-01-05
+**Last Updated:** 2026-01-06
 
 **Current State:**
-- Phase 1D: Sales & Margins is COMPLETE (7/7 tasks)
-- Sales page (`src/pages/Sales.tsx`) has:
-  - Record Sale flow with hamper selection
-  - Live allocation preview from API
-  - Manual lot override (click pencil icon on any requirement)
-  - Cost/margin summary display
-  - Sales history list with expandable details
-  - Full financial breakdown (gross, fees, packaging, cost, margin)
-- API client updated with sales types (`src/lib/api.ts`)
-- New endpoint: `GET /api/inventory/lots-by-category/:categoryId`
+- Phase 2A: Finance Backend is COMPLETE (6/6 tasks)
+- Backend changes for spreadsheet replacement:
+  - Schema extended: postage, channel, fee breakdown, bespoke lines, expenses
+  - Migration applied: `20260106082747_add_finance_tracking`
+  - New model: `BusinessExpense` with categories enum
+  - Updated: `Sale`, `SaleLine`, `EtsyFeeConfig`
+- New API routes:
+  - `server/routes/expenses.ts` - full CRUD + summary
+  - `server/routes/sales.ts` - updated for postage/channel/bespoke
+  - `server/routes/settings.ts` - updated for granular EtsyFeeConfig
+- Frontend API client updated: `src/lib/api.ts`
+- Build passes with no errors
+
+**Key Files Changed:**
+- `prisma/schema.prisma` - New fields and models
+- `server/routes/expenses.ts` - NEW file
+- `server/routes/sales.ts` - Updated fee calculation, bespoke support
+- `server/routes/settings.ts` - Updated EtsyFeeConfig structure
+- `src/lib/api.ts` - New types and API functions
+- `src/pages/Sales.tsx` - Minor fixes for nullable hamper
 
 **Next Steps:**
-1. Test the Sales page end-to-end with manual overrides
-2. Begin Phase 1E: Polish & Alerts
-   - Dashboard with quick actions
-   - Low stock alerts display
-   - Expiring lots warnings
-   - Sales history and margin reports
-   - Mobile UX polish
+1. **Phase 2B: Finance Frontend**
+   - Create Expenses page (`src/pages/Expenses.tsx`)
+   - Update Sales page with postage/channel/bespoke fields
+   - Add financial dashboard with true profit visibility
+
+2. **Phase 2C: Historical Import**
+   - Create XML parser script (`scripts/import-historical.ts`)
+   - Import 3 years of spreadsheet data
 
 **Known Issues:**
 - None currently
+
+**Spreadsheet Reference:**
+- `Savvy Finances.xml` in project root contains 3 years of data
+- Sales sheet: Order ID, Date, Product, Sale Price, Postage, 6 fee columns, Net
+- Costs sheet: Category (Packaging/Advertising/Hamper Contents/Postage), Date, Payee, Description, Price inc/exc VAT
 
 ---
 

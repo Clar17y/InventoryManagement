@@ -14,6 +14,14 @@ enum PickRule {
   MANUAL
 }
 
+enum ExpenseCategory {
+  ADVERTISING
+  LISTING_FEE
+  POSTAGE
+  PACKAGING
+  OTHER
+}
+
 model ComponentCategory {
   id          String   @id @default(cuid())
   name        String   @unique
@@ -103,29 +111,45 @@ model Sale {
   id                String    @id @default(cuid())
   saleDate          DateTime  @default(now())
   etsyOrderId       String?   @unique
+  saleChannel       String    @default("etsy") // "etsy" | "direct" | "fair"
   grossRevenue      Decimal   @db.Decimal(10, 2)
-  etsyFees          Decimal   @db.Decimal(10, 2) @default(0)
+  postageCharged    Decimal   @db.Decimal(10, 2) @default(0) // What customer pays
+  postageCost       Decimal   @db.Decimal(10, 2) @default(0) // What we pay Royal Mail
+  etsyFees          Decimal   @db.Decimal(10, 2) @default(0) // Total of all fee breakdown fields
   packagingOverhead Decimal   @db.Decimal(10, 2) @default(0)
   netRevenue        Decimal   @db.Decimal(10, 2)
   totalCost         Decimal   @db.Decimal(10, 2)
   margin            Decimal   @db.Decimal(10, 2)
   notes             String?
+  isHistorical      Boolean   @default(false) // True for imported historical data
   createdAt         DateTime  @default(now())
   updatedAt         DateTime  @updatedAt
 
+  // Detailed Etsy fee breakdown
+  transactionFee        Decimal @db.Decimal(10, 2) @default(0)
+  postageTransactionFee Decimal @db.Decimal(10, 2) @default(0)
+  regulatoryFee         Decimal @db.Decimal(10, 2) @default(0)
+  processingFee         Decimal @db.Decimal(10, 2) @default(0)
+  vatOnProcessingFee    Decimal @db.Decimal(10, 2) @default(0)
+  listingFee            Decimal @db.Decimal(10, 2) @default(0)
+
   lines SaleLine[]
+
+  @@index([saleDate])
+  @@index([saleChannel])
 }
 
 model SaleLine {
-  id        String   @id @default(cuid())
-  saleId    String
-  sale      Sale     @relation(fields: [saleId], references: [id], onDelete: Cascade)
-  hamperId  String
-  hamper    Hamper   @relation(fields: [hamperId], references: [id])
-  quantity  Int      @default(1)
-  unitPrice Decimal  @db.Decimal(10, 2)
-  lineCost  Decimal  @db.Decimal(10, 2)
-  createdAt DateTime @default(now())
+  id          String   @id @default(cuid())
+  saleId      String
+  sale        Sale     @relation(fields: [saleId], references: [id], onDelete: Cascade)
+  hamperId    String?  // Optional for bespoke items
+  hamper      Hamper?  @relation(fields: [hamperId], references: [id])
+  description String?  // For bespoke items: "Custom Baby Hamper for Sarah"
+  quantity    Int      @default(1)
+  unitPrice   Decimal  @db.Decimal(10, 2)
+  lineCost    Decimal  @db.Decimal(10, 2)
+  createdAt   DateTime @default(now())
 
   consumptions SaleConsumption[]
 }
@@ -142,15 +166,18 @@ model SaleConsumption {
 }
 
 model EtsyFeeConfig {
-  id            String    @id @default(cuid())
-  name          String
-  percentageFee Decimal   @db.Decimal(5, 4)
-  fixedFee      Decimal   @db.Decimal(10, 2)
-  paymentFee    Decimal   @db.Decimal(5, 4)
-  effectiveFrom DateTime  @default(now())
-  effectiveTo   DateTime?
-  isActive      Boolean   @default(true)
-  createdAt     DateTime  @default(now())
+  id                String    @id @default(cuid())
+  name              String
+  transactionFee    Decimal   @db.Decimal(5, 4) // 0.065 = 6.5%
+  regulatoryFee     Decimal   @db.Decimal(5, 4) // 0.0032 = 0.32%
+  paymentFeePercent Decimal   @db.Decimal(5, 4) // 0.04 = 4%
+  paymentFeeFixed   Decimal   @db.Decimal(10, 2) // £0.20
+  vatRate           Decimal   @db.Decimal(5, 4) // 0.20 = 20%
+  listingFee        Decimal   @db.Decimal(10, 2) // £0.15
+  effectiveFrom     DateTime  @default(now())
+  effectiveTo       DateTime?
+  isActive          Boolean   @default(true)
+  createdAt         DateTime  @default(now())
 }
 
 model PackagingOverhead {
@@ -161,4 +188,20 @@ model PackagingOverhead {
   effectiveTo   DateTime?
   isActive      Boolean   @default(true)
   createdAt     DateTime  @default(now())
+}
+
+model BusinessExpense {
+  id            String          @id @default(cuid())
+  date          DateTime        @default(now())
+  category      ExpenseCategory
+  supplier      String?         // "Etsy", "Royal Mail", "Amazon", etc.
+  description   String
+  amountIncVat  Decimal         @db.Decimal(10, 2)
+  amountExcVat  Decimal         @db.Decimal(10, 2)
+  isActive      Boolean         @default(true)
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
+
+  @@index([date])
+  @@index([category])
 }

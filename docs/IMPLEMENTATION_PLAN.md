@@ -333,7 +333,68 @@ Alternative: Simple JWT with environment-based secret
 4. Sales history and margin reports
 5. Mobile UX polish
 
-### Phase 2 (Future): Etsy Integration
+### Phase 2: Full Financial Tracking (Spreadsheet Replacement) 🔄 IN PROGRESS
+
+Goal: Replace the "Savvy Finances" Excel spreadsheet with complete financial tracking.
+
+#### Phase 2A: Backend Infrastructure ✅ COMPLETE
+1. ✅ Schema updates (postage, channel, fee breakdown, bespoke lines, expenses)
+2. ✅ Database migration
+3. ✅ Expenses API (`/api/expenses`) - full CRUD + summary
+4. ✅ Sales API updates (postage, channel, bespoke items)
+5. ✅ EtsyFeeConfig granular rates (6 fee types)
+6. ✅ Frontend API client types
+
+#### Phase 2B: Frontend Updates ❌ NOT STARTED
+1. Expenses page - manage business expenses
+2. Sales page updates - postage/channel/bespoke UI
+3. Financial dashboard - true profit visibility
+
+#### Phase 2C: Historical Import ❌ NOT STARTED
+1. XML spreadsheet parser
+2. Import sales as historical records
+3. Import costs as business expenses
+
+#### New Database Models (Added in Phase 2A)
+
+**Sale** - Extended fields:
+- `saleChannel` - "etsy" | "direct" | "fair"
+- `postageCharged` - What customer pays
+- `postageCost` - What we pay Royal Mail
+- `isHistorical` - True for imported data
+- Fee breakdown: `transactionFee`, `postageTransactionFee`, `regulatoryFee`, `processingFee`, `vatOnProcessingFee`, `listingFee`
+
+**SaleLine** - Extended fields:
+- `hamperId` now optional (for bespoke items)
+- `description` - For bespoke item names
+
+**BusinessExpense** - New model:
+- `category` - ADVERTISING | LISTING_FEE | POSTAGE | PACKAGING | OTHER
+- `supplier`, `description`, `amountIncVat`, `amountExcVat`
+
+**EtsyFeeConfig** - Updated structure:
+- `transactionFee` (6.5%)
+- `regulatoryFee` (0.32%)
+- `paymentFeePercent` (4%)
+- `paymentFeeFixed` (£0.20)
+- `vatRate` (20%)
+- `listingFee` (£0.15)
+
+#### New API Endpoints
+
+**Expenses:**
+- `GET /api/expenses` - List with filters (category, date range)
+- `GET /api/expenses/summary` - Totals by category and month
+- `POST /api/expenses` - Create expense
+- `PUT /api/expenses/:id` - Update
+- `DELETE /api/expenses/:id` - Soft delete
+
+**Sales (Updated):**
+- `POST /api/sales` - Now accepts: `postageCharged`, `postageCost`, `saleChannel`, bespoke lines
+- `POST /api/sales/preview` - Updated with fee estimates by channel
+- `GET /api/sales/analytics/margins` - Now includes postage profit and channel breakdown
+
+### Phase 3 (Future): Etsy Integration
 - OAuth with Etsy API
 - Pull orders automatically
 - Push stock levels back
@@ -344,3 +405,7 @@ Alternative: Simple JWT with environment-based secret
 - **Deployment**: Vercel + Neon (free tier, serverless) - generous free tiers, no AWS complexity
 - **Auth**: Magic link via Supabase Auth - no password to remember
 - **Data Import**: User will share Google Sheets for import assessment
+- **Etsy Fees**: Calculated with 6 granular fee types matching actual Etsy fee structure
+- **Historical Import**: Imported as read-only reference data with `isHistorical` flag
+- **Expense Categories**: Fixed enum (ADVERTISING, LISTING_FEE, POSTAGE, PACKAGING, OTHER)
+- **Bespoke Sales**: Allow sales without pre-defined hampers for custom/in-person orders

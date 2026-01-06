@@ -7,6 +7,7 @@ import inventoryRouter from './routes/inventory'
 import hampersRouter from './routes/hampers'
 import salesRouter from './routes/sales'
 import settingsRouter from './routes/settings'
+import expensesRouter from './routes/expenses'
 
 const app = express()
 const PORT = process.env.PORT || 3001
@@ -21,6 +22,7 @@ app.use('/api/inventory', inventoryRouter)
 app.use('/api/hampers', hampersRouter)
 app.use('/api/sales', salesRouter)
 app.use('/api/settings', settingsRouter)
+app.use('/api/expenses', expensesRouter)
 
 // Health check
 app.get('/api/health', (_, res) => {

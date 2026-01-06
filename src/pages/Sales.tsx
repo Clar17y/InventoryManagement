@@ -108,7 +108,7 @@ export default function Sales() {
     const fetchPreview = async () => {
       setPreviewLoading(true)
       try {
-        const result = await sales.preview(validLines)
+        const result = await sales.preview({ lines: validLines })
         setPreview(result)
       } catch (err) {
         console.error('Preview failed:', err)
@@ -591,7 +591,7 @@ export default function Sales() {
               >
                 <div className="flex-1 min-w-0">
                   <div className="font-medium">
-                    {sale.lines.map((l) => `${l.hamper.name} ×${l.quantity}`).join(', ')}
+                    {sale.lines.map((l) => `${l.hamper?.name || l.description || 'Bespoke Item'} ×${l.quantity}`).join(', ')}
                   </div>
                   <div className="text-sm text-gray-500">
                     {formatDate(sale.saleDate)}
@@ -646,7 +646,7 @@ export default function Sales() {
                     {sale.lines.map((line) => (
                       <div key={line.id} className="text-sm bg-gray-50 p-2 rounded-lg mb-2">
                         <div className="flex justify-between">
-                          <span className="font-medium">{line.hamper.name} × {line.quantity}</span>
+                          <span className="font-medium">{line.hamper?.name || line.description || 'Bespoke Item'} × {line.quantity}</span>
                           <span>{formatCurrency(Number(line.unitPrice) * line.quantity)}</span>
                         </div>
                         {line.consumptions.length > 0 && (

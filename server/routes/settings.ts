@@ -4,12 +4,15 @@ import { prisma } from '../lib/prisma'
 
 const router = Router()
 
-// Etsy fee schemas
+// Etsy fee schemas - granular fee breakdown
 const etsyFeeSchema = z.object({
   name: z.string().min(1).max(100),
-  percentageFee: z.number().min(0).max(1), // e.g., 0.065 for 6.5%
-  fixedFee: z.number().nonnegative(), // e.g., 0.20
-  paymentFee: z.number().min(0).max(1), // e.g., 0.04 for 4%
+  transactionFee: z.number().min(0).max(1), // 0.065 = 6.5% on item price
+  regulatoryFee: z.number().min(0).max(1), // 0.0032 = 0.32% on total
+  paymentFeePercent: z.number().min(0).max(1), // 0.04 = 4% on total
+  paymentFeeFixed: z.number().nonnegative(), // £0.20 fixed per sale
+  vatRate: z.number().min(0).max(1), // 0.20 = 20% VAT on processing fee
+  listingFee: z.number().nonnegative(), // £0.15 per listing
 })
 
 // Packaging overhead schemas
@@ -48,9 +51,12 @@ router.post('/etsy-fees', async (req, res) => {
     const config = await prisma.etsyFeeConfig.create({
       data: {
         name: data.name,
-        percentageFee: data.percentageFee,
-        fixedFee: data.fixedFee,
-        paymentFee: data.paymentFee,
+        transactionFee: data.transactionFee,
+        regulatoryFee: data.regulatoryFee,
+        paymentFeePercent: data.paymentFeePercent,
+        paymentFeeFixed: data.paymentFeeFixed,
+        vatRate: data.vatRate,
+        listingFee: data.listingFee,
       },
     })
 

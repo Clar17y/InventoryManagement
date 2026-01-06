@@ -1,7 +1,7 @@
 # Savvy Hampers - Development Progress
 
-> **Multi-Agent Tracking Document**  
-> This file is the single source of truth for development progress across all AI agents (Antigravity, Kiro, Claude Code, Codex).  
+> **Multi-Agent Tracking Document**
+> This file is the single source of truth for development progress across all AI agents (Antigravity, Kiro, Claude Code, Codex).
 > Always read this file at the start of a session and update it when completing work.
 
 ---
@@ -15,6 +15,9 @@
 | 1C: Hampers | ✅ Complete | 4/4 tasks |
 | 1D: Sales & Margins | ✅ Complete | 7/7 tasks |
 | 1E: Polish | ❌ Not Started | 0/5 tasks |
+| **2A: Finance Backend** | ✅ Complete | 6/6 tasks |
+| **2B: Finance Frontend** | ✅ Complete | 3/3 tasks |
+| **2C: Historical Import** | ✅ Complete | 3/3 tasks |
 
 **Current Focus:** Phase 1E - Polish & Alerts
 
@@ -92,6 +95,54 @@
 
 ---
 
+## Phase 2A: Finance Backend ✅ COMPLETE
+
+Goal: Replace Excel spreadsheet "Savvy Finances" with full financial tracking.
+
+- [x] Schema updates - postage, channel, fee breakdown, bespoke lines, expenses
+- [x] Database migration (`20260106082747_add_finance_tracking`)
+- [x] Expenses API (`/api/expenses`) - full CRUD + summary endpoint
+- [x] Sales API updates - postage, channel (etsy/direct/fair), bespoke items
+- [x] EtsyFeeConfig granular rates (6 fee types matching actual Etsy structure)
+- [x] Frontend API client types updated
+
+### Notes
+- **Postage tracking**: `postageCharged` (customer pays) vs `postageCost` (we pay)
+- **Sale channels**: `etsy` (with fees), `direct` (no fees), `fair` (no fees)
+- **Bespoke items**: SaleLine.hamperId now optional, description field added
+- **Fee breakdown**: 6 separate fee fields on Sale model
+- **ExpenseCategory enum**: ADVERTISING, LISTING_FEE, POSTAGE, PACKAGING, OTHER
+
+---
+
+## Phase 2B: Finance Frontend ✅ COMPLETE
+
+- [x] Expenses page (`/expenses`) - add/edit/list business expenses
+- [x] Sales page updates - postage/channel/bespoke fields in UI
+- [x] Financial dashboard - true profit visibility with cost breakdown
+
+### Notes
+- **Expenses page**: Full CRUD with category filtering, summary view, VAT auto-calculation
+- **Sales page**: Sale channel selector (Etsy/Direct/Fair), postage fields, bespoke item support
+- **Postage tracking**: Shows postage profit/loss in sale details
+- **Bespoke items**: Can add custom items without predefined hampers
+
+---
+
+## Phase 2C: Historical Import ✅ COMPLETE
+
+- [x] XML spreadsheet parser script
+- [x] Import sales as `isHistorical: true` records
+- [x] Import costs sheet as BusinessExpense records
+
+### Notes
+- Script: `scripts/import-historical.ts` - run with `npx tsx scripts/import-historical.ts`
+- Supports `--dry-run` flag to preview without writing to database
+- Handles multi-item orders (same Etsy ID) by appending item suffix (e.g., `123456-1`, `123456-2`)
+- Maps cost categories to ExpenseCategory enum (Advertising, Packaging, Postage, Listing Fee, Stock)
+
+---
+
 ## Active Work Log
 
 > Update this table when starting/completing work
@@ -102,7 +153,11 @@
 | 2026-01-05 | Antigravity | Add Stock Form + Barcode Scanner | ✅ Done | main |
 | 2026-01-05 | Antigravity | Enhanced Stock Levels Display | ✅ Done | main |
 | 2026-01-05 | Antigravity | Phase 1C: Hampers | ✅ Done | main |
-| 2026-01-05 | Claude Code | Phase 1D: Sales & Margins | 🔄 In Progress | main |
+| 2026-01-05 | Claude Code | Phase 1D: Sales & Margins | ✅ Done | main |
+| 2026-01-06 | Claude Code | Phase 2A: Finance Backend | ✅ Done | main |
+| 2026-01-06 | Claude Code | Phase 2B: Finance Frontend | ✅ Done | main |
+| 2026-01-06 | Claude Code | Phase 2C: Historical Import | ✅ Done | feature/full-spreadsheet-migration |
+| 2026-01-06 | Antigravity | Sales Screen Upgrades | ✅ Done | main |
 
 ---
 
@@ -110,28 +165,32 @@
 
 > Leave notes here when ending a session so the next agent knows where you left off
 
-**Last Updated:** 2026-01-05
+**Last Updated:** 2026-01-06
 
 **Current State:**
-- Phase 1D: Sales & Margins is COMPLETE (7/7 tasks)
-- Sales page (`src/pages/Sales.tsx`) has:
-  - Record Sale flow with hamper selection
-  - Live allocation preview from API
-  - Manual lot override (click pencil icon on any requirement)
-  - Cost/margin summary display
-  - Sales history list with expandable details
-  - Full financial breakdown (gross, fees, packaging, cost, margin)
-- API client updated with sales types (`src/lib/api.ts`)
-- New endpoint: `GET /api/inventory/lots-by-category/:categoryId`
+- Phase 2A-2C: All COMPLETE - Full finance tracking with historical import
+- Branch `feature/full-spreadsheet-migration` has all Phase 2 work
+- **Sales Screen Upgrades**: Completed by Antigravity on main branch
+
+**Sales Screen Upgrades (Latest Changes):**
+- `server/routes/sales.ts` - Added date filtering, summary endpoint, saleDate field, **search filter**
+- `src/lib/api.ts` - Added SalesSummary interface, updated sales.list(), added sales.summary()
+- `src/pages/Sales.tsx` - Summary section, date filter with quick selectors, Load More pagination, sale date picker, **search input**
+
+**Key Files Changed (Phase 2C):**
+- `scripts/import-historical.ts` - XML parser for historical sales and expenses
+- `prisma/schema.prisma` - Added `isHistorical` flag, `StockCategory` enum
+- `prisma/migrations/20260106121712_add_stock_category_and_historical_flag/` - DB migration
+
+**Import Script Usage:**
+```bash
+npx tsx scripts/import-historical.ts --dry-run  # Preview
+npx tsx scripts/import-historical.ts             # Import to DB
+```
 
 **Next Steps:**
-1. Test the Sales page end-to-end with manual overrides
-2. Begin Phase 1E: Polish & Alerts
-   - Dashboard with quick actions
-   - Low stock alerts display
-   - Expiring lots warnings
-   - Sales history and margin reports
-   - Mobile UX polish
+1. **Merge branch** to main when ready
+2. **Phase 1E: Polish & Alerts** - Dashboard improvements, mobile UX
 
 **Known Issues:**
 - None currently

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import {
   PlusIcon,
   ChevronDownIcon,
@@ -7,7 +7,9 @@ import {
   ExclamationTriangleIcon,
   CheckCircleIcon,
   PencilIcon,
+  ChartBarIcon,
 } from '@heroicons/react/24/outline'
+import DateSearchFilter, { useDateSearchFilter } from '../components/filters/DateSearchFilter'
 import {
   sales,
   hampers,
@@ -16,12 +18,17 @@ import {
   SalePreview,
   Hamper,
   CategoryLot,
+  SaleChannel,
+  SalesSummary,
 } from '../lib/api'
 import { formatCurrency, formatUnitCost } from '../lib/formatting'
 
 interface SaleLineInput {
-  hamperId: string
+  hamperId?: string
+  description?: string
   quantity: number
+  unitPrice?: number
+  isBespoke?: boolean
 }
 
 interface LotOverride {
@@ -33,6 +40,18 @@ interface LotOverride {
 }
 
 type ViewMode = 'list' | 'record'
+
+const channelLabels: Record<SaleChannel, string> = {
+  etsy: 'Etsy',
+  direct: 'Direct',
+  fair: 'Fair/Market',
+}
+
+const channelColors: Record<SaleChannel, string> = {
+  etsy: 'bg-orange-100 text-orange-800',
+  direct: 'bg-green-100 text-green-800',
+  fair: 'bg-purple-100 text-purple-800',
+}
 
 function formatDate(dateStr: string): string {
   return new Date(dateStr).toLocaleDateString('en-GB', {
@@ -58,16 +77,39 @@ export default function Sales() {
   const [saleList, setSaleList] = useState<Sale[]>([])
   const [hamperList, setHamperList] = useState<Hamper[]>([])
   const [loading, setLoading] = useState(true)
+  const [loadingMore, setLoadingMore] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [viewMode, setViewMode] = useState<ViewMode>('list')
   const [expandedId, setExpandedId] = useState<string | null>(null)
 
+  // Summary and filter state
+  const [showSummary, setShowSummary] = useState(false)
+  const [summary, setSummary] = useState<SalesSummary | null>(null)
+
+  // Date and search filter state
+  const {
+    startDate,
+    endDate,
+    searchQuery,
+    debouncedSearchQuery,
+    setStartDate,
+    setEndDate,
+    setSearchQuery,
+  } = useDateSearchFilter()
+
+  const [totalSales, setTotalSales] = useState(0)
+  const PAGE_SIZE = 20
+
   // Record sale state
-  const [lines, setLines] = useState<SaleLineInput[]>([{ hamperId: '', quantity: 1 }])
+  const [lines, setLines] = useState<SaleLineInput[]>([{ quantity: 1 }])
   const [preview, setPreview] = useState<SalePreview | null>(null)
   const [previewLoading, setPreviewLoading] = useState(false)
   const [notes, setNotes] = useState('')
   const [etsyOrderId, setEtsyOrderId] = useState('')
+  const [saleChannel, setSaleChannel] = useState<SaleChannel>('etsy')
+  const [postageCharged, setPostageCharged] = useState('5.00')
+  const [postageCost, setPostageCost] = useState('5.35')
+  const [saleDate, setSaleDate] = useState(new Date().toISOString().split('T')[0] ?? '')
   const [saving, setSaving] = useState(false)
 
   // Override state
@@ -76,15 +118,29 @@ export default function Sales() {
   const [lotsLoading, setLotsLoading] = useState(false)
   const [overrides, setOverrides] = useState<Record<string, LotOverride[]>>({})
 
-  const loadData = async () => {
+  const loadData = async (isInitialLoad = false) => {
     try {
-      setLoading(true)
-      const [salesData, hampersData] = await Promise.all([
-        sales.list(),
+      // Only show full loading state on initial page load, not on filter changes
+      if (isInitialLoad) {
+        setLoading(true)
+      }
+      const params: { limit?: number; offset?: number; startDate?: string; endDate?: string; search?: string } = {
+        limit: PAGE_SIZE,
+        offset: 0,
+      }
+      if (startDate) params.startDate = startDate
+      if (endDate) params.endDate = endDate
+      if (debouncedSearchQuery) params.search = debouncedSearchQuery
+
+      const [salesData, hampersData, summaryData] = await Promise.all([
+        sales.list(params),
         hampers.list(),
+        sales.summary({ startDate: startDate || undefined, endDate: endDate || undefined, search: debouncedSearchQuery || undefined }),
       ])
-      setSaleList(salesData)
+      setSaleList(salesData.sales)
+      setTotalSales(salesData.total)
       setHamperList(hampersData)
+      setSummary(summaryData)
       setError(null)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load data')
@@ -93,13 +149,45 @@ export default function Sales() {
     }
   }
 
+  const loadMore = async () => {
+    try {
+      setLoadingMore(true)
+      const params: { limit?: number; offset?: number; startDate?: string; endDate?: string; search?: string } = {
+        limit: PAGE_SIZE,
+        offset: saleList.length,
+      }
+      if (startDate) params.startDate = startDate
+      if (endDate) params.endDate = endDate
+      if (debouncedSearchQuery) params.search = debouncedSearchQuery
+
+      const result = await sales.list(params)
+      setSaleList([...saleList, ...result.sales])
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to load more sales')
+    } finally {
+      setLoadingMore(false)
+    }
+  }
+
+  // Track if this is the first render to show loading state only initially
+  const isFirstRender = useRef(true)
+
   useEffect(() => {
-    loadData()
+    // Initial load - show loading indicator
+    loadData(true)
+    isFirstRender.current = false
   }, [])
+
+  // Re-fetch when filters change (no loading indicator - data updates in place)
+  useEffect(() => {
+    if (!isFirstRender.current) {
+      loadData(false)
+    }
+  }, [startDate, endDate, debouncedSearchQuery])
 
   // Load preview when lines change
   useEffect(() => {
-    const validLines = lines.filter((l) => l.hamperId && l.quantity > 0)
+    const validLines = lines.filter((l) => (l.hamperId || (l.isBespoke && l.description && l.unitPrice)) && l.quantity > 0)
     if (validLines.length === 0) {
       setPreview(null)
       return
@@ -108,7 +196,11 @@ export default function Sales() {
     const fetchPreview = async () => {
       setPreviewLoading(true)
       try {
-        const result = await sales.preview(validLines)
+        const result = await sales.preview({
+          lines: validLines,
+          postageCharged: postageCharged ? parseFloat(postageCharged) : undefined,
+          saleChannel,
+        })
         setPreview(result)
       } catch (err) {
         console.error('Preview failed:', err)
@@ -120,7 +212,7 @@ export default function Sales() {
 
     const debounce = setTimeout(fetchPreview, 300)
     return () => clearTimeout(debounce)
-  }, [lines])
+  }, [lines, postageCharged, saleChannel])
 
   // Load available lots when editing override
   useEffect(() => {
@@ -145,8 +237,12 @@ export default function Sales() {
     fetchLots()
   }, [editingOverride])
 
-  const handleAddLine = () => {
-    setLines([...lines, { hamperId: '', quantity: 1 }])
+  const handleAddLine = (bespoke = false) => {
+    if (bespoke) {
+      setLines([...lines, { quantity: 1, isBespoke: true, description: '', unitPrice: 0 }])
+    } else {
+      setLines([...lines, { quantity: 1 }])
+    }
   }
 
   const handleRemoveLine = (index: number) => {
@@ -170,10 +266,14 @@ export default function Sales() {
 
   const handleCancel = () => {
     setViewMode('list')
-    setLines([{ hamperId: '', quantity: 1 }])
+    setLines([{ quantity: 1 }])
     setPreview(null)
     setNotes('')
     setEtsyOrderId('')
+    setSaleChannel('etsy')
+    setPostageCharged('5.00')
+    setPostageCost('5.35')
+    setSaleDate(new Date().toISOString().split('T')[0] ?? '')
     setError(null)
     setOverrides({})
     setEditingOverride(null)
@@ -237,7 +337,7 @@ export default function Sales() {
     setError(null)
 
     try {
-      const validLines = lines.filter((l) => l.hamperId && l.quantity > 0)
+      const validLines = lines.filter((l) => (l.hamperId || (l.isBespoke && l.description && l.unitPrice)) && l.quantity > 0)
 
       // Convert overrides to API format: { "hamperId:categoryId": [...] }
       const allocationOverrides: Record<string, { lotId: string; quantity: number }[]> = {}
@@ -256,6 +356,10 @@ export default function Sales() {
 
       await sales.create({
         grossRevenue: preview.summary.totalGross,
+        postageCharged: postageCharged ? parseFloat(postageCharged) : undefined,
+        postageCost: postageCost ? parseFloat(postageCost) : undefined,
+        saleChannel,
+        saleDate: saleDate ? new Date(saleDate).toISOString() : undefined,
         lines: validLines,
         notes: notes || undefined,
         etsyOrderId: etsyOrderId || undefined,
@@ -304,59 +408,185 @@ export default function Sales() {
 
         {error && <div className="bg-red-50 text-red-700 p-3 rounded-lg text-sm">{error}</div>}
 
+        {/* Sale Channel */}
+        <div className="card space-y-3">
+          <h3 className="font-medium">Sale Channel</h3>
+          <div className="flex gap-2">
+            {(Object.keys(channelLabels) as SaleChannel[]).map((channel) => (
+              <button
+                key={channel}
+                type="button"
+                onClick={() => {
+                  setSaleChannel(channel)
+                  if (channel === 'direct' || channel === 'fair') {
+                    setPostageCharged('0')
+                    setPostageCost('0')
+                  } else if (channel === 'etsy') {
+                    setPostageCharged('5.00')
+                    setPostageCost('5.35')
+                  }
+                }}
+                className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${saleChannel === channel
+                  ? channelColors[channel]
+                  : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                  }`}
+              >
+                {channelLabels[channel]}
+              </button>
+            ))}
+          </div>
+          {saleChannel === 'etsy' && (
+            <p className="text-xs text-gray-500">Etsy fees will be calculated automatically</p>
+          )}
+          {saleChannel !== 'etsy' && (
+            <p className="text-xs text-gray-500">No marketplace fees for {channelLabels[saleChannel]} sales</p>
+          )}
+        </div>
+
         {/* Hamper Selection */}
         <div className="card space-y-4">
           <div className="flex justify-between items-center">
-            <h3 className="font-medium">Select Hampers</h3>
-            <button type="button" onClick={handleAddLine} className="text-sm text-primary-600 hover:text-primary-700">
-              + Add Hamper
-            </button>
+            <h3 className="font-medium">Items</h3>
+            <div className="flex gap-2">
+              <button type="button" onClick={() => handleAddLine(true)} className="text-sm text-gray-600 hover:text-gray-800">
+                + Bespoke Item
+              </button>
+              <button type="button" onClick={() => handleAddLine(false)} className="text-sm text-primary-600 hover:text-primary-700">
+                + Add Hamper
+              </button>
+            </div>
           </div>
 
-          {hamperList.length === 0 ? (
-            <p className="text-sm text-amber-600">Create hampers first before recording sales</p>
-          ) : (
-            <div className="space-y-2">
-              {lines.map((line, index) => {
-                const selectedHamper = hamperList.find((h) => h.id === line.hamperId)
-                return (
-                  <div key={index} className="flex gap-2 items-center bg-gray-50 p-2 rounded-lg">
-                    <select
-                      value={line.hamperId}
-                      onChange={(e) => handleUpdateLine(index, { hamperId: e.target.value })}
-                      className="input flex-1"
-                    >
-                      <option value="">Select hamper...</option>
-                      {hamperList.map((h) => (
-                        <option key={h.id} value={h.id}>
-                          {h.name} - {formatCurrency(Number(h.sellingPrice))} (Can make: {h.canMake})
-                        </option>
-                      ))}
-                    </select>
-                    <input
-                      type="number"
-                      min="1"
-                      value={line.quantity}
-                      onChange={(e) => handleUpdateLine(index, { quantity: parseInt(e.target.value) || 1 })}
-                      className="input w-20"
-                    />
-                    {selectedHamper && (
+          <div className="space-y-2">
+            {lines.map((line, index) => {
+              const selectedHamper = line.hamperId ? hamperList.find((h) => h.id === line.hamperId) : null
+              const lineTotal = line.isBespoke
+                ? (line.unitPrice || 0) * line.quantity
+                : selectedHamper
+                  ? Number(selectedHamper.sellingPrice) * line.quantity
+                  : 0
+
+              return (
+                <div key={index} className="bg-gray-50 p-2 rounded-lg space-y-2">
+                  {line.isBespoke ? (
+                    // Bespoke item row
+                    <div className="flex gap-2 items-center">
+                      <span className="text-xs bg-purple-100 text-purple-800 px-2 py-0.5 rounded">Bespoke</span>
+                      <input
+                        type="text"
+                        value={line.description || ''}
+                        onChange={(e) => handleUpdateLine(index, { description: e.target.value })}
+                        className="input flex-1"
+                        placeholder="Item description..."
+                      />
+                      <input
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        value={line.unitPrice || ''}
+                        onChange={(e) => handleUpdateLine(index, { unitPrice: parseFloat(e.target.value) || 0 })}
+                        className="input w-24"
+                        placeholder="Price"
+                      />
+                      <input
+                        type="number"
+                        min="1"
+                        value={line.quantity}
+                        onChange={(e) => handleUpdateLine(index, { quantity: parseInt(e.target.value) || 1 })}
+                        className="input w-16"
+                      />
                       <span className="text-sm text-gray-500 w-20 text-right">
-                        {formatCurrency(Number(selectedHamper.sellingPrice) * line.quantity)}
+                        {formatCurrency(lineTotal)}
                       </span>
-                    )}
-                    {lines.length > 1 && (
-                      <button
-                        type="button"
-                        onClick={() => handleRemoveLine(index)}
-                        className="p-1 text-gray-400 hover:text-red-600"
+                      {lines.length > 1 && (
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveLine(index)}
+                          className="p-1 text-gray-400 hover:text-red-600"
+                        >
+                          <XMarkIcon className="h-5 w-5" />
+                        </button>
+                      )}
+                    </div>
+                  ) : (
+                    // Hamper selection row
+                    <div className="flex gap-2 items-center">
+                      <select
+                        value={line.hamperId || ''}
+                        onChange={(e) => handleUpdateLine(index, { hamperId: e.target.value })}
+                        className="input flex-1"
                       >
-                        <XMarkIcon className="h-5 w-5" />
-                      </button>
-                    )}
-                  </div>
-                )
-              })}
+                        <option value="">Select hamper...</option>
+                        {hamperList.map((h) => (
+                          <option key={h.id} value={h.id}>
+                            {h.name} - {formatCurrency(Number(h.sellingPrice))} (Can make: {h.canMake})
+                          </option>
+                        ))}
+                      </select>
+                      <input
+                        type="number"
+                        min="1"
+                        value={line.quantity}
+                        onChange={(e) => handleUpdateLine(index, { quantity: parseInt(e.target.value) || 1 })}
+                        className="input w-20"
+                      />
+                      <span className="text-sm text-gray-500 w-20 text-right">
+                        {formatCurrency(lineTotal)}
+                      </span>
+                      {lines.length > 1 && (
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveLine(index)}
+                          className="p-1 text-gray-400 hover:text-red-600"
+                        >
+                          <XMarkIcon className="h-5 w-5" />
+                        </button>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+        </div>
+
+        {/* Postage */}
+        <div className="card space-y-4">
+          <h3 className="font-medium">Postage</h3>
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Postage Charged</label>
+              <input
+                type="number"
+                step="0.01"
+                min="0"
+                value={postageCharged}
+                onChange={(e) => setPostageCharged(e.target.value)}
+                className="input"
+                placeholder="What customer pays"
+              />
+              <p className="text-xs text-gray-500 mt-1">Amount charged to customer</p>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Postage Cost</label>
+              <input
+                type="number"
+                step="0.01"
+                min="0"
+                value={postageCost}
+                onChange={(e) => setPostageCost(e.target.value)}
+                className="input"
+                placeholder="What you pay Royal Mail"
+              />
+              <p className="text-xs text-gray-500 mt-1">Your actual shipping cost</p>
+            </div>
+          </div>
+          {postageCharged && postageCost && (
+            <div className="text-sm">
+              <span className="text-gray-500">Postage profit: </span>
+              <span className={parseFloat(postageCharged) >= parseFloat(postageCost) ? 'text-green-600' : 'text-red-600'}>
+                {formatCurrency(parseFloat(postageCharged) - parseFloat(postageCost))}
+              </span>
             </div>
           )}
         </div>
@@ -366,15 +596,27 @@ export default function Sales() {
           <h3 className="font-medium">Optional Details</h3>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Etsy Order ID</label>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Sale Date</label>
               <input
-                type="text"
-                value={etsyOrderId}
-                onChange={(e) => setEtsyOrderId(e.target.value)}
+                type="date"
+                value={saleDate}
+                onChange={(e) => setSaleDate(e.target.value)}
                 className="input"
-                placeholder="e.g., 123456789"
               />
+              <p className="text-xs text-gray-500 mt-1">Defaults to today</p>
             </div>
+            {saleChannel === 'etsy' && (
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Etsy Order ID</label>
+                <input
+                  type="text"
+                  value={etsyOrderId}
+                  onChange={(e) => setEtsyOrderId(e.target.value)}
+                  className="input"
+                  placeholder="e.g., 123456789"
+                />
+              </div>
+            )}
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Notes</label>
               <input
@@ -428,9 +670,8 @@ export default function Sales() {
                     return (
                       <div key={req.categoryId}>
                         <div
-                          className={`flex justify-between items-center p-2 rounded ${
-                            isFulfilled ? 'bg-green-50' : 'bg-red-50'
-                          }`}
+                          className={`flex justify-between items-center p-2 rounded ${isFulfilled ? 'bg-green-50' : 'bg-red-50'
+                            }`}
                         >
                           <div className="flex items-center gap-2">
                             <span className="font-medium">{req.categoryName}</span>
@@ -515,10 +756,16 @@ export default function Sales() {
                 <span>Gross Revenue</span>
                 <span className="font-medium">{formatCurrency(preview.summary.totalGross)}</span>
               </div>
+              {postageCharged && (
+                <div className="flex justify-between text-sm">
+                  <span>+ Postage Charged</span>
+                  <span className="font-medium">{formatCurrency(parseFloat(postageCharged))}</span>
+                </div>
+              )}
               <div className="flex justify-between text-sm">
-                <span>Total Cost</span>
-                <span className="font-medium">
-                  {formatCurrency(
+                <span>Stock Cost</span>
+                <span className="font-medium text-red-600">
+                  -{formatCurrency(
                     preview.lines.reduce((sum, linePreview, hamperIdx) => {
                       return sum + linePreview.requirements.reduce((reqSum, req) => {
                         const overrideKey = getOverrideKey(hamperIdx, req.categoryId)
@@ -532,10 +779,24 @@ export default function Sales() {
                   )}
                 </span>
               </div>
-              <div className="flex justify-between text-sm text-gray-500">
-                <span>Etsy Fees + Overhead</span>
-                <span>(calculated on confirm)</span>
-              </div>
+              {postageCost && (
+                <div className="flex justify-between text-sm">
+                  <span>Postage Cost</span>
+                  <span className="font-medium text-red-600">-{formatCurrency(parseFloat(postageCost))}</span>
+                </div>
+              )}
+              {saleChannel === 'etsy' && preview.summary.estimatedFees > 0 && (
+                <div className="flex justify-between text-sm">
+                  <span>Etsy Fees (estimated)</span>
+                  <span className="font-medium text-red-600">-{formatCurrency(preview.summary.estimatedFees)}</span>
+                </div>
+              )}
+              {preview.summary.packagingOverhead > 0 && (
+                <div className="flex justify-between text-sm">
+                  <span>Packaging Overhead</span>
+                  <span className="font-medium text-red-600">-{formatCurrency(preview.summary.packagingOverhead)}</span>
+                </div>
+              )}
               <div className="flex justify-between text-lg font-semibold border-t pt-2">
                 <span>Estimated Margin</span>
                 <span className={preview.summary.estimatedMargin >= 0 ? 'text-green-600' : 'text-red-600'}>
@@ -560,26 +821,101 @@ export default function Sales() {
     )
   }
 
+
+
+  const hasMore = saleList.length < totalSales
+
   // List View (default)
   return (
     <div className="space-y-4">
       <div className="flex justify-between items-center">
         <h2 className="text-xl font-semibold">Sales</h2>
-        <button
-          onClick={() => setViewMode('record')}
-          className="btn-primary flex items-center gap-1"
-        >
-          <PlusIcon className="h-5 w-5" />
-          Record Sale
-        </button>
+        <div className="flex gap-2">
+          <button
+            onClick={() => setShowSummary(!showSummary)}
+            className={`p-2 rounded-lg ${showSummary ? 'bg-primary-100 text-primary-700' : 'bg-gray-100 text-gray-600'}`}
+            title="Toggle summary"
+          >
+            <ChartBarIcon className="h-5 w-5" />
+          </button>
+          <button
+            onClick={() => setViewMode('record')}
+            className="btn-primary flex items-center gap-1"
+          >
+            <PlusIcon className="h-5 w-5" />
+            Record Sale
+          </button>
+        </div>
       </div>
 
       {error && <div className="bg-red-50 text-red-700 p-3 rounded-lg text-sm">{error}</div>}
 
-      {saleList.length === 0 ? (
+      {/* Sales Summary */}
+      {showSummary && summary && (
+        <div className="card bg-gray-50 space-y-4">
+          <h3 className="font-medium">Sales Summary</h3>
+
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+            <div className="bg-white p-3 rounded-lg">
+              <div className="text-xs text-gray-500">Total Sales</div>
+              <div className="text-lg font-semibold">{summary.totals.salesCount}</div>
+            </div>
+            <div className="bg-white p-3 rounded-lg">
+              <div className="text-xs text-gray-500">Revenue</div>
+              <div className="text-lg font-semibold">{formatCurrency(summary.totals.totalRevenue)}</div>
+            </div>
+            <div className="bg-white p-3 rounded-lg">
+              <div className="text-xs text-gray-500">Total Fees</div>
+              <div className="text-lg font-semibold text-red-600">-{formatCurrency(summary.totals.totalFees)}</div>
+            </div>
+            <div className="bg-white p-3 rounded-lg">
+              <div className="text-xs text-gray-500">Net Margin</div>
+              <div className={`text-lg font-semibold ${summary.totals.totalMargin >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                {formatCurrency(summary.totals.totalMargin)}
+              </div>
+            </div>
+          </div>
+
+          {summary.byChannel.length > 0 && (
+            <div className="space-y-2">
+              <div className="text-sm font-medium text-gray-600">By Channel</div>
+              {summary.byChannel.map((ch) => (
+                <div key={ch.channel} className="flex justify-between items-center bg-white p-2 rounded-lg text-sm">
+                  <span className={`px-2 py-0.5 rounded text-xs ${channelColors[ch.channel as SaleChannel] || 'bg-gray-100 text-gray-800'}`}>
+                    {channelLabels[ch.channel as SaleChannel] || ch.channel}
+                  </span>
+                  <div className="flex gap-4">
+                    <span className="text-gray-500">{ch.count} sales</span>
+                    <span className="font-medium">{formatCurrency(ch.revenue)}</span>
+                    <span className={ch.margin >= 0 ? 'text-green-600' : 'text-red-600'}>
+                      {formatCurrency(ch.margin)}
+                    </span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Filters */}
+      <DateSearchFilter
+        startDate={startDate}
+        endDate={endDate}
+        searchQuery={searchQuery}
+        onStartDateChange={setStartDate}
+        onEndDateChange={setEndDate}
+        onSearchChange={setSearchQuery}
+        searchPlaceholder="Search sales..."
+        showQuickSelectors={true}
+      />
+
+      {loading ? (
+        <div className="text-center py-8 text-gray-500">Loading...</div>
+      ) : saleList.length === 0 ? (
         <div className="card text-gray-500 text-center py-12">
-          <p className="mb-4">No sales recorded yet</p>
-          <p className="text-sm">Record your first sale to start tracking margins</p>
+          <p className="mb-4">{startDate || endDate ? 'No sales found for this period' : 'No sales recorded yet'}</p>
+          <p className="text-sm">{startDate || endDate ? 'Try adjusting your date filter' : 'Record your first sale to start tracking margins'}</p>
         </div>
       ) : (
         <div className="space-y-3">
@@ -590,8 +926,13 @@ export default function Sales() {
                 className="w-full text-left flex justify-between items-start"
               >
                 <div className="flex-1 min-w-0">
-                  <div className="font-medium">
-                    {sale.lines.map((l) => `${l.hamper.name} ×${l.quantity}`).join(', ')}
+                  <div className="flex items-center gap-2">
+                    <span className={`text-xs px-1.5 py-0.5 rounded ${channelColors[sale.saleChannel]}`}>
+                      {channelLabels[sale.saleChannel]}
+                    </span>
+                    <span className="font-medium">
+                      {sale.lines.map((l) => `${l.hamper?.name || l.description || 'Bespoke Item'} ×${l.quantity}`).join(', ')}
+                    </span>
                   </div>
                   <div className="text-sm text-gray-500">
                     {formatDate(sale.saleDate)}
@@ -614,24 +955,48 @@ export default function Sales() {
               {expandedId === sale.id && (
                 <div className="mt-4 pt-4 border-t border-gray-100 space-y-4">
                   {/* Financial breakdown */}
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-center">
+                  <div className="grid grid-cols-2 md:grid-cols-3 gap-3 text-center">
                     <div className="bg-gray-50 p-3 rounded-lg">
                       <div className="text-xs text-gray-500">Gross Revenue</div>
                       <div className="font-semibold">{formatCurrency(Number(sale.grossRevenue))}</div>
                     </div>
                     <div className="bg-gray-50 p-3 rounded-lg">
-                      <div className="text-xs text-gray-500">Etsy Fees</div>
-                      <div className="font-semibold text-red-600">-{formatCurrency(Number(sale.etsyFees))}</div>
-                    </div>
-                    <div className="bg-gray-50 p-3 rounded-lg">
-                      <div className="text-xs text-gray-500">Packaging</div>
-                      <div className="font-semibold text-red-600">-{formatCurrency(Number(sale.packagingOverhead))}</div>
-                    </div>
-                    <div className="bg-gray-50 p-3 rounded-lg">
                       <div className="text-xs text-gray-500">Stock Cost</div>
                       <div className="font-semibold text-red-600">-{formatCurrency(Number(sale.totalCost))}</div>
                     </div>
+                    {sale.saleChannel === 'etsy' && Number(sale.etsyFees) > 0 && (
+                      <div className="bg-gray-50 p-3 rounded-lg">
+                        <div className="text-xs text-gray-500">Etsy Fees</div>
+                        <div className="font-semibold text-red-600">-{formatCurrency(Number(sale.etsyFees))}</div>
+                      </div>
+                    )}
+                    {Number(sale.packagingOverhead) > 0 && (
+                      <div className="bg-gray-50 p-3 rounded-lg">
+                        <div className="text-xs text-gray-500">Packaging</div>
+                        <div className="font-semibold text-red-600">-{formatCurrency(Number(sale.packagingOverhead))}</div>
+                      </div>
+                    )}
                   </div>
+
+                  {/* Postage breakdown */}
+                  {(Number(sale.postageCharged) > 0 || Number(sale.postageCost) > 0) && (
+                    <div className="grid grid-cols-3 gap-3 text-center">
+                      <div className="bg-blue-50 p-3 rounded-lg">
+                        <div className="text-xs text-gray-500">Postage Charged</div>
+                        <div className="font-semibold">{formatCurrency(Number(sale.postageCharged))}</div>
+                      </div>
+                      <div className="bg-blue-50 p-3 rounded-lg">
+                        <div className="text-xs text-gray-500">Postage Cost</div>
+                        <div className="font-semibold text-red-600">-{formatCurrency(Number(sale.postageCost))}</div>
+                      </div>
+                      <div className="bg-blue-50 p-3 rounded-lg">
+                        <div className="text-xs text-gray-500">Postage Profit</div>
+                        <div className={`font-semibold ${Number(sale.postageCharged) - Number(sale.postageCost) >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                          {formatCurrency(Number(sale.postageCharged) - Number(sale.postageCost))}
+                        </div>
+                      </div>
+                    </div>
+                  )}
 
                   <div className="flex justify-between items-center bg-gray-100 p-3 rounded-lg">
                     <span className="font-medium">Net Margin</span>
@@ -646,7 +1011,7 @@ export default function Sales() {
                     {sale.lines.map((line) => (
                       <div key={line.id} className="text-sm bg-gray-50 p-2 rounded-lg mb-2">
                         <div className="flex justify-between">
-                          <span className="font-medium">{line.hamper.name} × {line.quantity}</span>
+                          <span className="font-medium">{line.hamper?.name || line.description || 'Bespoke Item'} × {line.quantity}</span>
                           <span>{formatCurrency(Number(line.unitPrice) * line.quantity)}</span>
                         </div>
                         {line.consumptions.length > 0 && (
@@ -669,6 +1034,19 @@ export default function Sales() {
               )}
             </div>
           ))}
+
+          {/* Load More Button */}
+          {hasMore && (
+            <div className="text-center pt-2">
+              <button
+                onClick={loadMore}
+                disabled={loadingMore}
+                className="btn-secondary"
+              >
+                {loadingMore ? 'Loading...' : `Load More (${saleList.length} of ${totalSales})`}
+              </button>
+            </div>
+          )}
         </div>
       )}
     </div>

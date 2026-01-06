@@ -113,12 +113,21 @@ async function allocateStockForRequirement(
 }
 
 const saleLineSchema = z.object({
-  hamperId: z.string().cuid(),
+  hamperId: z.string().cuid().optional(), // Optional for bespoke items
+  description: z.string().max(200).optional(), // For bespoke items
   quantity: z.number().int().positive().default(1),
-})
+  unitPrice: z.number().nonnegative().optional(), // Required for bespoke items
+}).refine(
+  (data) => data.hamperId || (data.description && data.unitPrice !== undefined),
+  { message: 'Either hamperId or both description and unitPrice are required' }
+)
 
 const recordSaleSchema = z.object({
   grossRevenue: z.number().positive(),
+  postageCharged: z.number().nonnegative().default(0), // What customer pays
+  postageCost: z.number().nonnegative().default(0), // What we pay Royal Mail
+  saleChannel: z.enum(['etsy', 'direct', 'fair']).default('etsy'),
+  saleDate: z.string().datetime().optional(), // Allow specifying sale date
   etsyOrderId: z.string().max(100).optional(),
   notes: z.string().max(1000).optional(),
   lines: z.array(saleLineSchema).min(1),
@@ -132,10 +141,29 @@ const recordSaleSchema = z.object({
 // POST preview sale allocation (before confirming)
 router.post('/preview', async (req, res) => {
   try {
-    const { lines } = z.object({ lines: z.array(saleLineSchema).min(1) }).parse(req.body)
+    const { lines, postageCharged = 0, saleChannel = 'etsy' } = z.object({
+      lines: z.array(saleLineSchema).min(1),
+      postageCharged: z.number().nonnegative().default(0),
+      saleChannel: z.enum(['etsy', 'direct', 'fair']).default('etsy'),
+    }).parse(req.body)
 
     const previews = await Promise.all(
       lines.map(async (line) => {
+        // Handle bespoke items (no hamperId)
+        if (!line.hamperId) {
+          return {
+            hamperId: null,
+            hamperName: line.description || 'Bespoke Item',
+            description: line.description,
+            quantity: line.quantity,
+            unitPrice: line.unitPrice || 0,
+            requirements: [],
+            totalCost: 0, // Bespoke items don't consume stock automatically
+            canFulfill: true,
+            isBespoke: true,
+          }
+        }
+
         const hamper = await prisma.hamper.findUnique({
           where: { id: line.hamperId },
           include: {
@@ -175,6 +203,7 @@ router.post('/preview', async (req, res) => {
           requirements: requirementAllocations,
           totalCost,
           canFulfill: allFulfilled,
+          isBespoke: false,
         }
       })
     )
@@ -193,12 +222,40 @@ router.post('/preview', async (req, res) => {
       return sum
     }, 0)
 
+    // Calculate estimated fees based on channel
+    let estimatedFees = 0
+    if (saleChannel === 'etsy') {
+      const feeConfig = await prisma.etsyFeeConfig.findFirst({
+        where: { isActive: true, effectiveTo: null },
+        orderBy: { effectiveFrom: 'desc' },
+      })
+      if (feeConfig) {
+        const total = totalGross + postageCharged
+        const transactionFee = totalGross * Number(feeConfig.transactionFee)
+        const postageTransactionFee = postageCharged * Number(feeConfig.transactionFee)
+        const regulatoryFee = total * Number(feeConfig.regulatoryFee)
+        const processingFee = total * Number(feeConfig.paymentFeePercent) + Number(feeConfig.paymentFeeFixed)
+        const vatOnProcessingFee = processingFee * Number(feeConfig.vatRate)
+        const listingFee = Number(feeConfig.listingFee)
+        estimatedFees = transactionFee + postageTransactionFee + regulatoryFee + processingFee + vatOnProcessingFee + listingFee
+      }
+    }
+
+    // Calculate packaging overhead
+    const overheads = await prisma.packagingOverhead.findMany({
+      where: { isActive: true, effectiveTo: null },
+    })
+    const packagingOverhead = overheads.reduce((sum, o) => sum + Number(o.costPerOrder), 0)
+
     res.json({
       lines: previews,
       summary: {
         totalGross,
+        postageCharged,
         totalCost,
-        estimatedMargin: totalGross - totalCost,
+        estimatedFees,
+        packagingOverhead,
+        estimatedMargin: totalGross + postageCharged - estimatedFees - totalCost - packagingOverhead,
       },
     })
   } catch (error) {
@@ -226,13 +283,24 @@ router.post('/', async (req, res) => {
       }),
     ])
 
-    // Calculate Etsy fees
+    // Calculate fees based on channel
+    let transactionFee = 0
+    let postageTransactionFee = 0
+    let regulatoryFee = 0
+    let processingFee = 0
+    let vatOnProcessingFee = 0
+    let listingFee = 0
     let etsyFees = 0
-    if (feeConfig) {
-      etsyFees =
-        data.grossRevenue * Number(feeConfig.percentageFee) +
-        Number(feeConfig.fixedFee) +
-        data.grossRevenue * Number(feeConfig.paymentFee)
+
+    if (data.saleChannel === 'etsy' && feeConfig) {
+      const total = data.grossRevenue + data.postageCharged
+      transactionFee = data.grossRevenue * Number(feeConfig.transactionFee)
+      postageTransactionFee = data.postageCharged * Number(feeConfig.transactionFee)
+      regulatoryFee = total * Number(feeConfig.regulatoryFee)
+      processingFee = total * Number(feeConfig.paymentFeePercent) + Number(feeConfig.paymentFeeFixed)
+      vatOnProcessingFee = processingFee * Number(feeConfig.vatRate)
+      listingFee = Number(feeConfig.listingFee)
+      etsyFees = transactionFee + postageTransactionFee + regulatoryFee + processingFee + vatOnProcessingFee + listingFee
     }
 
     // Calculate packaging overhead
@@ -241,13 +309,16 @@ router.post('/', async (req, res) => {
       0
     )
 
-    const netRevenue = data.grossRevenue - etsyFees - packagingOverhead
+    // Net revenue = gross + postage - fees - overhead
+    // Note: For Etsy, postageCharged is what we receive, but postageCost is what we pay
+    const netRevenue = data.grossRevenue + data.postageCharged - etsyFees - packagingOverhead
 
     // Process in transaction
     const sale = await prisma.$transaction(async (tx) => {
       let totalCost = 0
       const saleLines: Array<{
-        hamperId: string
+        hamperId: string | null
+        description: string | null
         quantity: number
         unitPrice: number
         lineCost: number
@@ -256,6 +327,19 @@ router.post('/', async (req, res) => {
 
       // Process each line
       for (const line of data.lines) {
+        // Handle bespoke items (no hamperId)
+        if (!line.hamperId) {
+          saleLines.push({
+            hamperId: null,
+            description: line.description || 'Bespoke Item',
+            quantity: line.quantity,
+            unitPrice: line.unitPrice || 0,
+            lineCost: 0, // Bespoke items don't have automatic stock cost
+            consumptions: [],
+          })
+          continue
+        }
+
         const hamper = await tx.hamper.findUnique({
           where: { id: line.hamperId },
           include: {
@@ -336,6 +420,7 @@ router.post('/', async (req, res) => {
 
         saleLines.push({
           hamperId: hamper.id,
+          description: null,
           quantity: line.quantity,
           unitPrice: Number(hamper.sellingPrice),
           lineCost,
@@ -345,20 +430,34 @@ router.post('/', async (req, res) => {
         totalCost += lineCost
       }
 
+      // Calculate margin: net revenue - stock cost - postage cost
+      const margin = netRevenue - totalCost - data.postageCost
+
       // Create the sale record
       const createdSale = await tx.sale.create({
         data: {
+          saleDate: data.saleDate ? new Date(data.saleDate) : new Date(),
+          saleChannel: data.saleChannel,
           grossRevenue: data.grossRevenue,
+          postageCharged: data.postageCharged,
+          postageCost: data.postageCost,
+          transactionFee,
+          postageTransactionFee,
+          regulatoryFee,
+          processingFee,
+          vatOnProcessingFee,
+          listingFee,
           etsyFees,
           packagingOverhead,
           netRevenue,
           totalCost,
-          margin: netRevenue - totalCost,
+          margin,
           etsyOrderId: data.etsyOrderId,
           notes: data.notes,
           lines: {
             create: saleLines.map((sl) => ({
               hamperId: sl.hamperId,
+              description: sl.description,
               quantity: sl.quantity,
               unitPrice: sl.unitPrice,
               lineCost: sl.lineCost,
@@ -407,32 +506,165 @@ router.post('/', async (req, res) => {
 // GET all sales
 router.get('/', async (req, res) => {
   try {
-    const { limit = '50', offset = '0' } = req.query
+    const { limit = '50', offset = '0', startDate, endDate, search } = req.query
 
-    const sales = await prisma.sale.findMany({
-      include: {
-        lines: {
-          include: {
-            hamper: true,
-            consumptions: {
-              include: {
-                lot: {
-                  include: { product: true },
+    // Build where clause for date filtering and search
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const where: any = {}
+
+    if (startDate || endDate) {
+      where.saleDate = {}
+      if (startDate) where.saleDate.gte = new Date(startDate as string)
+      if (endDate) {
+        // Set to end of day for inclusive filtering
+        const end = new Date(endDate as string)
+        end.setHours(23, 59, 59, 999)
+        where.saleDate.lte = end
+      }
+    }
+
+    // Search across notes, etsyOrderId, and line hamper names/descriptions
+    if (search && typeof search === 'string' && search.trim()) {
+      const searchTerm = search.trim()
+      where.OR = [
+        { notes: { contains: searchTerm, mode: 'insensitive' } },
+        { etsyOrderId: { contains: searchTerm, mode: 'insensitive' } },
+        {
+          lines: {
+            some: {
+              OR: [
+                { description: { contains: searchTerm, mode: 'insensitive' } },
+                { hamper: { name: { contains: searchTerm, mode: 'insensitive' } } },
+              ],
+            },
+          },
+        },
+      ]
+    }
+
+    const [sales, total] = await Promise.all([
+      prisma.sale.findMany({
+        where,
+        include: {
+          lines: {
+            include: {
+              hamper: true,
+              consumptions: {
+                include: {
+                  lot: {
+                    include: { product: true },
+                  },
                 },
               },
             },
           },
         },
-      },
-      orderBy: { saleDate: 'desc' },
-      take: Number(limit),
-      skip: Number(offset),
-    })
+        orderBy: { saleDate: 'desc' },
+        take: Number(limit),
+        skip: Number(offset),
+      }),
+      prisma.sale.count({ where }),
+    ])
 
-    res.json(sales)
+    res.json({ sales, total })
   } catch (error) {
     console.error('Error fetching sales:', error)
     res.status(500).json({ error: 'Failed to fetch sales' })
+  }
+})
+
+// GET sales summary (like expenses summary)
+router.get('/summary', async (req, res) => {
+  try {
+    const { startDate, endDate, search } = req.query
+
+    // Build where clause for date filtering and search
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const where: any = {}
+
+    if (startDate || endDate) {
+      where.saleDate = {}
+      if (startDate) where.saleDate.gte = new Date(startDate as string)
+      if (endDate) {
+        const end = new Date(endDate as string)
+        end.setHours(23, 59, 59, 999)
+        where.saleDate.lte = end
+      }
+    }
+
+    // Search across notes, etsyOrderId, and line hamper names/descriptions
+    if (search && typeof search === 'string' && search.trim()) {
+      const searchTerm = search.trim()
+      where.OR = [
+        { notes: { contains: searchTerm, mode: 'insensitive' } },
+        { etsyOrderId: { contains: searchTerm, mode: 'insensitive' } },
+        {
+          lines: {
+            some: {
+              OR: [
+                { description: { contains: searchTerm, mode: 'insensitive' } },
+                { hamper: { name: { contains: searchTerm, mode: 'insensitive' } } },
+              ],
+            },
+          },
+        },
+      ]
+    }
+
+    const sales = await prisma.sale.findMany({
+      where,
+      include: {
+        lines: {
+          include: { hamper: true },
+        },
+      },
+    })
+
+    const totals = {
+      salesCount: sales.length,
+      totalRevenue: sales.reduce((sum, s) => sum + Number(s.grossRevenue), 0),
+      totalPostageCharged: sales.reduce((sum, s) => sum + Number(s.postageCharged), 0),
+      totalPostageCost: sales.reduce((sum, s) => sum + Number(s.postageCost), 0),
+      totalFees: sales.reduce((sum, s) => sum + Number(s.etsyFees), 0),
+      totalCost: sales.reduce((sum, s) => sum + Number(s.totalCost), 0),
+      totalMargin: sales.reduce((sum, s) => sum + Number(s.margin), 0),
+    }
+
+    // Group by channel
+    const byChannel: Record<string, { count: number; revenue: number; fees: number; margin: number }> = {}
+    for (const sale of sales) {
+      const channel = sale.saleChannel
+      if (!byChannel[channel]) {
+        byChannel[channel] = { count: 0, revenue: 0, fees: 0, margin: 0 }
+      }
+      byChannel[channel].count += 1
+      byChannel[channel].revenue += Number(sale.grossRevenue)
+      byChannel[channel].fees += Number(sale.etsyFees)
+      byChannel[channel].margin += Number(sale.margin)
+    }
+
+    // Group by hamper (including bespoke items)
+    const byHamper: Record<string, { name: string; count: number; revenue: number }> = {}
+    for (const sale of sales) {
+      for (const line of sale.lines) {
+        const key = line.hamperId || `bespoke:${line.description}`
+        const name = line.hamper?.name || line.description || 'Bespoke Item'
+        if (!byHamper[key]) {
+          byHamper[key] = { name, count: 0, revenue: 0 }
+        }
+        byHamper[key].count += line.quantity
+        byHamper[key].revenue += Number(line.unitPrice) * line.quantity
+      }
+    }
+
+    res.json({
+      totals,
+      byChannel: Object.entries(byChannel).map(([channel, data]) => ({ channel, ...data })),
+      byHamper: Object.values(byHamper).sort((a, b) => b.count - a.count),
+    })
+  } catch (error) {
+    console.error('Error fetching sales summary:', error)
+    res.status(500).json({ error: 'Failed to fetch sales summary' })
   }
 })
 
@@ -476,7 +708,7 @@ router.get('/analytics/margins', async (req, res) => {
     startDate.setDate(startDate.getDate() - Number(days))
 
     const sales = await prisma.sale.findMany({
-      where: { saleDate: { gte: startDate } },
+      where: { saleDate: { gte: startDate }, isHistorical: false },
       include: {
         lines: {
           include: { hamper: true },
@@ -486,22 +718,38 @@ router.get('/analytics/margins', async (req, res) => {
     })
 
     const totalRevenue = sales.reduce((sum, s) => sum + Number(s.grossRevenue), 0)
+    const totalPostageCharged = sales.reduce((sum, s) => sum + Number(s.postageCharged), 0)
+    const totalPostageCost = sales.reduce((sum, s) => sum + Number(s.postageCost), 0)
     const totalFees = sales.reduce((sum, s) => sum + Number(s.etsyFees), 0)
     const totalOverhead = sales.reduce((sum, s) => sum + Number(s.packagingOverhead), 0)
     const totalCost = sales.reduce((sum, s) => sum + Number(s.totalCost), 0)
     const totalMargin = sales.reduce((sum, s) => sum + Number(s.margin), 0)
 
-    // Group by hamper
-    const byHamper: Record<string, { name: string; count: number; revenue: number; margin: number }> = {}
+    // Group by hamper (including bespoke items)
+    const byHamper: Record<string, { name: string; count: number; revenue: number }> = {}
     for (const sale of sales) {
       for (const line of sale.lines) {
-        const key = line.hamperId
+        const key = line.hamperId || `bespoke:${line.description}`
+        const name = line.hamper?.name || line.description || 'Bespoke Item'
         if (!byHamper[key]) {
-          byHamper[key] = { name: line.hamper.name, count: 0, revenue: 0, margin: 0 }
+          byHamper[key] = { name, count: 0, revenue: 0 }
         }
         byHamper[key].count += line.quantity
         byHamper[key].revenue += Number(line.unitPrice) * line.quantity
       }
+    }
+
+    // Group by channel
+    const byChannel: Record<string, { count: number; revenue: number; fees: number; margin: number }> = {}
+    for (const sale of sales) {
+      const channel = sale.saleChannel
+      if (!byChannel[channel]) {
+        byChannel[channel] = { count: 0, revenue: 0, fees: 0, margin: 0 }
+      }
+      byChannel[channel].count += 1
+      byChannel[channel].revenue += Number(sale.grossRevenue)
+      byChannel[channel].fees += Number(sale.etsyFees)
+      byChannel[channel].margin += Number(sale.margin)
     }
 
     res.json({
@@ -509,6 +757,9 @@ router.get('/analytics/margins', async (req, res) => {
       summary: {
         salesCount: sales.length,
         totalRevenue,
+        totalPostageCharged,
+        totalPostageCost,
+        postageProfit: totalPostageCharged - totalPostageCost,
         totalFees,
         totalOverhead,
         totalCost,
@@ -516,6 +767,7 @@ router.get('/analytics/margins', async (req, res) => {
         marginPercent: totalRevenue > 0 ? (totalMargin / totalRevenue) * 100 : 0,
       },
       byHamper: Object.values(byHamper).sort((a, b) => b.count - a.count),
+      byChannel: Object.entries(byChannel).map(([channel, data]) => ({ channel, ...data })),
     })
   } catch (error) {
     console.error('Error fetching margin analytics:', error)

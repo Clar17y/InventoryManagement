@@ -240,6 +240,12 @@ router.post('/preview', async (req, res) => {
       }
     }
 
+    // Calculate packaging overhead
+    const overheads = await prisma.packagingOverhead.findMany({
+      where: { isActive: true, effectiveTo: null },
+    })
+    const packagingOverhead = overheads.reduce((sum, o) => sum + Number(o.costPerOrder), 0)
+
     res.json({
       lines: previews,
       summary: {
@@ -247,7 +253,8 @@ router.post('/preview', async (req, res) => {
         postageCharged,
         totalCost,
         estimatedFees,
-        estimatedMargin: totalGross + postageCharged - estimatedFees - totalCost,
+        packagingOverhead,
+        estimatedMargin: totalGross + postageCharged - estimatedFees - totalCost - packagingOverhead,
       },
     })
   } catch (error) {

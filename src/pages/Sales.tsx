@@ -85,8 +85,8 @@ export default function Sales() {
   const [notes, setNotes] = useState('')
   const [etsyOrderId, setEtsyOrderId] = useState('')
   const [saleChannel, setSaleChannel] = useState<SaleChannel>('etsy')
-  const [postageCharged, setPostageCharged] = useState('')
-  const [postageCost, setPostageCost] = useState('')
+  const [postageCharged, setPostageCharged] = useState('5.00')
+  const [postageCost, setPostageCost] = useState('5.35')
   const [saving, setSaving] = useState(false)
 
   // Override state
@@ -202,8 +202,8 @@ export default function Sales() {
     setNotes('')
     setEtsyOrderId('')
     setSaleChannel('etsy')
-    setPostageCharged('')
-    setPostageCost('')
+    setPostageCharged('5.00')
+    setPostageCost('5.35')
     setError(null)
     setOverrides({})
     setEditingOverride(null)
@@ -345,7 +345,16 @@ export default function Sales() {
               <button
                 key={channel}
                 type="button"
-                onClick={() => setSaleChannel(channel)}
+                onClick={() => {
+                  setSaleChannel(channel)
+                  if (channel === 'direct' || channel === 'fair') {
+                    setPostageCharged('0')
+                    setPostageCost('0')
+                  } else if (channel === 'etsy') {
+                    setPostageCharged('5.00')
+                    setPostageCost('5.35')
+                  }
+                }}
                 className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
                   saleChannel === channel
                     ? channelColors[channel]
@@ -697,10 +706,16 @@ export default function Sales() {
                   <span className="font-medium text-red-600">-{formatCurrency(parseFloat(postageCost))}</span>
                 </div>
               )}
-              {saleChannel === 'etsy' && (
+              {saleChannel === 'etsy' && preview.summary.estimatedFees > 0 && (
                 <div className="flex justify-between text-sm">
                   <span>Etsy Fees (estimated)</span>
                   <span className="font-medium text-red-600">-{formatCurrency(preview.summary.estimatedFees)}</span>
+                </div>
+              )}
+              {preview.summary.packagingOverhead > 0 && (
+                <div className="flex justify-between text-sm">
+                  <span>Packaging Overhead</span>
+                  <span className="font-medium text-red-600">-{formatCurrency(preview.summary.packagingOverhead)}</span>
                 </div>
               )}
               <div className="flex justify-between text-lg font-semibold border-t pt-2">
@@ -799,6 +814,12 @@ export default function Sales() {
                       <div className="bg-gray-50 p-3 rounded-lg">
                         <div className="text-xs text-gray-500">Etsy Fees</div>
                         <div className="font-semibold text-red-600">-{formatCurrency(Number(sale.etsyFees))}</div>
+                      </div>
+                    )}
+                    {Number(sale.packagingOverhead) > 0 && (
+                      <div className="bg-gray-50 p-3 rounded-lg">
+                        <div className="text-xs text-gray-500">Packaging</div>
+                        <div className="font-semibold text-red-600">-{formatCurrency(Number(sale.packagingOverhead))}</div>
                       </div>
                     )}
                   </div>

@@ -19,6 +19,7 @@ enum ExpenseCategory {
   LISTING_FEE
   POSTAGE
   PACKAGING
+  STOCK
   OTHER
 }
 
@@ -199,6 +200,7 @@ model BusinessExpense {
   amountIncVat  Decimal         @db.Decimal(10, 2)
   amountExcVat  Decimal         @db.Decimal(10, 2)
   isActive      Boolean         @default(true)
+  isHistorical  Boolean         @default(false) // True for imported historical data
   createdAt     DateTime        @default(now())
   updatedAt     DateTime        @updatedAt
 

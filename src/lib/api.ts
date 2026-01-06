@@ -365,7 +365,7 @@ export const sales = {
 }
 
 // Business Expenses
-export type ExpenseCategory = 'ADVERTISING' | 'LISTING_FEE' | 'POSTAGE' | 'PACKAGING' | 'OTHER'
+export type ExpenseCategory = 'ADVERTISING' | 'LISTING_FEE' | 'POSTAGE' | 'PACKAGING' | 'STOCK' | 'OTHER'
 
 export interface BusinessExpense {
   id: string

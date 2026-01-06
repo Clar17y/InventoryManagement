@@ -26,6 +26,7 @@ const categoryLabels: Record<ExpenseCategory, string> = {
   LISTING_FEE: 'Listing Fee',
   POSTAGE: 'Postage',
   PACKAGING: 'Packaging',
+  STOCK: 'Stock/Contents',
   OTHER: 'Other',
 }
 
@@ -34,6 +35,7 @@ const categoryColors: Record<ExpenseCategory, string> = {
   LISTING_FEE: 'bg-blue-100 text-blue-800',
   POSTAGE: 'bg-orange-100 text-orange-800',
   PACKAGING: 'bg-green-100 text-green-800',
+  STOCK: 'bg-amber-100 text-amber-800',
   OTHER: 'bg-gray-100 text-gray-800',
 }
 

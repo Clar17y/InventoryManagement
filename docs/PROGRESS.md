@@ -159,6 +159,7 @@ Goal: Replace Excel spreadsheet "Savvy Finances" with full financial tracking.
 | 2026-01-06 | Claude Code | Phase 2C: Historical Import | ✅ Done | feature/full-spreadsheet-migration |
 | 2026-01-06 | Antigravity | Sales Screen Upgrades | ✅ Done | main |
 | 2026-01-06 | Antigravity | v1.0.0 Stable Release | ✅ Done | main |
+| 2026-01-07 | Codex CLI | Maintainability refactor | ✅ Done | refactor/maintainability |
 
 
 ---
@@ -167,7 +168,7 @@ Goal: Replace Excel spreadsheet "Savvy Finances" with full financial tracking.
 
 > Leave notes here when ending a session so the next agent knows where you left off
 
-**Last Updated:** 2026-01-06
+**Last Updated:** 2026-01-07
 
 **Current State:**
 - **v1.0.0 Released**: Project marked as stable and ready for use.
@@ -180,6 +181,10 @@ Goal: Replace Excel spreadsheet "Savvy Finances" with full financial tracking.
 - `server/routes/sales.ts` - Added date filtering, summary endpoint, saleDate field, **search filter**
 - `src/lib/api.ts` - Added SalesSummary interface, updated sales.list(), added sales.summary()
 - `src/pages/Sales.tsx` - Summary section, date filter with quick selectors, Load More pagination, sale date picker, **search input**
+
+**Maintainability Refactor (2026-01-07):**
+- `src/lib/api.ts` - Split into domain modules under `src/lib/api/` (re-exported to keep imports stable)
+- `server/routes/sales.ts` - Extracted allocation/fee/filter/group helpers into `server/lib/sales/`
 
 **Key Files Changed (Phase 2C):**
 - `scripts/import-historical.ts` - XML parser for historical sales and expenses

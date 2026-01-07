@@ -64,7 +64,6 @@ function parseRow(rowXml: string): (string | number | Date | null)[] {
   const cells: (string | number | Date | null)[] = []
   const cellRegex = /<Cell[^>]*>([\s\S]*?)<\/Cell>/g
   let match
-  let lastIndex = 0
 
   while ((match = cellRegex.exec(rowXml)) !== null) {
     // Check for ss:Index attribute (skipped columns)
@@ -78,7 +77,6 @@ function parseRow(rowXml: string): (string | number | Date | null)[] {
 
     const value = parseXmlValue(match[1])
     cells.push(value)
-    lastIndex = cells.length
   }
 
   return cells

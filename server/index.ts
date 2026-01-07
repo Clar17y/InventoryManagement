@@ -10,6 +10,7 @@ import hampersRouter from './routes/hampers'
 import salesRouter from './routes/sales'
 import settingsRouter from './routes/settings'
 import expensesRouter from './routes/expenses'
+import { requireAuth } from './middleware/requireAuth'
 
 const app = express()
 const PORT = process.env.PORT || 3001
@@ -20,6 +21,14 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
 app.use(cors())
 app.use(express.json())
 
+// Health check
+app.get('/api/health', (_, res) => {
+  res.json({ status: 'ok', timestamp: new Date().toISOString() })
+})
+
+// Require auth for all other API routes
+app.use('/api', requireAuth)
+
 // API routes
 app.use('/api/categories', categoriesRouter)
 app.use('/api/products', productsRouter)
@@ -28,11 +37,6 @@ app.use('/api/hampers', hampersRouter)
 app.use('/api/sales', salesRouter)
 app.use('/api/settings', settingsRouter)
 app.use('/api/expenses', expensesRouter)
-
-// Health check
-app.get('/api/health', (_, res) => {
-  res.json({ status: 'ok', timestamp: new Date().toISOString() })
-})
 
 // Serve static files in production
 app.use(express.static(path.join(__dirname, '../dist')))

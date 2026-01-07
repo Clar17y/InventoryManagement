@@ -347,7 +347,7 @@ export default function Products() {
                   {product.barcodes && product.barcodes.length > 0 && (
                     <span className="font-mono">
                       {product.barcodes.length === 1
-                        ? `#${product.barcodes[0].barcode}`
+                        ? `#${product.barcodes[0]?.barcode ?? ''}`
                         : `${product.barcodes.length} barcodes`
                       }
                     </span>

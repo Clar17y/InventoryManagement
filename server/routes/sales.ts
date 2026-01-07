@@ -112,8 +112,107 @@ async function allocateStockForRequirement(
   }
 }
 
+// Allocate stock for a variant requirement (uses specific mapped product only)
+async function allocateStockForVariantRequirement(
+  variantId: string,
+  categoryId: string,
+  quantityNeeded: number,
+  pickRule: PickRule
+): Promise<RequirementAllocation> {
+  // Get the variant mapping for this category
+  const mapping = await prisma.hamperVariantMapping.findUnique({
+    where: {
+      variantId_categoryId: {
+        variantId,
+        categoryId,
+      },
+    },
+    include: {
+      category: true,
+      product: {
+        include: {
+          lots: {
+            where: { remaining: { gt: 0 } },
+          },
+        },
+      },
+    },
+  })
+
+  if (!mapping) {
+    // No mapping for this category in this variant - return unfulfilled
+    return {
+      categoryId,
+      categoryName: 'Unmapped',
+      quantityRequired: quantityNeeded,
+      allocations: [],
+      totalCost: 0,
+      fulfilled: false,
+    }
+  }
+
+  // Get lots for this specific product only
+  const allLots = mapping.product.lots.map((lot) => ({
+    ...lot,
+    productId: mapping.product.id,
+    productName: mapping.product.name,
+  }))
+
+  // Sort lots based on pick rule
+  const sortedLots = [...allLots].sort((a, b) => {
+    switch (pickRule) {
+      case 'FIFO':
+        return a.receivedAt.getTime() - b.receivedAt.getTime()
+      case 'FEFO':
+        if (!a.expiresAt && !b.expiresAt) return a.receivedAt.getTime() - b.receivedAt.getTime()
+        if (!a.expiresAt) return 1
+        if (!b.expiresAt) return -1
+        return a.expiresAt.getTime() - b.expiresAt.getTime()
+      case 'CHEAPEST':
+        return Number(a.unitCost) - Number(b.unitCost)
+      case 'MANUAL':
+      default:
+        return a.receivedAt.getTime() - b.receivedAt.getTime()
+    }
+  })
+
+  // Allocate from sorted lots
+  const allocations: AllocationLine[] = []
+  let remaining = quantityNeeded
+  let totalCost = 0
+
+  for (const lot of sortedLots) {
+    if (remaining <= 0) break
+
+    const allocateQty = Math.min(remaining, Number(lot.remaining))
+    if (allocateQty > 0) {
+      allocations.push({
+        lotId: lot.id,
+        productId: lot.productId,
+        productName: lot.productName,
+        quantity: allocateQty,
+        unitCost: Number(lot.unitCost),
+      })
+      totalCost += allocateQty * Number(lot.unitCost)
+      remaining -= allocateQty
+    }
+  }
+
+  return {
+    categoryId: mapping.categoryId,
+    categoryName: mapping.category.name,
+    quantityRequired: quantityNeeded,
+    allocations,
+    totalCost,
+    fulfilled: remaining <= 0,
+  }
+}
+
+
+
 const saleLineSchema = z.object({
   hamperId: z.string().cuid().optional(), // Optional for bespoke items
+  variantId: z.string().cuid().optional(), // Optional: specific variant
   description: z.string().max(200).optional(), // For bespoke items
   quantity: z.number().int().positive().default(1),
   unitPrice: z.number().nonnegative().optional(), // Required for bespoke items
@@ -384,8 +483,24 @@ router.post('/', async (req, res) => {
                 }
               })
             )
+          } else if (line.variantId) {
+            // Use variant-specific allocation (maps to specific product)
+            const allocation = await allocateStockForVariantRequirement(
+              line.variantId,
+              req.categoryId,
+              totalNeeded,
+              req.category.pickRule
+            )
+
+            if (!allocation.fulfilled && !req.isOptional) {
+              throw new Error(
+                `Insufficient stock for ${req.category.name} variant (need ${totalNeeded}, can allocate ${allocation.allocations.reduce((s, a) => s + a.quantity, 0)})`
+              )
+            }
+
+            allocations = allocation.allocations
           } else {
-            // Use automatic allocation
+            // Use automatic category-wide allocation
             const allocation = await allocateStockForRequirement(
               req.categoryId,
               totalNeeded,

@@ -1,9 +1,16 @@
+import { supabase } from './supabase'
+
 const API_BASE = '/api'
 
 async function request<T>(endpoint: string, options?: RequestInit): Promise<T> {
+  const {
+    data: { session },
+  } = await supabase.auth.getSession()
+
   const response = await fetch(`${API_BASE}${endpoint}`, {
     headers: {
       'Content-Type': 'application/json',
+      ...(session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}),
       ...options?.headers,
     },
     ...options,
@@ -204,29 +211,68 @@ export interface HamperRequirementDetail extends HamperRequirement {
   estimatedCost: number
 }
 
+export interface HamperVariantMapping {
+  categoryId: string
+  productId: string
+  product?: { id: string; name: string }
+}
+
+export interface HamperVariantAvailability {
+  variantId: string
+  name: string
+  etsySku: string | null
+  canMake: number
+  mappings?: HamperVariantMapping[]
+}
+
+export interface HamperVariant {
+  id: string
+  hamperId: string
+  name: string
+  etsySku: string | null
+  isActive: boolean
+  createdAt: string
+  updatedAt: string
+  canMake?: number
+  mappings?: (HamperVariantMapping & {
+    category: { id: string; name: string }
+  })[]
+}
+
 export interface Hamper {
   id: string
   name: string
   sellingPrice: number
   etsyListingId: string | null
+  hasVariants: boolean
   isActive: boolean
   createdAt: string
   updatedAt: string
   requirements: HamperRequirement[]
   canMake: number
+  variantAvailability?: HamperVariantAvailability[]
 }
 
 export interface HamperDetail extends Omit<Hamper, 'requirements'> {
   requirements: HamperRequirementDetail[]
   estimatedCost: number
   estimatedMargin: number
+  variantAvailability?: HamperVariantAvailability[]
+  variants?: HamperVariant[]
 }
 
 export interface HamperCreateData {
   name: string
   sellingPrice: number
   etsyListingId?: string
+  hasVariants?: boolean
   requirements: { categoryId: string; quantity: number; isOptional?: boolean }[]
+}
+
+export interface HamperVariantCreateData {
+  name: string
+  etsySku?: string
+  mappings: { categoryId: string; productId: string }[]
 }
 
 export const hampers = {
@@ -239,6 +285,17 @@ export const hampers = {
   delete: (id: string) =>
     request<void>(`/hampers/${id}`, { method: 'DELETE' }),
 }
+
+export const hamperVariants = {
+  list: (hamperId: string) => request<HamperVariant[]>(`/hampers/${hamperId}/variants`),
+  create: (hamperId: string, data: HamperVariantCreateData) =>
+    request<HamperVariant>(`/hampers/${hamperId}/variants`, { method: 'POST', body: JSON.stringify(data) }),
+  update: (hamperId: string, variantId: string, data: Partial<HamperVariantCreateData>) =>
+    request<HamperVariant>(`/hampers/${hamperId}/variants/${variantId}`, { method: 'PUT', body: JSON.stringify(data) }),
+  delete: (hamperId: string, variantId: string) =>
+    request<void>(`/hampers/${hamperId}/variants/${variantId}`, { method: 'DELETE' }),
+}
+
 
 // Sales
 export interface AllocationLine {
@@ -330,6 +387,7 @@ export interface Sale {
 
 export interface SaleLineInput {
   hamperId?: string // Optional for bespoke items
+  variantId?: string // Optional: specific variant of the hamper
   description?: string // For bespoke items
   quantity: number
   unitPrice?: number // Required for bespoke items

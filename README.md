@@ -96,6 +96,15 @@ See the [`docs/`](./docs) folder for:
 | Historical Import | ✅ Complete |
 | Polish & Alerts | ✅ Complete |
 
+## Effort Estimates (Tokens)
+
+When planning work, estimate effort as an approximate **LLM token budget** (prompt + completion) for an AI coding agent, not wall-clock time.
+
+- **Tiny change**: ~5k–15k tokens
+- **Small feature**: ~15k–50k tokens
+- **Medium feature**: ~50k–150k tokens
+- **Large feature/refactor**: ~150k–400k+ tokens
+
 ## License
 
 MIT

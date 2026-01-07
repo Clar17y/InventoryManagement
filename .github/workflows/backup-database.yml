@@ -9,6 +9,8 @@ on:
 jobs:
   backup:
     runs-on: ubuntu-latest
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
     
     steps:
       - name: Checkout repository
@@ -27,8 +29,6 @@ jobs:
         run: npx prisma generate
 
       - name: Run backup script
-        env:
-          DATABASE_URL: ${{ secrets.DATABASE_URL }}
         run: npm run db:backup
 
       - name: Get timestamp

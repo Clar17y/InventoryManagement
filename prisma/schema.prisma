@@ -34,6 +34,7 @@ model ComponentCategory {
 
   products           Product[]
   hamperRequirements HamperRequirement[]
+  variantMappings    HamperVariantMapping[]
 }
 
 model Product {
@@ -47,9 +48,10 @@ model Product {
   createdAt  DateTime          @default(now())
   updatedAt  DateTime          @updatedAt
 
-  barcodes ProductBarcode[]
-  costs    ProductCost[]
-  lots     InventoryLot[]
+  barcodes        ProductBarcode[]
+  costs           ProductCost[]
+  lots            InventoryLot[]
+  variantMappings HamperVariantMapping[]
 }
 
 model ProductBarcode {
@@ -97,11 +99,13 @@ model Hamper {
   name          String
   etsyListingId String?  @unique
   sellingPrice  Decimal  @db.Decimal(10, 2)
+  hasVariants   Boolean  @default(false)
   isActive      Boolean  @default(true)
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
   requirements HamperRequirement[]
+  variants     HamperVariant[]
   saleLines    SaleLine[]
 }
 
@@ -117,6 +121,36 @@ model HamperRequirement {
   updatedAt  DateTime          @updatedAt
 
   @@unique([hamperId, categoryId])
+}
+
+// Represents a specific variant (e.g., "Grey Star" version of the hamper)
+model HamperVariant {
+  id        String   @id @default(cuid())
+  hamperId  String
+  hamper    Hamper   @relation(fields: [hamperId], references: [id], onDelete: Cascade)
+  name      String   // "Grey Star", "Floral", "Bee"
+  etsySku   String?  @unique // For future Etsy sync: "LPH-GS"
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  mappings  HamperVariantMapping[]
+  saleLines SaleLine[]
+
+  @@unique([hamperId, name])
+}
+
+// Maps a variant's category requirement to a specific product
+model HamperVariantMapping {
+  id         String            @id @default(cuid())
+  variantId  String
+  variant    HamperVariant     @relation(fields: [variantId], references: [id], onDelete: Cascade)
+  categoryId String            // Which category requirement this maps
+  category   ComponentCategory @relation(fields: [categoryId], references: [id])
+  productId  String
+  product    Product           @relation(fields: [productId], references: [id])
+
+  @@unique([variantId, categoryId])
 }
 
 model Sale {
@@ -152,16 +186,18 @@ model Sale {
 }
 
 model SaleLine {
-  id          String   @id @default(cuid())
+  id          String         @id @default(cuid())
   saleId      String
-  sale        Sale     @relation(fields: [saleId], references: [id], onDelete: Cascade)
-  hamperId    String?  // Optional for bespoke items
-  hamper      Hamper?  @relation(fields: [hamperId], references: [id])
-  description String?  // For bespoke items: "Custom Baby Hamper for Sarah"
-  quantity    Int      @default(1)
-  unitPrice   Decimal  @db.Decimal(10, 2)
-  lineCost    Decimal  @db.Decimal(10, 2)
-  createdAt   DateTime @default(now())
+  sale        Sale           @relation(fields: [saleId], references: [id], onDelete: Cascade)
+  hamperId    String?        // Optional for bespoke items
+  hamper      Hamper?        @relation(fields: [hamperId], references: [id])
+  variantId   String?        // Optional: which variant was sold
+  variant     HamperVariant? @relation(fields: [variantId], references: [id])
+  description String?        // For bespoke items: "Custom Baby Hamper for Sarah"
+  quantity    Int            @default(1)
+  unitPrice   Decimal        @db.Decimal(10, 2)
+  lineCost    Decimal        @db.Decimal(10, 2)
+  createdAt   DateTime       @default(now())
 
   consumptions SaleConsumption[]
 }

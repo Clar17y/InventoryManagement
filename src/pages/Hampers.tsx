@@ -7,7 +7,7 @@ import {
   ChevronUpIcon,
   XMarkIcon,
 } from '@heroicons/react/24/outline'
-import { hampers, categories, Hamper, HamperDetail, Category } from '../lib/api'
+import { hampers, categories, products, hamperVariants, Hamper, HamperDetail, Category, HamperVariantAvailability, Product, HamperVariant, HamperVariantCreateData } from '../lib/api'
 import { formatCurrency } from '../lib/formatting'
 
 type HamperSortOption =
@@ -40,6 +40,7 @@ interface HamperFormData {
   name: string
   sellingPrice: string
   etsyListingId: string
+  hasVariants: boolean
   requirements: RequirementInput[]
 }
 
@@ -47,6 +48,7 @@ const emptyForm: HamperFormData = {
   name: '',
   sellingPrice: '',
   etsyListingId: '',
+  hasVariants: false,
   requirements: [{ categoryId: '', quantity: 1, isOptional: false }],
 }
 
@@ -67,6 +69,11 @@ export default function Hampers() {
   const [saving, setSaving] = useState(false)
   const [expandedId, setExpandedId] = useState<string | null>(null)
   const [expandedDetail, setExpandedDetail] = useState<HamperDetail | null>(null)
+  const [editingVariants, setEditingVariants] = useState<HamperVariant[]>([])
+  const [productList, setProductList] = useState<Product[]>([])
+  const [variantLoading, setVariantLoading] = useState(false)
+  const [showVariantForm, setShowVariantForm] = useState(false)
+  const [variantFormData, setVariantFormData] = useState<HamperVariantCreateData>({ name: '', mappings: [] })
   const [sortBy, setSortBy] = useState<HamperSortOption>(
     () => (localStorage.getItem('hampers-sort') as HamperSortOption) || 'canmake-desc'
   )
@@ -74,12 +81,14 @@ export default function Hampers() {
   const loadData = async () => {
     try {
       setLoading(true)
-      const [hampersData, catsData] = await Promise.all([
+      const [hampersData, catsData, prodsData] = await Promise.all([
         hampers.list(),
         categories.list(),
+        products.list()
       ])
       setHamperList(hampersData)
       setCategoryList(catsData)
+      setProductList(prodsData)
       setError(null)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load data')
@@ -159,6 +168,7 @@ export default function Hampers() {
         name: formData.name,
         sellingPrice: parseFloat(formData.sellingPrice),
         etsyListingId: formData.etsyListingId || undefined,
+        hasVariants: formData.hasVariants,
         requirements: formData.requirements
           .filter((r) => r.categoryId)
           .map((r) => ({
@@ -184,11 +194,12 @@ export default function Hampers() {
     }
   }
 
-  const handleEdit = (hamper: Hamper) => {
+  const handleEdit = async (hamper: Hamper) => {
     setFormData({
       name: hamper.name,
       sellingPrice: String(hamper.sellingPrice),
       etsyListingId: hamper.etsyListingId || '',
+      hasVariants: hamper.hasVariants || false,
       requirements: hamper.requirements.map((r) => ({
         categoryId: r.categoryId,
         quantity: Number(r.quantity),
@@ -197,6 +208,21 @@ export default function Hampers() {
     })
     setEditingId(hamper.id)
     setShowForm(true)
+
+    // Load variants if hamper has them
+    if (hamper.hasVariants) {
+      setVariantLoading(true)
+      try {
+        const detail = await hampers.get(hamper.id)
+        setEditingVariants(detail.variants || [])
+      } catch (err) {
+        console.error('Failed to load variants:', err)
+      } finally {
+        setVariantLoading(false)
+      }
+    } else {
+      setEditingVariants([])
+    }
   }
 
   const handleDelete = async (id: string) => {
@@ -213,7 +239,42 @@ export default function Hampers() {
     setShowForm(false)
     setEditingId(null)
     setFormData(emptyForm)
+    setEditingVariants([])
+    setShowVariantForm(false)
+    setVariantFormData({ name: '', mappings: [] })
     setError(null)
+  }
+
+  const handleAddVariant = async () => {
+    if (!editingId || !variantFormData.name) return
+    setVariantLoading(true)
+    try {
+      await hamperVariants.create(editingId, variantFormData)
+      const detail = await hampers.get(editingId)
+      setEditingVariants(detail.variants || [])
+      setShowVariantForm(false)
+      setVariantFormData({ name: '', mappings: [] })
+      await loadData() // Refresh availability in list
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to add variant')
+    } finally {
+      setVariantLoading(false)
+    }
+  }
+
+  const handleDeleteVariant = async (variantId: string) => {
+    if (!editingId || !confirm('Delete this variant?')) return
+    setVariantLoading(true)
+    try {
+      await hamperVariants.delete(editingId, variantId)
+      const detail = await hampers.get(editingId)
+      setEditingVariants(detail.variants || [])
+      await loadData() // Refresh availability in list
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to delete variant')
+    } finally {
+      setVariantLoading(false)
+    }
   }
 
   const addRequirement = () => {
@@ -314,6 +375,22 @@ export default function Hampers() {
             />
           </div>
 
+          <div className="flex items-center gap-3">
+            <input
+              type="checkbox"
+              id="hasVariants"
+              checked={formData.hasVariants}
+              onChange={(e) => setFormData({ ...formData, hasVariants: e.target.checked })}
+              className="h-4 w-4 text-primary-600 border-gray-300 rounded focus:ring-primary-500"
+            />
+            <label htmlFor="hasVariants" className="text-sm font-medium text-gray-700">
+              Enable Variants
+            </label>
+            <span className="text-xs text-gray-500">
+              (Track availability per product variant, e.g., for Etsy listings with multiple options)
+            </span>
+          </div>
+
           <div>
             <div className="flex justify-between items-center mb-2">
               <label className="block text-sm font-medium text-gray-700">Requirements *</label>
@@ -375,9 +452,151 @@ export default function Hampers() {
             )}
           </div>
 
-          <div className="flex gap-2">
+          {/* Variant Management Section (only in Edit mode and if variants enabled) */}
+          {editingId && formData.hasVariants && (
+            <div className="border-t border-gray-200 mt-6 pt-6 animate-fade-in">
+              <div className="flex justify-between items-center mb-4">
+                <h3 className="font-semibold text-gray-900">Manage Variants</h3>
+                {!showVariantForm && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      // Initialize mapping with all current requirements
+                      const initialMappings = formData.requirements
+                        .filter(r => r.categoryId)
+                        .map(r => ({ categoryId: r.categoryId, productId: '' }))
+                      setVariantFormData({ name: '', etsySku: '', mappings: initialMappings })
+                      setShowVariantForm(true)
+                    }}
+                    className="btn-secondary text-sm py-1"
+                  >
+                    + Add Variant
+                  </button>
+                )}
+              </div>
+
+              {/* Add Variant Form */}
+              {showVariantForm && (
+                <div className="bg-primary-50 p-4 rounded-lg mb-4 space-y-4">
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-xs font-medium text-gray-700 mb-1">Variant Name *</label>
+                      <input
+                        type="text"
+                        value={variantFormData.name}
+                        onChange={(e) => setVariantFormData({ ...variantFormData, name: e.target.value })}
+                        className="input text-sm"
+                        placeholder="e.g., Small, Blue, 500g"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-gray-700 mb-1">Etsy SKU</label>
+                      <input
+                        type="text"
+                        value={variantFormData.etsySku || ''}
+                        onChange={(e) => setVariantFormData({ ...variantFormData, etsySku: e.target.value })}
+                        className="input text-sm"
+                        placeholder="e.g., LUX-SPA-SM"
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-medium text-gray-700 mb-2">Product Mappings</label>
+                    <div className="space-y-2">
+                      {variantFormData.mappings.map((mapping, idx) => {
+                        const category = categoryList.find(c => c.id === mapping.categoryId)
+                        const categoryProds = productList.filter(p => p.categoryId === mapping.categoryId)
+
+                        return (
+                          <div key={idx} className="flex items-center gap-2">
+                            <div className="text-xs font-medium text-gray-500 w-32 truncate" title={category?.name}>
+                              {category?.name || 'Category'}
+                            </div>
+                            <select
+                              value={mapping.productId}
+                              onChange={(e) => {
+                                const newMappings = [...variantFormData.mappings]
+                                newMappings[idx] = { ...mapping, productId: e.target.value }
+                                setVariantFormData({ ...variantFormData, mappings: newMappings })
+                              }}
+                              className="input text-sm flex-1"
+                            >
+                              <option value="">Select product...</option>
+                              {categoryProds.map(p => (
+                                <option key={p.id} value={p.id}>{p.name}</option>
+                              ))}
+                            </select>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  </div>
+
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      onClick={handleAddVariant}
+                      disabled={variantLoading || !variantFormData.name}
+                      className="btn-primary text-sm py-1"
+                    >
+                      {variantLoading ? 'Adding...' : 'Save Variant'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setShowVariantForm(false)}
+                      className="btn-secondary text-sm py-1"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Existing Variants List */}
+              <div className="space-y-3">
+                {variantLoading && !showVariantForm && <div className="text-center text-sm text-gray-500 py-4 italic">Loading variants...</div>}
+
+                {!variantLoading && editingVariants.length === 0 && !showVariantForm && (
+                  <div className="text-center text-sm text-gray-500 py-4 bg-gray-50 rounded-lg border border-dashed border-gray-300">
+                    No variants defined yet. Click "Add Variant" to start.
+                  </div>
+                )}
+
+                {editingVariants.map((variant) => (
+                  <div key={variant.id} className="bg-white border border-gray-200 p-3 rounded-lg shadow-sm">
+                    <div className="flex justify-between items-start">
+                      <div>
+                        <div className="font-medium text-gray-900">{variant.name}</div>
+                        {variant.etsySku && <div className="text-xs text-gray-500 font-mono">SKU: {variant.etsySku}</div>}
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteVariant(variant.id)}
+                        className="p-1 text-gray-400 hover:text-red-600"
+                        title="Delete variant"
+                      >
+                        <TrashIcon className="h-4 w-4" />
+                      </button>
+                    </div>
+
+                    <div className="mt-2 space-y-1">
+                      {variant.mappings?.map((m, idx) => (
+                        <div key={idx} className="flex justify-between items-center text-xs">
+                          <span className="text-gray-500">{m.category.name}:</span>
+                          <span className="font-medium text-primary-700">{m.product?.name}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          <div className="flex gap-2 mt-8 py-4 border-t border-gray-100">
             <button type="submit" disabled={saving || categoryList.length === 0} className="btn-primary">
-              {saving ? 'Saving...' : editingId ? 'Update' : 'Create'}
+              {saving ? 'Saving...' : editingId ? 'Update Basic Info' : 'Create Hamper'}
             </button>
             <button type="button" onClick={handleCancel} className="btn-secondary">
               Cancel
@@ -406,10 +625,26 @@ export default function Hampers() {
                       {formatCurrency(hamper.sellingPrice)} • {hamper.requirements.length} requirements
                     </div>
                   </div>
-                  <div className="flex items-center gap-2">
-                    <span className={`px-2.5 py-1 rounded-full text-sm font-medium ${getAvailabilityColor(hamper.canMake)}`}>
-                      Can make: {hamper.canMake}
-                    </span>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    {hamper.hasVariants && hamper.variantAvailability && hamper.variantAvailability.length > 0 ? (
+                      // Show per-variant availability
+                      <div className="flex flex-wrap gap-1">
+                        {hamper.variantAvailability.map((v: HamperVariantAvailability) => (
+                          <span
+                            key={v.variantId}
+                            className={`px-2 py-0.5 rounded-full text-xs font-medium ${getAvailabilityColor(v.canMake)}`}
+                            title={v.etsySku ? `SKU: ${v.etsySku}` : undefined}
+                          >
+                            {v.name}: {v.canMake}
+                          </span>
+                        ))}
+                      </div>
+                    ) : (
+                      // Show aggregate availability for non-variant hampers
+                      <span className={`px-2.5 py-1 rounded-full text-sm font-medium ${getAvailabilityColor(hamper.canMake)}`}>
+                        Can make: {hamper.canMake}
+                      </span>
+                    )}
                     {expandedId === hamper.id ? (
                       <ChevronUpIcon className="h-5 w-5 text-gray-400" />
                     ) : (
@@ -466,12 +701,34 @@ export default function Hampers() {
                       </div>
                     ))}
                   </div>
+
+                  {/* Variant Availability Breakdown */}
+                  {expandedDetail.hasVariants && expandedDetail.variantAvailability && expandedDetail.variantAvailability.length > 0 && (
+                    <div className="mt-4">
+                      <h4 className="text-sm font-medium text-gray-700 mb-2">Variant Availability</h4>
+                      <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                        {expandedDetail.variantAvailability.map((v: HamperVariantAvailability) => (
+                          <div
+                            key={v.variantId}
+                            className={`p-2 rounded-lg text-center ${getAvailabilityColor(v.canMake)}`}
+                          >
+                            <div className="font-medium text-sm">{v.name}</div>
+                            <div className="text-lg font-bold">{v.canMake}</div>
+                            {v.etsySku && (
+                              <div className="text-xs opacity-75 font-mono">{v.etsySku}</div>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
             </div>
           ))}
         </div>
-      )}
-    </div>
+      )
+      }
+    </div >
   )
 }

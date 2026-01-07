@@ -25,6 +25,7 @@ import { formatCurrency, formatUnitCost } from '../lib/formatting'
 
 interface SaleLineInput {
   hamperId?: string
+  variantId?: string
   description?: string
   quantity: number
   unitPrice?: number
@@ -510,37 +511,63 @@ export default function Sales() {
                     </div>
                   ) : (
                     // Hamper selection row
-                    <div className="flex gap-2 items-center">
-                      <select
-                        value={line.hamperId || ''}
-                        onChange={(e) => handleUpdateLine(index, { hamperId: e.target.value })}
-                        className="input flex-1"
-                      >
-                        <option value="">Select hamper...</option>
-                        {hamperList.map((h) => (
-                          <option key={h.id} value={h.id}>
-                            {h.name} - {formatCurrency(Number(h.sellingPrice))} (Can make: {h.canMake})
-                          </option>
-                        ))}
-                      </select>
-                      <input
-                        type="number"
-                        min="1"
-                        value={line.quantity}
-                        onChange={(e) => handleUpdateLine(index, { quantity: parseInt(e.target.value) || 1 })}
-                        className="input w-20"
-                      />
-                      <span className="text-sm text-gray-500 w-20 text-right">
-                        {formatCurrency(lineTotal)}
-                      </span>
-                      {lines.length > 1 && (
-                        <button
-                          type="button"
-                          onClick={() => handleRemoveLine(index)}
-                          className="p-1 text-gray-400 hover:text-red-600"
+                    <div className="space-y-2">
+                      <div className="flex gap-2 items-center">
+                        <select
+                          value={line.hamperId || ''}
+                          onChange={(e) => handleUpdateLine(index, { hamperId: e.target.value, variantId: undefined })}
+                          className="input flex-1"
                         >
-                          <XMarkIcon className="h-5 w-5" />
-                        </button>
+                          <option value="">Select hamper...</option>
+                          {hamperList.map((h) => (
+                            <option key={h.id} value={h.id}>
+                              {h.name} - {formatCurrency(Number(h.sellingPrice))}
+                              {h.hasVariants ? ' (has variants)' : ` (Can make: ${h.canMake})`}
+                            </option>
+                          ))}
+                        </select>
+                        <input
+                          type="number"
+                          min="1"
+                          value={line.quantity}
+                          onChange={(e) => handleUpdateLine(index, { quantity: parseInt(e.target.value) || 1 })}
+                          className="input w-20"
+                        />
+                        <span className="text-sm text-gray-500 w-20 text-right">
+                          {formatCurrency(lineTotal)}
+                        </span>
+                        {lines.length > 1 && (
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveLine(index)}
+                            className="p-1 text-gray-400 hover:text-red-600"
+                          >
+                            <XMarkIcon className="h-5 w-5" />
+                          </button>
+                        )}
+                      </div>
+                      {/* Variant selection for hampers with variants */}
+                      {selectedHamper?.hasVariants && selectedHamper.variantAvailability && selectedHamper.variantAvailability.length > 0 && (
+                        <div className="flex items-center gap-2 ml-2">
+                          <span className="text-xs text-gray-500">Variant:</span>
+                          <select
+                            value={line.variantId || ''}
+                            onChange={(e) => handleUpdateLine(index, { variantId: e.target.value || undefined })}
+                            className="input text-sm flex-1 max-w-xs"
+                          >
+                            <option value="">Select variant...</option>
+                            {selectedHamper.variantAvailability.map((v) => (
+                              <option key={v.variantId} value={v.variantId}>
+                                {v.name} (Can make: {v.canMake}){v.etsySku ? ` [${v.etsySku}]` : ''}
+                              </option>
+                            ))}
+                          </select>
+                          {!line.variantId && (
+                            <span className="text-xs text-amber-600">
+                              No variant selected - will use any available stock
+                            </span>
+                          )}
+                        </div>
                       )}
                     </div>
                   )}

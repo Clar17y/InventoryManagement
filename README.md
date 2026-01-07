@@ -50,7 +50,9 @@ npm run db:migrate
 npm run dev
 ```
 
-The app runs at `http://localhost:5173` with the API at `http://localhost:3000`.
+The app runs at `http://localhost:3000` with the API at `http://localhost:3001` (proxied via `/api`).
+
+All `/api/*` endpoints (except `/api/health`) require a Supabase access token (`Authorization: Bearer <token>`); the frontend sends this automatically after login. For development only, you can set `VITE_DEV_BYPASS_AUTH=true` to bypass auth in both the UI and API.
 
 ## Project Structure
 

@@ -159,6 +159,7 @@ Goal: Replace Excel spreadsheet "Savvy Finances" with full financial tracking.
 | 2026-01-06 | Claude Code | Phase 2C: Historical Import | ✅ Done | feature/full-spreadsheet-migration |
 | 2026-01-06 | Antigravity | Sales Screen Upgrades | ✅ Done | main |
 | 2026-01-06 | Antigravity | v1.0.0 Stable Release | ✅ Done | main |
+| 2026-01-07 | Codex CLI | Maintainability refactor | 🚧 In Progress | refactor/maintainability |
 
 
 ---

@@ -254,3 +254,15 @@ model BusinessExpense {
   @@index([date])
   @@index([category])
 }
+
+model EtsyCredentials {
+  id           String   @id @default(cuid())
+  accessToken  String
+  refreshToken String
+  expiresAt    DateTime
+  shopId       String
+  shopName     String
+  userId       String   // Etsy user ID
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}

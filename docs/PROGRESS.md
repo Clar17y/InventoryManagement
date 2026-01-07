@@ -18,8 +18,12 @@
 | **2A: Finance Backend** | ✅ Complete | 6/6 tasks |
 | **2B: Finance Frontend** | ✅ Complete | 3/3 tasks |
 | **2C: Historical Import** | ✅ Complete | 3/3 tasks |
+| **3A: Etsy OAuth** | ✅ Complete | 7/7 tasks |
+| **3B: Etsy Sync Panel** | ✅ Complete | 3/3 tasks |
+| **3C: Sales Auto-Import** | ✅ Complete | 3/3 tasks |
 
-**Current Focus:** v1.0.0 Stable Release & Deployment
+**Current Focus:** Etsy Integration complete - awaiting app approval for testing
+
 
 ---
 

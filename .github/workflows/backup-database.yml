@@ -35,11 +35,14 @@ jobs:
         id: timestamp
         run: echo "date=$(date +'%Y-%m-%d_%H-%M-%S')" >> $GITHUB_OUTPUT
 
-      # Option 1: Upload to Google Drive using Rclone (Supports Personal Accounts)
-      - name: Setup Rclone
-        uses: animate-object/setup-rclone@v1
-        with:
-          rclone_config: ${{ secrets.RCLONE_CONFIG }}
+      # Option 1: Upload to Google Drive using Rclone
+      - name: Install Rclone
+        run: sudo -v ; curl https://rclone.org/install.sh | sudo bash
+
+      - name: Configure Rclone
+        run: |
+          mkdir -p ~/.config/rclone
+          echo "${{ secrets.RCLONE_CONFIG }}" > ~/.config/rclone/rclone.conf
 
       - name: Upload to Google Drive
         run: |

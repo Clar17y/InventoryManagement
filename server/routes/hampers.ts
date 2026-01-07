@@ -319,7 +319,7 @@ router.get('/:id', async (req, res) => {
           etsySku: v.etsySku,
           canMake: await calculateVariantAvailability(v.id),
           mappings: v.mappings.map((m) => ({
-            requirementId: m.requirementId,
+            categoryId: m.categoryId,
             productId: m.productId,
             product: m.product,
           })),
@@ -447,9 +447,7 @@ router.get('/:id/variants', async (req, res) => {
       include: {
         mappings: {
           include: {
-            requirement: {
-              include: { category: true },
-            },
+            category: true,
             product: {
               select: { id: true, name: true },
             },

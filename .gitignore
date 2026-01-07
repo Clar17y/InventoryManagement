@@ -33,3 +33,6 @@ prisma/*.db-journal
 nul
 
 /generated/prisma
+
+# Backups
+backups/

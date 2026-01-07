@@ -332,30 +332,34 @@ export default function Hampers() {
 
   return (
     <div className="space-y-4">
-      <div className="flex justify-between items-center gap-3">
+      {/* Header */}
+      <div className="flex justify-between items-center">
         <h2 className="text-xl font-semibold">Hampers</h2>
-        <div className="flex items-center gap-3">
-          {!showForm && (
-            <select
-              value={sortBy}
-              onChange={(e) => setSortBy(e.target.value as HamperSortOption)}
-              className="px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-            >
-              {HAMPER_SORT_OPTIONS.map((opt) => (
-                <option key={opt.value} value={opt.value}>
-                  {opt.label}
-                </option>
-              ))}
-            </select>
-          )}
-          {!showForm && (
-            <button onClick={() => setShowForm(true)} className="btn-primary flex items-center gap-1">
-              <PlusIcon className="h-5 w-5" />
-              New Hamper
-            </button>
-          )}
-        </div>
+        {!showForm && (
+          <button onClick={() => setShowForm(true)} className="btn-primary flex items-center gap-1">
+            <PlusIcon className="h-5 w-5" />
+            New Hamper
+          </button>
+        )}
       </div>
+
+      {/* Sort Controls */}
+      {!showForm && (
+        <div className="flex items-center gap-2">
+          <span className="text-sm text-gray-500">Sort:</span>
+          <select
+            value={sortBy}
+            onChange={(e) => setSortBy(e.target.value as HamperSortOption)}
+            className="px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 flex-1 max-w-xs"
+          >
+            {HAMPER_SORT_OPTIONS.map((opt) => (
+              <option key={opt.value} value={opt.value}>
+                {opt.label}
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
 
       {error && <div className="bg-red-50 text-red-700 p-3 rounded-lg text-sm">{error}</div>}
 
@@ -703,42 +707,46 @@ export default function Hampers() {
               <div className="flex justify-between items-start">
                 <button
                   onClick={() => handleExpand(hamper.id)}
-                  className="flex-1 text-left flex items-start gap-3"
+                  className="flex-1 text-left"
                 >
-                  <div className="flex-1 min-w-0">
-                    <div className="font-medium">{hamper.name}</div>
-                    <div className="text-sm text-gray-500">
-                      {formatCurrency(hamper.sellingPrice)} • {hamper.requirements.length} requirements
+                  {/* Title and Expand Icon Row */}
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex-1 min-w-0">
+                      <div className="font-medium">{hamper.name}</div>
+                      <div className="text-sm text-gray-500">
+                        {formatCurrency(hamper.sellingPrice)} • {hamper.requirements.length} requirements
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      {/* Show simple badge for non-variant hampers */}
+                      {!hamper.hasVariants && (
+                        <span className={`px-2.5 py-1 rounded-full text-sm font-medium ${getAvailabilityColor(hamper.canMake)}`}>
+                          Can make: {hamper.canMake}
+                        </span>
+                      )}
+                      {expandedId === hamper.id ? (
+                        <ChevronUpIcon className="h-5 w-5 text-gray-400 flex-shrink-0" />
+                      ) : (
+                        <ChevronDownIcon className="h-5 w-5 text-gray-400 flex-shrink-0" />
+                      )}
                     </div>
                   </div>
-                  <div className="flex items-center gap-2 flex-wrap">
-                    {hamper.hasVariants && hamper.variantAvailability && hamper.variantAvailability.length > 0 ? (
-                      // Show per-variant availability
-                      <div className="flex flex-wrap gap-1">
-                        {hamper.variantAvailability.map((v: HamperVariantAvailability) => (
-                          <span
-                            key={v.variantId}
-                            className={`px-2 py-0.5 rounded-full text-xs font-medium ${getAvailabilityColor(v.canMake)}`}
-                            title={v.etsySku ? `SKU: ${v.etsySku}` : undefined}
-                          >
-                            {v.name}: {v.canMake}
-                          </span>
-                        ))}
-                      </div>
-                    ) : (
-                      // Show aggregate availability for non-variant hampers
-                      <span className={`px-2.5 py-1 rounded-full text-sm font-medium ${getAvailabilityColor(hamper.canMake)}`}>
-                        Can make: {hamper.canMake}
-                      </span>
-                    )}
-                    {expandedId === hamper.id ? (
-                      <ChevronUpIcon className="h-5 w-5 text-gray-400" />
-                    ) : (
-                      <ChevronDownIcon className="h-5 w-5 text-gray-400" />
-                    )}
-                  </div>
+                  {/* Variant Badges Row - below title */}
+                  {hamper.hasVariants && hamper.variantAvailability && hamper.variantAvailability.length > 0 && (
+                    <div className="flex flex-wrap gap-1 mt-2">
+                      {hamper.variantAvailability.map((v: HamperVariantAvailability) => (
+                        <span
+                          key={v.variantId}
+                          className={`px-2 py-0.5 rounded-full text-xs font-medium ${getAvailabilityColor(v.canMake)}`}
+                          title={v.etsySku ? `SKU: ${v.etsySku}` : undefined}
+                        >
+                          {v.name}: {v.canMake}
+                        </span>
+                      ))}
+                    </div>
+                  )}
                 </button>
-                <div className="flex gap-1 ml-2">
+                <div className="flex gap-1 ml-2 flex-shrink-0">
                   <button onClick={() => handleEdit(hamper)} className="p-2 text-gray-500 hover:text-primary-600">
                     <PencilIcon className="h-5 w-5" />
                   </button>

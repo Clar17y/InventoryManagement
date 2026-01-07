@@ -44,13 +44,16 @@ export default function Expenses() {
   const [expenseList, setExpenseList] = useState<BusinessExpense[]>([])
   const [summary, setSummary] = useState<ExpenseSummary | null>(null)
   const [loading, setLoading] = useState(true)
+  const [loadingMore, setLoadingMore] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [showForm, setShowForm] = useState(false)
   const [showSummary, setShowSummary] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [formData, setFormData] = useState<ExpenseFormData>(emptyForm)
   const [saving, setSaving] = useState(false)
-  const [filterCategory, setFilterCategory] = useState<ExpenseCategory | ''>('')
+  const [filterCategory, setFilterCategory] = useState<ExpenseCategory | ''>()
+  const [totalExpenses, setTotalExpenses] = useState(0)
+  const PAGE_SIZE = 20
 
   // Date and search filter state
   const {
@@ -70,7 +73,10 @@ export default function Expenses() {
       if (isInitialLoad) {
         setLoading(true)
       }
-      const params: { category?: ExpenseCategory; startDate?: string; endDate?: string; search?: string } = {}
+      const params: { category?: ExpenseCategory; startDate?: string; endDate?: string; search?: string; limit?: number; offset?: number } = {
+        limit: PAGE_SIZE,
+        offset: 0,
+      }
       if (filterCategory) params.category = filterCategory
       if (startDate) params.startDate = new Date(startDate).toISOString()
       if (endDate) {
@@ -85,12 +91,38 @@ export default function Expenses() {
         expenses.summary(params),
       ])
       setExpenseList(listRes.expenses)
+      setTotalExpenses(listRes.total ?? listRes.expenses.length)
       setSummary(summaryRes)
       setError(null)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load expenses')
     } finally {
       setLoading(false)
+    }
+  }
+
+  const loadMore = async () => {
+    try {
+      setLoadingMore(true)
+      const params: { category?: ExpenseCategory; startDate?: string; endDate?: string; search?: string; limit?: number; offset?: number } = {
+        limit: PAGE_SIZE,
+        offset: expenseList.length,
+      }
+      if (filterCategory) params.category = filterCategory
+      if (startDate) params.startDate = new Date(startDate).toISOString()
+      if (endDate) {
+        const end = new Date(endDate)
+        end.setHours(23, 59, 59, 999)
+        params.endDate = end.toISOString()
+      }
+      if (debouncedSearchQuery) params.search = debouncedSearchQuery
+
+      const result = await expenses.list(params)
+      setExpenseList([...expenseList, ...result.expenses])
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to load more expenses')
+    } finally {
+      setLoadingMore(false)
     }
   }
 
@@ -187,6 +219,7 @@ export default function Expenses() {
 
   return (
     <div className="space-y-4">
+      {/* Header */}
       <div className="flex justify-between items-center">
         <h2 className="text-xl font-semibold">Business Expenses</h2>
         <div className="flex gap-2">
@@ -412,6 +445,19 @@ export default function Expenses() {
               </div>
             </div>
           ))}
+
+          {/* Load More */}
+          {expenseList.length < totalExpenses && (
+            <div className="text-center py-4">
+              <button
+                onClick={loadMore}
+                disabled={loadingMore}
+                className="btn-secondary"
+              >
+                {loadingMore ? 'Loading...' : `Load More (${expenseList.length}/${totalExpenses})`}
+              </button>
+            </div>
+          )}
         </div>
       )}
     </div>

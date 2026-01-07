@@ -35,11 +35,20 @@ jobs:
         id: timestamp
         run: echo "date=$(date +'%Y-%m-%d_%H-%M-%S')" >> $GITHUB_OUTPUT
 
-      # Option 1: Upload to Google Drive (your 2TB storage)
+      - name: Encrypt credentials
+        id: encode_creds
+        shell: bash
+        env:
+          CREDS: ${{ secrets.GOOGLE_DRIVE_CREDENTIALS }}
+        run: |
+          # Base64 encode the JSON credentials because the action requires it
+          echo "encoded=$(echo "$CREDS" | base64 -w 0)" >> $GITHUB_OUTPUT
+
+      # Option 1: Upload to Google Drive
       - name: Upload to Google Drive
         uses: adityak74/google-drive-upload-git-action@main
         with:
-          credentials: ${{ secrets.GOOGLE_DRIVE_CREDENTIALS }}
+          credentials: ${{ steps.encode_creds.outputs.encoded }}
           folderId: ${{ secrets.GOOGLE_DRIVE_FOLDER_ID }}
           filename: backups/backup_*.json
           name: backup_${{ steps.timestamp.outputs.date }}.json

@@ -73,6 +73,7 @@ export default function Hampers() {
   const [productList, setProductList] = useState<Product[]>([])
   const [variantLoading, setVariantLoading] = useState(false)
   const [showVariantForm, setShowVariantForm] = useState(false)
+  const [editingVariantId, setEditingVariantId] = useState<string | null>(null)
   const [variantFormData, setVariantFormData] = useState<HamperVariantCreateData>({ name: '', mappings: [] })
   const [sortBy, setSortBy] = useState<HamperSortOption>(
     () => (localStorage.getItem('hampers-sort') as HamperSortOption) || 'canmake-desc'
@@ -241,25 +242,51 @@ export default function Hampers() {
     setFormData(emptyForm)
     setEditingVariants([])
     setShowVariantForm(false)
+    setEditingVariantId(null)
     setVariantFormData({ name: '', mappings: [] })
     setError(null)
   }
 
-  const handleAddVariant = async () => {
+  const handleSaveVariant = async () => {
     if (!editingId || !variantFormData.name) return
+
+    // Filter to only include mappings where a product was selected
+    const validMappings = variantFormData.mappings.filter(m => m.productId)
+    if (validMappings.length === 0) {
+      setError('Please add at least one product mapping')
+      return
+    }
+
     setVariantLoading(true)
     try {
-      await hamperVariants.create(editingId, variantFormData)
+      if (editingVariantId) {
+        // Update existing variant
+        await hamperVariants.update(editingId, editingVariantId, { ...variantFormData, mappings: validMappings })
+      } else {
+        // Create new variant
+        await hamperVariants.create(editingId, { ...variantFormData, mappings: validMappings })
+      }
       const detail = await hampers.get(editingId)
       setEditingVariants(detail.variants || [])
       setShowVariantForm(false)
+      setEditingVariantId(null)
       setVariantFormData({ name: '', mappings: [] })
       await loadData() // Refresh availability in list
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to add variant')
+      setError(err instanceof Error ? err.message : `Failed to ${editingVariantId ? 'update' : 'add'} variant`)
     } finally {
       setVariantLoading(false)
     }
+  }
+
+  const handleEditVariant = (variant: HamperVariant) => {
+    setEditingVariantId(variant.id)
+    setVariantFormData({
+      name: variant.name,
+      etsySku: variant.etsySku || '',
+      mappings: variant.mappings?.map(m => ({ categoryId: m.categoryId, productId: m.productId })) || []
+    })
+    setShowVariantForm(true)
   }
 
   const handleDeleteVariant = async (variantId: string) => {
@@ -461,11 +488,8 @@ export default function Hampers() {
                   <button
                     type="button"
                     onClick={() => {
-                      // Initialize mapping with all current requirements
-                      const initialMappings = formData.requirements
-                        .filter(r => r.categoryId)
-                        .map(r => ({ categoryId: r.categoryId, productId: '' }))
-                      setVariantFormData({ name: '', etsySku: '', mappings: initialMappings })
+                      // Start with empty mappings - user adds what they need
+                      setVariantFormData({ name: '', etsySku: '', mappings: [] })
                       setShowVariantForm(true)
                     }}
                     className="btn-secondary text-sm py-1"
@@ -502,49 +526,101 @@ export default function Hampers() {
                   </div>
 
                   <div>
-                    <label className="block text-xs font-medium text-gray-700 mb-2">Product Mappings</label>
-                    <div className="space-y-2">
-                      {variantFormData.mappings.map((mapping, idx) => {
-                        const category = categoryList.find(c => c.id === mapping.categoryId)
-                        const categoryProds = productList.filter(p => p.categoryId === mapping.categoryId)
-
-                        return (
-                          <div key={idx} className="flex items-center gap-2">
-                            <div className="text-xs font-medium text-gray-500 w-32 truncate" title={category?.name}>
-                              {category?.name || 'Category'}
-                            </div>
-                            <select
-                              value={mapping.productId}
-                              onChange={(e) => {
-                                const newMappings = [...variantFormData.mappings]
-                                newMappings[idx] = { ...mapping, productId: e.target.value }
-                                setVariantFormData({ ...variantFormData, mappings: newMappings })
-                              }}
-                              className="input text-sm flex-1"
-                            >
-                              <option value="">Select product...</option>
-                              {categoryProds.map(p => (
-                                <option key={p.id} value={p.id}>{p.name}</option>
-                              ))}
-                            </select>
-                          </div>
-                        )
-                      })}
+                    <div className="flex justify-between items-center mb-2">
+                      <label className="block text-xs font-medium text-gray-700">
+                        Product Mappings {variantFormData.mappings.length === 0 && <span className="text-red-500">*</span>}
+                      </label>
+                      <select
+                        value=""
+                        onChange={(e) => {
+                          if (e.target.value) {
+                            // Add a new mapping for this category
+                            const alreadyMapped = variantFormData.mappings.some(m => m.categoryId === e.target.value)
+                            if (!alreadyMapped) {
+                              setVariantFormData({
+                                ...variantFormData,
+                                mappings: [...variantFormData.mappings, { categoryId: e.target.value, productId: '' }]
+                              })
+                            }
+                          }
+                        }}
+                        className="input text-xs py-1 w-auto"
+                      >
+                        <option value="">+ Add category mapping...</option>
+                        {formData.requirements
+                          .filter(r => r.categoryId && !variantFormData.mappings.some(m => m.categoryId === r.categoryId))
+                          .map(r => {
+                            const cat = categoryList.find(c => c.id === r.categoryId)
+                            return <option key={r.categoryId} value={r.categoryId}>{cat?.name || 'Category'}</option>
+                          })}
+                      </select>
                     </div>
+
+                    {variantFormData.mappings.length === 0 ? (
+                      <div className="text-xs text-gray-500 italic py-2 text-center border border-dashed border-gray-300 rounded-lg">
+                        Add at least one category mapping to define what makes this variant unique.
+                      </div>
+                    ) : (
+                      <div className="space-y-2">
+                        {variantFormData.mappings.map((mapping, idx) => {
+                          const category = categoryList.find(c => c.id === mapping.categoryId)
+                          const categoryProds = productList.filter(p => p.categoryId === mapping.categoryId)
+
+                          return (
+                            <div key={idx} className="flex items-center gap-2 bg-white p-2 rounded border border-gray-200">
+                              <div className="text-xs font-medium text-gray-600 w-28 truncate" title={category?.name}>
+                                {category?.name || 'Category'}
+                              </div>
+                              <select
+                                value={mapping.productId}
+                                onChange={(e) => {
+                                  const newMappings = [...variantFormData.mappings]
+                                  newMappings[idx] = { ...mapping, productId: e.target.value }
+                                  setVariantFormData({ ...variantFormData, mappings: newMappings })
+                                }}
+                                className="input text-sm flex-1"
+                              >
+                                <option value="">Select product...</option>
+                                {categoryProds.map(p => (
+                                  <option key={p.id} value={p.id}>{p.name}</option>
+                                ))}
+                              </select>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setVariantFormData({
+                                    ...variantFormData,
+                                    mappings: variantFormData.mappings.filter((_, i) => i !== idx)
+                                  })
+                                }}
+                                className="p-1 text-gray-400 hover:text-red-600"
+                                title="Remove mapping"
+                              >
+                                <XMarkIcon className="h-4 w-4" />
+                              </button>
+                            </div>
+                          )
+                        })}
+                      </div>
+                    )}
                   </div>
 
                   <div className="flex gap-2">
                     <button
                       type="button"
-                      onClick={handleAddVariant}
+                      onClick={handleSaveVariant}
                       disabled={variantLoading || !variantFormData.name}
                       className="btn-primary text-sm py-1"
                     >
-                      {variantLoading ? 'Adding...' : 'Save Variant'}
+                      {variantLoading ? 'Saving...' : editingVariantId ? 'Update Variant' : 'Save Variant'}
                     </button>
                     <button
                       type="button"
-                      onClick={() => setShowVariantForm(false)}
+                      onClick={() => {
+                        setShowVariantForm(false)
+                        setEditingVariantId(null)
+                        setVariantFormData({ name: '', mappings: [] })
+                      }}
                       className="btn-secondary text-sm py-1"
                     >
                       Cancel
@@ -570,14 +646,24 @@ export default function Hampers() {
                         <div className="font-medium text-gray-900">{variant.name}</div>
                         {variant.etsySku && <div className="text-xs text-gray-500 font-mono">SKU: {variant.etsySku}</div>}
                       </div>
-                      <button
-                        type="button"
-                        onClick={() => handleDeleteVariant(variant.id)}
-                        className="p-1 text-gray-400 hover:text-red-600"
-                        title="Delete variant"
-                      >
-                        <TrashIcon className="h-4 w-4" />
-                      </button>
+                      <div className="flex gap-1">
+                        <button
+                          type="button"
+                          onClick={() => handleEditVariant(variant)}
+                          className="p-1 text-gray-400 hover:text-primary-600"
+                          title="Edit variant"
+                        >
+                          <PencilIcon className="h-4 w-4" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteVariant(variant.id)}
+                          className="p-1 text-gray-400 hover:text-red-600"
+                          title="Delete variant"
+                        >
+                          <TrashIcon className="h-4 w-4" />
+                        </button>
+                      </div>
                     </div>
 
                     <div className="mt-2 space-y-1">

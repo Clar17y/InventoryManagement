@@ -9,6 +9,7 @@ import { PrismaClient } from '@prisma/client'
 import * as fs from 'fs'
 import * as path from 'path'
 import { fileURLToPath } from 'url'
+import { gzipSync } from 'zlib'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const prisma = new PrismaClient()
@@ -16,7 +17,7 @@ const prisma = new PrismaClient()
 async function backup() {
     const timestamp = new Date().toISOString().split('T')[0]
     const backupDir = path.join(__dirname, '..', 'backups')
-    const backupFile = path.join(backupDir, `backup_${timestamp}.json`)
+    const backupFile = path.join(backupDir, `backup_${timestamp}.json.gz`)
 
     // Create backups directory if it doesn't exist
     if (!fs.existsSync(backupDir)) {
@@ -100,7 +101,14 @@ async function backup() {
             },
         }
 
-        fs.writeFileSync(backupFile, JSON.stringify(backup, null, 2))
+        const jsonData = JSON.stringify(backup)
+        const compressed = gzipSync(jsonData)
+        fs.writeFileSync(backupFile, compressed)
+
+        const originalSize = Buffer.byteLength(jsonData)
+        const compressedSize = compressed.length
+        const ratio = ((1 - compressedSize / originalSize) * 100).toFixed(1)
+        console.log(`📦 Compressed: ${(originalSize / 1024).toFixed(1)}KB → ${(compressedSize / 1024).toFixed(1)}KB (${ratio}% smaller)`)
 
         console.log('✅ Backup complete!')
         console.log(`📁 Saved to: ${backupFile}`)

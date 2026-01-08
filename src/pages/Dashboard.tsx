@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { Link } from 'react-router-dom'
 import { settings, inventory, type Product, type InventoryLot } from '../lib/api'
 import { formatCurrency } from '../lib/formatting'
@@ -18,6 +18,41 @@ export default function Dashboard() {
   const [lowStockProducts, setLowStockProducts] = useState<Product[]>([])
   const [expiringLots, setExpiringLots] = useState<InventoryLot[]>([])
   const [isLoading, setIsLoading] = useState(true)
+  const [copied, setCopied] = useState(false)
+  const copyTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  useEffect(() => {
+    return () => {
+      if (copyTimeoutRef.current) clearTimeout(copyTimeoutRef.current)
+    }
+  }, [])
+
+  const copyShoppingList = async () => {
+    if (lowStockProducts.length === 0) return
+
+    const lines = lowStockProducts.map(p => `☐ ${p.name} (${p.totalStock ?? 0} left)`)
+    const text = `Shopping List:\n${lines.join('\n')}`
+
+    try {
+      await navigator.clipboard.writeText(text)
+      setCopied(true)
+      if (copyTimeoutRef.current) clearTimeout(copyTimeoutRef.current)
+      copyTimeoutRef.current = setTimeout(() => setCopied(false), 2000)
+    } catch {
+      // Fallback: create temporary textarea for older browsers
+      const textarea = document.createElement('textarea')
+      textarea.value = text
+      textarea.style.position = 'fixed'
+      textarea.style.opacity = '0'
+      document.body.appendChild(textarea)
+      textarea.select()
+      document.execCommand('copy')
+      document.body.removeChild(textarea)
+      setCopied(true)
+      if (copyTimeoutRef.current) clearTimeout(copyTimeoutRef.current)
+      copyTimeoutRef.current = setTimeout(() => setCopied(false), 2000)
+    }
+  }
 
   useEffect(() => {
     const loadData = async () => {
@@ -140,7 +175,31 @@ export default function Dashboard() {
       </section>
 
       <section>
-        <h2 className="text-xl font-semibold mb-4">Alerts</h2>
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-xl font-semibold">Alerts</h2>
+          {lowStockProducts.length > 0 && (
+            <button
+              onClick={copyShoppingList}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-gray-600 bg-gray-100 rounded-lg hover:bg-gray-200 active:bg-gray-300 transition-colors"
+            >
+              {copied ? (
+                <>
+                  <svg className="w-4 h-4 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                  </svg>
+                  <span className="text-emerald-600">Copied!</span>
+                </>
+              ) : (
+                <>
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3" />
+                  </svg>
+                  <span>Copy List</span>
+                </>
+              )}
+            </button>
+          )}
+        </div>
         <div className="space-y-4">
           <AlertCard
             type="danger"

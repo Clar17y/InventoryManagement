@@ -74,10 +74,18 @@ router.post('/preview', async (req, res) => {
           return { hamperId: line.hamperId, error: 'Hamper not found' }
         }
 
-        // For each requirement, calculate allocation
+        // For each requirement, calculate allocation (variant-aware)
         const requirementAllocations = await Promise.all(
           hamper.requirements.map(async (req) => {
             const totalNeeded = Number(req.quantity) * line.quantity
+            if (line.variantId) {
+              return allocateStockForVariantRequirement(
+                line.variantId,
+                req.categoryId,
+                totalNeeded,
+                req.category.pickRule
+              )
+            }
             return allocateStockForRequirement(
               req.categoryId,
               totalNeeded,

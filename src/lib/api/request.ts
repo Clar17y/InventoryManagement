@@ -18,7 +18,9 @@ export async function request<T>(endpoint: string, options?: RequestInit): Promi
 
   if (!response.ok) {
     const error = await response.json().catch(() => ({ error: 'Request failed' }))
-    throw new Error(error.error || 'Request failed')
+    // Use detailed message if available (e.g., stock shortages), otherwise fall back to error
+    const errorMessage = error.message || error.error || 'Request failed'
+    throw new Error(errorMessage)
   }
 
   if (response.status === 204) {

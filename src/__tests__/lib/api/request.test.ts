@@ -190,14 +190,24 @@ describe('request', () => {
       await expect(request('/test')).rejects.toThrow('Validation failed');
     });
 
-    it('throws generic error when response has no error field', async () => {
+    it('uses message field for detailed errors', async () => {
+      mockFetch.mockResolvedValue({
+        ok: false,
+        status: 400,
+        json: () => Promise.resolve({ error: 'Insufficient stock', message: 'Need 5 Ribbon, have 3' }),
+      });
+
+      await expect(request('/test')).rejects.toThrow('Need 5 Ribbon, have 3');
+    });
+
+    it('falls back to error field when no message', async () => {
       mockFetch.mockResolvedValue({
         ok: false,
         status: 500,
-        json: () => Promise.resolve({ message: 'Internal error' }),
+        json: () => Promise.resolve({ error: 'Server error' }),
       });
 
-      await expect(request('/test')).rejects.toThrow('Request failed');
+      await expect(request('/test')).rejects.toThrow('Server error');
     });
 
     it('throws generic error when response is not JSON', async () => {

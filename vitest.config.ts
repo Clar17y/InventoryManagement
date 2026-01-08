@@ -15,7 +15,7 @@ export default defineConfig({
           coverage: {
             provider: 'v8',
             reporter: ['text', 'json', 'html'],
-            include: ['server/lib/etsy/**/*.ts'],
+            include: ['server/lib/etsy/**/*.ts', 'server/lib/sales/**/*.ts'],
             exclude: ['server/lib/etsy/fixtures/**'],
           },
         },

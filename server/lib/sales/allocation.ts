@@ -1,5 +1,8 @@
-import { PickRule } from '@prisma/client'
+import { PickRule, PrismaClient } from '@prisma/client'
 import { prisma } from '../prisma'
+
+// Type for Prisma client or transaction client
+export type PrismaClientLike = PrismaClient | Omit<PrismaClient, '$connect' | '$disconnect' | '$on' | '$transaction' | '$use' | '$extends'>
 
 export interface AllocationLine {
   lotId: string
@@ -12,6 +15,8 @@ export interface AllocationLine {
 export interface RequirementAllocation {
   categoryId: string
   categoryName: string
+  productId?: string      // Set when variant maps to specific product
+  productName?: string    // Set when variant maps to specific product
   quantityRequired: number
   allocations: AllocationLine[]
   totalCost: number
@@ -73,12 +78,14 @@ function allocateFromLots(sortedLots: LotWithProduct[], quantityNeeded: number) 
 }
 
 // Allocate stock for a requirement based on pick rule
+// Accepts optional client for use within transactions
 export async function allocateStockForRequirement(
   categoryId: string,
   quantityNeeded: number,
-  pickRule: PickRule
+  pickRule: PickRule,
+  client: PrismaClientLike = prisma
 ): Promise<RequirementAllocation> {
-  const category = await prisma.componentCategory.findUnique({
+  const category = await client.componentCategory.findUnique({
     where: { id: categoryId },
     include: {
       products: {
@@ -126,14 +133,16 @@ export async function allocateStockForRequirement(
 }
 
 // Allocate stock for a variant requirement (uses specific mapped product, or falls back to category-wide)
+// Accepts optional client for use within transactions
 export async function allocateStockForVariantRequirement(
   variantId: string,
   categoryId: string,
   quantityNeeded: number,
-  pickRule: PickRule
+  pickRule: PickRule,
+  client: PrismaClientLike = prisma
 ): Promise<RequirementAllocation> {
   // Get the variant mapping for this category
-  const mapping = await prisma.hamperVariantMapping.findUnique({
+  const mapping = await client.hamperVariantMapping.findUnique({
     where: {
       variantId_categoryId: {
         variantId,
@@ -154,7 +163,7 @@ export async function allocateStockForVariantRequirement(
 
   if (!mapping) {
     // No mapping for this category - fall back to category-wide allocation
-    return allocateStockForRequirement(categoryId, quantityNeeded, pickRule)
+    return allocateStockForRequirement(categoryId, quantityNeeded, pickRule, client)
   }
 
   const allLots: LotWithProduct[] = mapping.product.lots.map((lot) => ({
@@ -169,6 +178,8 @@ export async function allocateStockForVariantRequirement(
   return {
     categoryId: mapping.categoryId,
     categoryName: mapping.category.name,
+    productId: mapping.product.id,
+    productName: mapping.product.name,
     quantityRequired: quantityNeeded,
     allocations,
     totalCost,

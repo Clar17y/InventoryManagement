@@ -10,6 +10,11 @@ import {
   groupUpdatesByListing,
 } from '../lib/etsy/safety';
 import { generateReconciliationReport } from '../lib/etsy/reconciliation';
+import {
+  allocateStockForRequirement,
+  allocateStockForVariantRequirement,
+} from '../lib/sales/allocation';
+import { calculateEtsyFees, calculatePackagingOverhead } from '../lib/sales/fees';
 
 const router = Router();
 
@@ -389,7 +394,13 @@ router.get('/orders/pending', async (req, res) => {
 
 /**
  * POST /api/etsy/sync/orders/import
- * Import an Etsy order as a sale
+ * Import an Etsy order as a sale with proper stock allocation
+ *
+ * Fixes applied:
+ * - Aggregates stock needs across all lines to prevent double-allocation
+ * - Allocates within transaction to see decremented stock from prior lines
+ * - Hard error if any item lacks hamper mapping
+ * - Warns (but allows) variant SKU fallback to category-wide allocation
  */
 router.post('/orders/import', async (req, res) => {
     try {
@@ -399,84 +410,318 @@ router.post('/orders/import', async (req, res) => {
             return res.status(400).json({ error: 'receiptId and postageCost are required' });
         }
 
+        // Check if already imported
         const existing = await prisma.sale.findFirst({ where: { etsyOrderId: String(receiptId) } });
         if (existing) {
             return res.status(400).json({ error: 'Order already imported', saleId: existing.id });
         }
 
+        // Fetch receipt from Etsy
         const thirtyDaysAgo = Math.floor((Date.now() - 30 * 24 * 60 * 60 * 1000) / 1000);
         const { receipts } = await etsyClient.getReceipts(thirtyDaysAgo, 100);
         const receipt = receipts.find(r => r.receipt_id === receiptId);
-        if (!receipt) return res.status(404).json({ error: 'Receipt not found on Etsy' });
+        if (!receipt) {
+            return res.status(404).json({ error: 'Receipt not found on Etsy' });
+        }
 
+        // Get fee config and overheads
         const [feeConfig, overheads] = await Promise.all([
             prisma.etsyFeeConfig.findFirst({ where: { isActive: true, effectiveTo: null } }),
             prisma.packagingOverhead.findMany({ where: { isActive: true, effectiveTo: null } }),
         ]);
 
-        const packagingOverhead = overheads.reduce((sum, o) => sum + Number(o.costPerOrder), 0);
+        const packagingOverhead = calculatePackagingOverhead(overheads);
         const subtotal = receipt.subtotal.amount / receipt.subtotal.divisor;
         const postageCharged = receipt.total_shipping_cost.amount / receipt.total_shipping_cost.divisor;
-        const grandTotal = receipt.grandtotal.amount / receipt.grandtotal.divisor;
 
-        let etsyFees = 0, transactionFee = 0, postageTransactionFee = 0;
-        let regulatoryFee = 0, processingFee = 0, vatOnProcessingFee = 0, listingFee = 0;
-
-        if (feeConfig) {
-            transactionFee = subtotal * Number(feeConfig.transactionFee);
-            postageTransactionFee = postageCharged * Number(feeConfig.transactionFee);
-            regulatoryFee = subtotal * Number(feeConfig.regulatoryFee);
-            processingFee = grandTotal * Number(feeConfig.paymentFeePercent) + Number(feeConfig.paymentFeeFixed);
-            vatOnProcessingFee = processingFee * Number(feeConfig.vatRate);
-            listingFee = Number(feeConfig.listingFee) * receipt.transactions.length;
-            etsyFees = transactionFee + postageTransactionFee + regulatoryFee + processingFee + vatOnProcessingFee + listingFee;
-        }
-
-        const saleLines = await Promise.all(receipt.transactions.map(async tx => {
-            const hamper = await prisma.hamper.findFirst({ where: { etsyListingId: String(tx.listing_id) } });
-            let variantId: string | null = null;
-            if (hamper && tx.sku) {
-                const variant = await prisma.hamperVariant.findFirst({ where: { hamperId: hamper.id, etsySku: tx.sku } });
-                if (variant) variantId = variant.id;
-            }
-            return {
-                hamperId: hamper?.id || null,
-                variantId,
-                description: hamper ? null : tx.title,
-                quantity: tx.quantity,
-                unitPrice: tx.price.amount / tx.price.divisor,
-                lineCost: 0,
-            };
-        }));
-
-        const netRevenue = subtotal + postageCharged - etsyFees - packagingOverhead;
-
-        const sale = await prisma.sale.create({
-            data: {
-                saleDate: new Date(receipt.create_timestamp * 1000),
-                etsyOrderId: String(receipt.receipt_id),
-                saleChannel: 'etsy',
-                grossRevenue: subtotal,
-                postageCharged,
-                postageCost,
-                etsyFees,
-                packagingOverhead,
-                netRevenue,
-                totalCost: 0,
-                margin: netRevenue,
-                isHistorical: true,
-                transactionFee,
-                postageTransactionFee,
-                regulatoryFee,
-                processingFee,
-                vatOnProcessingFee,
-                listingFee,
-                lines: { create: saleLines },
-            },
-            include: { lines: true },
+        // Calculate fees
+        const fees = calculateEtsyFees({
+            grossRevenue: subtotal,
+            postageCharged,
+            saleChannel: 'etsy',
+            feeConfig,
         });
 
-        res.json({ success: true, sale: { id: sale.id, etsyOrderId: sale.etsyOrderId, lines: sale.lines.length } });
+        // ============================================
+        // PHASE 1: Validate mappings and aggregate needs
+        // ============================================
+        interface LineMeta {
+            transactionId: number;
+            title: string;
+            quantity: number;
+            unitPrice: number;
+            hamperId: string;
+            variantId: string | null;
+            requirements: Array<{
+                categoryId: string;
+                categoryName: string;
+                pickRule: 'FIFO' | 'FEFO' | 'CHEAPEST' | 'MANUAL';
+                quantityNeeded: number;
+                isOptional: boolean;
+            }>;
+        }
+
+        const lineMetas: LineMeta[] = [];
+        const missingMappings: string[] = [];
+        const variantFallbackWarnings: string[] = [];
+
+        // Aggregate needs by category (key: categoryId or variantId:categoryId for variant-specific)
+        const aggregatedNeeds = new Map<string, {
+            categoryId: string;
+            categoryName: string;
+            pickRule: 'FIFO' | 'FEFO' | 'CHEAPEST' | 'MANUAL';
+            variantId: string | null;
+            totalNeeded: number;
+        }>();
+
+        for (const tx of receipt.transactions) {
+            const hamper = await prisma.hamper.findFirst({
+                where: { etsyListingId: String(tx.listing_id) },
+                include: {
+                    requirements: {
+                        where: { isOptional: false }, // Only check required items for pre-check
+                        include: { category: true },
+                    },
+                },
+            });
+
+            // Hard error if no hamper mapping
+            if (!hamper) {
+                missingMappings.push(`"${tx.title}" (listing ${tx.listing_id})`);
+                continue;
+            }
+
+            let variantId: string | null = null;
+            if (hamper.hasVariants && tx.sku) {
+                const variant = await prisma.hamperVariant.findFirst({
+                    where: { hamperId: hamper.id, etsySku: tx.sku },
+                });
+                if (variant) {
+                    variantId = variant.id;
+                } else {
+                    // Warn about fallback but continue
+                    variantFallbackWarnings.push(
+                        `"${tx.title}" SKU "${tx.sku}" not mapped to variant, using category-wide allocation`
+                    );
+                }
+            }
+
+            const lineRequirements: LineMeta['requirements'] = [];
+
+            for (const req of hamper.requirements) {
+                const quantityNeeded = Number(req.quantity) * tx.quantity;
+
+                lineRequirements.push({
+                    categoryId: req.categoryId,
+                    categoryName: req.category.name,
+                    pickRule: req.category.pickRule,
+                    quantityNeeded,
+                    isOptional: req.isOptional,
+                });
+
+                // Aggregate by category (variant-specific if variantId exists)
+                const key = variantId ? `${variantId}:${req.categoryId}` : req.categoryId;
+                const existing = aggregatedNeeds.get(key);
+                if (existing) {
+                    existing.totalNeeded += quantityNeeded;
+                } else {
+                    aggregatedNeeds.set(key, {
+                        categoryId: req.categoryId,
+                        categoryName: req.category.name,
+                        pickRule: req.category.pickRule,
+                        variantId,
+                        totalNeeded: quantityNeeded,
+                    });
+                }
+            }
+
+            lineMetas.push({
+                transactionId: tx.transaction_id,
+                title: tx.title,
+                quantity: tx.quantity,
+                unitPrice: tx.price.amount / tx.price.divisor,
+                hamperId: hamper.id,
+                variantId,
+                requirements: lineRequirements,
+            });
+        }
+
+        // Fail if any items lack hamper mapping
+        if (missingMappings.length > 0) {
+            return res.status(400).json({
+                error: 'Items missing hamper mapping',
+                missingMappings,
+                message: `Cannot import: ${missingMappings.join(', ')} not linked to any hamper. Import these listings first.`,
+            });
+        }
+
+        // ============================================
+        // PHASE 2: Pre-check aggregated stock availability
+        // ============================================
+        const stockShortages: Array<{
+            category: string;
+            product?: string;  // Specific product name if variant-mapped
+            need: number;
+            have: number;
+        }> = [];
+
+        for (const [, need] of aggregatedNeeds) {
+            const allocation = need.variantId
+                ? await allocateStockForVariantRequirement(need.variantId, need.categoryId, need.totalNeeded, need.pickRule)
+                : await allocateStockForRequirement(need.categoryId, need.totalNeeded, need.pickRule);
+
+            if (!allocation.fulfilled) {
+                const have = allocation.allocations.reduce((sum, a) => sum + a.quantity, 0);
+                stockShortages.push({
+                    category: allocation.categoryName,
+                    product: allocation.productName, // Will be set if variant-specific
+                    need: need.totalNeeded,
+                    have,
+                });
+            }
+        }
+
+        if (stockShortages.length > 0) {
+            return res.status(400).json({
+                error: 'Insufficient stock to fulfill order',
+                shortages: stockShortages,
+                message: stockShortages.map(s => {
+                    // If specific product, show "Product (Category)", otherwise just "Category"
+                    const item = s.product ? `${s.product} (${s.category})` : s.category;
+                    return `Need ${s.need} ${item}, have ${s.have}`;
+                }).join('; '),
+            });
+        }
+
+        // ============================================
+        // PHASE 3: Process import in transaction
+        // Allocate fresh within transaction so each line sees decremented stock
+        // ============================================
+        const sale = await prisma.$transaction(async (tx) => {
+            let totalCost = 0;
+            const saleLines: Array<{
+                hamperId: string;
+                variantId: string | null;
+                quantity: number;
+                unitPrice: number;
+                lineCost: number;
+                consumptions: Array<{ lotId: string; quantity: number; unitCost: number }>;
+            }> = [];
+
+            for (const lineMeta of lineMetas) {
+                let lineCost = 0;
+                const consumptions: Array<{ lotId: string; quantity: number; unitCost: number }> = [];
+
+                // Allocate for each requirement within transaction
+                for (const req of lineMeta.requirements) {
+                    const allocation = lineMeta.variantId
+                        ? await allocateStockForVariantRequirement(
+                            lineMeta.variantId, req.categoryId, req.quantityNeeded, req.pickRule, tx
+                        )
+                        : await allocateStockForRequirement(
+                            req.categoryId, req.quantityNeeded, req.pickRule, tx
+                        );
+
+                    // Deduct from lots and record consumptions
+                    for (const alloc of allocation.allocations) {
+                        await tx.inventoryLot.update({
+                            where: { id: alloc.lotId },
+                            data: { remaining: { decrement: alloc.quantity } },
+                        });
+
+                        consumptions.push({
+                            lotId: alloc.lotId,
+                            quantity: alloc.quantity,
+                            unitCost: alloc.unitCost,
+                        });
+
+                        lineCost += alloc.quantity * alloc.unitCost;
+                    }
+                }
+
+                saleLines.push({
+                    hamperId: lineMeta.hamperId,
+                    variantId: lineMeta.variantId,
+                    quantity: lineMeta.quantity,
+                    unitPrice: lineMeta.unitPrice,
+                    lineCost,
+                    consumptions,
+                });
+
+                totalCost += lineCost;
+            }
+
+            const netRevenue = subtotal + postageCharged - fees.etsyFees - packagingOverhead;
+            const margin = netRevenue - totalCost - postageCost;
+
+            // Create the sale
+            const createdSale = await tx.sale.create({
+                data: {
+                    saleDate: new Date(receipt.create_timestamp * 1000),
+                    etsyOrderId: String(receipt.receipt_id),
+                    saleChannel: 'etsy',
+                    grossRevenue: subtotal,
+                    postageCharged,
+                    postageCost,
+                    transactionFee: fees.transactionFee,
+                    postageTransactionFee: fees.postageTransactionFee,
+                    regulatoryFee: fees.regulatoryFee,
+                    processingFee: fees.processingFee,
+                    vatOnProcessingFee: fees.vatOnProcessingFee,
+                    listingFee: fees.listingFee,
+                    etsyFees: fees.etsyFees,
+                    packagingOverhead,
+                    netRevenue,
+                    totalCost,
+                    margin,
+                    isHistorical: false,
+                    lines: {
+                        create: saleLines.map((sl) => ({
+                            hamperId: sl.hamperId,
+                            variantId: sl.variantId,
+                            description: null,
+                            quantity: sl.quantity,
+                            unitPrice: sl.unitPrice,
+                            lineCost: sl.lineCost,
+                            consumptions: {
+                                create: sl.consumptions.map((c) => ({
+                                    lotId: c.lotId,
+                                    quantity: c.quantity,
+                                    unitCost: c.unitCost,
+                                })),
+                            },
+                        })),
+                    },
+                },
+                include: {
+                    lines: {
+                        include: {
+                            hamper: true,
+                            variant: true,
+                            consumptions: {
+                                include: {
+                                    lot: { include: { product: true } },
+                                },
+                            },
+                        },
+                    },
+                },
+            });
+
+            return createdSale;
+        });
+
+        res.json({
+            success: true,
+            sale: {
+                id: sale.id,
+                etsyOrderId: sale.etsyOrderId,
+                totalCost: Number(sale.totalCost),
+                margin: Number(sale.margin),
+                lines: sale.lines.length,
+            },
+            warnings: variantFallbackWarnings.length > 0 ? variantFallbackWarnings : undefined,
+        });
     } catch (error) {
         console.error('Error importing order:', error);
         res.status(500).json({ error: error instanceof Error ? error.message : 'Failed to import order' });

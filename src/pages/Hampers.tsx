@@ -769,10 +769,20 @@ export default function Hampers() {
                   )}
                 </button>
                 <div className="flex gap-1 ml-2 flex-shrink-0">
-                  <button onClick={() => handleEdit(hamper)} className="p-2 text-gray-500 hover:text-primary-600">
+                  <button
+                    type="button"
+                    onClick={() => handleEdit(hamper)}
+                    className="p-2 text-gray-500 hover:text-primary-600"
+                    aria-label={`Edit hamper ${hamper.name}`}
+                  >
                     <PencilIcon className="h-5 w-5" />
                   </button>
-                  <button onClick={() => handleDelete(hamper.id)} className="p-2 text-gray-500 hover:text-red-600">
+                  <button
+                    type="button"
+                    onClick={() => handleDelete(hamper.id)}
+                    className="p-2 text-gray-500 hover:text-red-600"
+                    aria-label={`Delete hamper ${hamper.name}`}
+                  >
                     <TrashIcon className="h-5 w-5" />
                   </button>
                 </div>

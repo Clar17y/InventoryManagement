@@ -431,14 +431,18 @@ export default function Expenses() {
               </div>
               <div className="flex justify-end gap-2 mt-2 pt-2 border-t">
                 <button
+                  type="button"
                   onClick={() => handleEdit(expense)}
                   className="p-1.5 text-gray-500 hover:text-primary-600"
+                  aria-label={`Edit expense ${expense.description}`}
                 >
                   <PencilIcon className="h-4 w-4" />
                 </button>
                 <button
+                  type="button"
                   onClick={() => handleDelete(expense.id)}
                   className="p-1.5 text-gray-500 hover:text-red-600"
+                  aria-label={`Delete expense ${expense.description}`}
                 >
                   <TrashIcon className="h-4 w-4" />
                 </button>

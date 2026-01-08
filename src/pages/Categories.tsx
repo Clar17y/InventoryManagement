@@ -181,14 +181,18 @@ export default function Categories() {
               </div>
               <div className="flex gap-2">
                 <button
+                  type="button"
                   onClick={() => handleEdit(category)}
                   className="p-2 text-gray-500 hover:text-primary-600"
+                  aria-label={`Edit category ${category.name}`}
                 >
                   <PencilIcon className="h-5 w-5" />
                 </button>
                 <button
+                  type="button"
                   onClick={() => handleDelete(category.id)}
                   className="p-2 text-gray-500 hover:text-red-600"
+                  aria-label={`Delete category ${category.name}`}
                 >
                   <TrashIcon className="h-5 w-5" />
                 </button>

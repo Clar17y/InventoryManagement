@@ -133,8 +133,10 @@ export default function BarcodeScanner({ onScan, onError, onClose }: BarcodeScan
       <div className="flex items-center justify-between p-4 bg-black/80">
         <h2 className="text-white text-lg font-semibold">Scan Barcode</h2>
         <button
+          type="button"
           onClick={handleClose}
           className="text-white p-2 hover:bg-white/10 rounded-lg transition-colors"
+          aria-label="Close scanner"
         >
           <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />

@@ -356,14 +356,18 @@ export default function Products() {
               </div>
               <div className="flex gap-1 ml-2">
                 <button
+                  type="button"
                   onClick={() => handleEdit(product)}
                   className="p-2 text-gray-500 hover:text-primary-600"
+                  aria-label={`Edit product ${product.name}`}
                 >
                   <PencilIcon className="h-5 w-5" />
                 </button>
                 <button
+                  type="button"
                   onClick={() => handleDelete(product.id)}
                   className="p-2 text-gray-500 hover:text-red-600"
+                  aria-label={`Delete product ${product.name}`}
                 >
                   <TrashIcon className="h-5 w-5" />
                 </button>

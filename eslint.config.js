@@ -25,4 +25,11 @@ export default tseslint.config(
       ],
     },
   },
+  {
+    files: ['src/__tests__/**/*.{ts,tsx}', 'server/__tests__/**/*.{ts,tsx}'],
+    rules: {
+      '@typescript-eslint/no-explicit-any': 'off',
+      '@typescript-eslint/no-unsafe-function-type': 'off',
+    },
+  },
 )

@@ -21,8 +21,9 @@
 | **3A: Etsy OAuth** | ✅ Complete | 7/7 tasks |
 | **3B: Etsy Sync Panel** | ✅ Complete | 3/3 tasks |
 | **3C: Sales Auto-Import** | ✅ Complete | 3/3 tasks |
+| **4A: Frontend Testing** | ✅ Complete | 32/32 files |
 
-**Current Focus:** Etsy Integration complete - awaiting app approval for testing
+**Current Focus:** Frontend testing suite complete - 411 tests passing
 
 
 ---
@@ -147,6 +148,43 @@ Goal: Replace Excel spreadsheet "Savvy Finances" with full financial tracking.
 
 ---
 
+## Phase 4A: Frontend Testing ✅ COMPLETE
+
+Comprehensive Vitest testing suite for the React frontend.
+
+- [x] Testing infrastructure setup (vitest.config.ts workspace, jsdom environment)
+- [x] Test utilities (`src/__tests__/utils/`) - custom render, API mocks, fixtures
+- [x] API client tests (9 files) - all API namespaces covered
+- [x] Auth context tests - session loading, sign in/out, state changes
+- [x] Hook tests - useDebounce
+- [x] Utility tests - formatting functions
+- [x] Component tests (7 files) - Layout, AlertCard, StockLevelBar, DateSearchFilter, AddStockForm, BarcodeScanner, EtsySyncPanel
+- [x] Page tests (9 files) - Dashboard, Categories, Products, Inventory, Hampers, Sales, Expenses, Settings, Login
+
+### Test Summary
+| Category | Files | Tests |
+|----------|-------|-------|
+| API Client | 9 | ~80 |
+| Auth/Formatting | 2 | ~20 |
+| Hooks | 1 | ~5 |
+| Components | 7 | ~90 |
+| Pages | 9 | ~215 |
+| **Total** | **32** | **411** |
+
+### Test Commands
+```bash
+npm run test:client           # Watch mode
+npm run test:client -- --run  # Single run
+```
+
+### Notes
+- Uses Vitest workspace config for client/server separation
+- Custom render wrapper includes AuthContext provider
+- API mocks use vi.mock() with typed mock implementations
+- All tests pass with React 19 + Vitest 4.0.16
+
+---
+
 ## Active Work Log
 
 > Update this table when starting/completing work
@@ -164,6 +202,7 @@ Goal: Replace Excel spreadsheet "Savvy Finances" with full financial tracking.
 | 2026-01-06 | Antigravity | Sales Screen Upgrades | ✅ Done | main |
 | 2026-01-06 | Antigravity | v1.0.0 Stable Release | ✅ Done | main |
 | 2026-01-07 | Codex CLI | Maintainability refactor | ✅ Done | refactor/maintainability |
+| 2026-01-07 | Claude Code | Frontend Testing Suite | ✅ Done | feature/etsy-integration |
 
 
 ---
@@ -176,15 +215,26 @@ Goal: Replace Excel spreadsheet "Savvy Finances" with full financial tracking.
 
 **Current State:**
 - **v1.0.0 Released**: Project marked as stable and ready for use.
+- **Frontend Testing Suite Complete**: 411 tests across 32 files, all passing.
 - Phase 2A-2C: All COMPLETE - Full finance tracking with historical import.
 - Phase 1E: Polished and ready.
-- Everything is on main branch.
-- **Sales Screen Upgrades**: Completed by Antigravity on main branch.
+- Current branch: `feature/etsy-integration`
 
-**Sales Screen Upgrades (Latest Changes):**
-- `server/routes/sales.ts` - Added date filtering, summary endpoint, saleDate field, **search filter**
-- `src/lib/api.ts` - Added SalesSummary interface, updated sales.list(), added sales.summary()
-- `src/pages/Sales.tsx` - Summary section, date filter with quick selectors, Load More pagination, sale date picker, **search input**
+**Frontend Testing Suite (2026-01-07):**
+- `vitest.config.ts` - Workspace config with client/server projects
+- `src/__tests__/setup.ts` - Test setup with @testing-library/jest-dom
+- `src/__tests__/utils/` - test-utils.tsx, api-mocks.ts, fixtures.ts
+- `src/__tests__/lib/api/` - 9 API client test files (categories, products, inventory, hampers, sales, expenses, settings, etsy, request)
+- `src/__tests__/lib/` - auth.test.tsx, formatting.test.ts
+- `src/__tests__/hooks/` - useDebounce.test.ts
+- `src/__tests__/components/` - 7 component test files
+- `src/__tests__/pages/` - 9 page test files
+
+**Test Commands:**
+```bash
+npm run test:client           # Watch mode
+npm run test:client -- --run  # Single run (411 tests, ~10s)
+```
 
 **Maintainability Refactor (2026-01-07):**
 - `src/lib/api.ts` - Split into domain modules under `src/lib/api/` (re-exported to keep imports stable)
@@ -195,14 +245,9 @@ Goal: Replace Excel spreadsheet "Savvy Finances" with full financial tracking.
 - `prisma/schema.prisma` - Added `isHistorical` flag, `StockCategory` enum
 - `prisma/migrations/20260106121712_add_stock_category_and_historical_flag/` - DB migration
 
-**Import Script Usage:**
-```bash
-npx tsx scripts/import-historical.ts --dry-run  # Preview
-npx tsx scripts/import-historical.ts             # Import to DB
-```
-
 **Next Steps:**
 1. **Setup continuous backup** for PostgreSQL
+2. **Merge feature/etsy-integration** to main when ready
 
 **Known Issues:**
 - None currently

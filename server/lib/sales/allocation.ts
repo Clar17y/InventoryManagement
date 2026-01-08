@@ -125,7 +125,7 @@ export async function allocateStockForRequirement(
   }
 }
 
-// Allocate stock for a variant requirement (uses specific mapped product only)
+// Allocate stock for a variant requirement (uses specific mapped product, or falls back to category-wide)
 export async function allocateStockForVariantRequirement(
   variantId: string,
   categoryId: string,
@@ -153,15 +153,8 @@ export async function allocateStockForVariantRequirement(
   })
 
   if (!mapping) {
-    // No mapping for this category in this variant - return unfulfilled
-    return {
-      categoryId,
-      categoryName: 'Unmapped',
-      quantityRequired: quantityNeeded,
-      allocations: [],
-      totalCost: 0,
-      fulfilled: false,
-    }
+    // No mapping for this category - fall back to category-wide allocation
+    return allocateStockForRequirement(categoryId, quantityNeeded, pickRule)
   }
 
   const allLots: LotWithProduct[] = mapping.product.lots.map((lot) => ({

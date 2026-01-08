@@ -1,6 +1,15 @@
 import { Router } from 'express';
 import { prisma } from '../lib/prisma';
 import { etsyClient } from '../lib/etsyClient';
+import {
+  isDryRunEnabled,
+  computeDiff,
+  shouldSkipUpdate,
+  ThrottleManager,
+  buildInventoryUpdateProducts,
+  groupUpdatesByListing,
+} from '../lib/etsy/safety';
+import { generateReconciliationReport } from '../lib/etsy/reconciliation';
 
 const router = Router();
 
@@ -203,73 +212,128 @@ router.get('/comparison', async (req, res) => {
 /**
  * POST /api/etsy/sync/push
  * Push inventory updates to Etsy
+ *
+ * Safety features:
+ * - Dry run mode: Set `dryRun: true` in body or ETSY_DRY_RUN=true env var
+ * - Throttling: Configurable via ETSY_THROTTLE_DELAY_MS and ETSY_MAX_UPDATES_PER_MIN
+ * - Idempotency: Skips updates where quantities haven't changed
  */
 router.post('/push', async (req, res) => {
     try {
-        const { updates } = req.body as {
+        const { updates, dryRun: requestDryRun } = req.body as {
             updates: Array<{
                 etsyListingId: string;
                 etsySku: string | null;
                 quantity: number;
             }>;
+            dryRun?: boolean;
         };
 
         if (!updates || !Array.isArray(updates) || updates.length === 0) {
             return res.status(400).json({ error: 'No updates provided' });
         }
 
+        // Check dry run mode (request-level or global env var)
+        const dryRun = requestDryRun === true || isDryRunEnabled();
+
         // Group updates by listing ID
-        const updatesByListing = new Map<string, typeof updates>();
-        for (const update of updates) {
-            const existing = updatesByListing.get(update.etsyListingId) || [];
-            existing.push(update);
-            updatesByListing.set(update.etsyListingId, existing);
-        }
+        const updatesByListing = groupUpdatesByListing(updates);
 
-        let updatedCount = 0;
+        // Results tracking
+        const results: Array<{
+            listingId: string;
+            success: boolean;
+            skipped: boolean;
+            dryRun: boolean;
+            changes?: Array<{ sku: string; currentQuantity: number; newQuantity: number }>;
+            error?: string;
+        }> = [];
 
-        // Process each listing (stop on first error as per user preference)
+        // Throttle manager for rate limiting
+        const throttle = new ThrottleManager();
+
+        // Process each listing
         for (const [listingId, listingUpdates] of updatesByListing) {
-            // First, get the current inventory to preserve structure
-            const currentInventory = await etsyClient.getListingInventory(
-                parseInt(listingId)
-            );
-
-            // Update quantities in the existing products
-            const updatedProducts = currentInventory.products.map(product => {
-                const productUpdate = listingUpdates.find(u => {
-                    if (u.etsySku === null) return true; // Default variant
-                    return u.etsySku === product.sku;
-                });
-
-                if (productUpdate) {
-                    return {
-                        sku: product.sku,
-                        offerings: product.offerings.map(offering => ({
-                            quantity: productUpdate.quantity,
-                            price: offering.price.amount / offering.price.divisor,
-                            is_enabled: offering.is_enabled,
-                        })),
-                    };
+            try {
+                // Wait for rate limit slot
+                if (!dryRun) {
+                    await throttle.waitForSlot();
                 }
 
-                // No update for this product, keep as-is
-                return {
-                    sku: product.sku,
-                    offerings: product.offerings.map(offering => ({
-                        quantity: offering.quantity,
-                        price: offering.price.amount / offering.price.divisor,
-                        is_enabled: offering.is_enabled,
-                    })),
-                };
-            });
+                // Get current inventory
+                const currentInventory = await etsyClient.getListingInventory(
+                    parseInt(listingId)
+                );
 
-            // Push update to Etsy
-            await etsyClient.updateListingInventory(parseInt(listingId), updatedProducts);
-            updatedCount += listingUpdates.length;
+                // Build update products with current prices preserved
+                const updatedProducts = buildInventoryUpdateProducts(
+                    currentInventory,
+                    listingUpdates
+                );
+
+                // Compute diff for reporting
+                const diff = computeDiff(currentInventory, updatedProducts);
+
+                // Check idempotency - skip if no changes needed
+                if (shouldSkipUpdate(currentInventory, updatedProducts)) {
+                    results.push({
+                        listingId,
+                        success: true,
+                        skipped: true,
+                        dryRun,
+                        changes: [],
+                    });
+                    continue;
+                }
+
+                if (dryRun) {
+                    // Dry run - return diff without making changes
+                    results.push({
+                        listingId,
+                        success: true,
+                        skipped: false,
+                        dryRun: true,
+                        changes: diff.changes,
+                    });
+                } else {
+                    // Actually push update to Etsy
+                    await etsyClient.updateListingInventory(
+                        parseInt(listingId),
+                        updatedProducts
+                    );
+                    results.push({
+                        listingId,
+                        success: true,
+                        skipped: false,
+                        dryRun: false,
+                        changes: diff.changes,
+                    });
+                }
+            } catch (error) {
+                const message = error instanceof Error ? error.message : String(error);
+                results.push({
+                    listingId,
+                    success: false,
+                    skipped: false,
+                    dryRun,
+                    error: message,
+                });
+            }
         }
 
-        res.json({ success: true, updated: updatedCount });
+        // Summary counts
+        const successCount = results.filter(r => r.success && !r.skipped).length;
+        const skippedCount = results.filter(r => r.skipped).length;
+        const errorCount = results.filter(r => !r.success).length;
+
+        res.json({
+            success: errorCount === 0,
+            dryRun,
+            updated: successCount,
+            skipped: skippedCount,
+            errors: errorCount,
+            results,
+        });
     } catch (error) {
         console.error('Error pushing sync updates:', error);
         const message = error instanceof Error ? error.message : 'Failed to push updates';
@@ -416,6 +480,28 @@ router.post('/orders/import', async (req, res) => {
     } catch (error) {
         console.error('Error importing order:', error);
         res.status(500).json({ error: error instanceof Error ? error.message : 'Failed to import order' });
+    }
+});
+
+/**
+ * GET /api/etsy/sync/reconciliation
+ * Generate a reconciliation report comparing Etsy listings with local hampers
+ *
+ * Returns a report with:
+ * - newListings: Etsy listings not yet imported as hampers
+ * - changedSkus: SKUs that differ between local and Etsy
+ * - variantsMissingSku: Local variants without etsySku set
+ * - orphanedHampers: Local hampers with etsyListingId pointing to non-existent listings
+ * - quantityDifferences: Listings where Etsy qty differs from computed can-make
+ * - summary: Overview counts
+ */
+router.get('/reconciliation', async (req, res) => {
+    try {
+        const report = await generateReconciliationReport(etsyClient, prisma);
+        res.json(report);
+    } catch (error) {
+        console.error('Error generating reconciliation report:', error);
+        res.status(500).json({ error: 'Failed to generate reconciliation report' });
     }
 });
 

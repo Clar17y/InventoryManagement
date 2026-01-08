@@ -234,7 +234,12 @@ export default function EtsySyncPanel({ isOpen, onClose, onImportComplete }: Ets
                             </span>
                         )}
                     </div>
-                    <button onClick={onClose} className="p-2 hover:bg-gray-100 rounded-lg">
+                    <button
+                        type="button"
+                        onClick={onClose}
+                        className="p-2 hover:bg-gray-100 rounded-lg"
+                        aria-label="Close"
+                    >
                         <XMarkIcon className="h-5 w-5 text-gray-500" />
                     </button>
                 </div>

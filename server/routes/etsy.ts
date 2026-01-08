@@ -1,7 +1,10 @@
 import { Router } from 'express';
 import crypto from 'crypto';
 import { prisma } from '../lib/prisma';
-import { etsyClient } from '../lib/etsyClient';
+import { etsyClient, etsyAuth } from '../lib/etsyClient';
+import { MOCK_SHOP } from '../lib/etsy/fixtures';
+
+const isMockMode = () => process.env.ETSY_MODE === 'mock';
 
 const router = Router();
 
@@ -26,7 +29,17 @@ function generatePKCE() {
  */
 router.get('/status', async (req, res) => {
     try {
-        const credentials = await etsyClient.getCredentials();
+        // In mock mode, always return connected with mock shop
+        if (isMockMode()) {
+            return res.json({
+                connected: true,
+                shopId: String(MOCK_SHOP.shop_id),
+                shopName: MOCK_SHOP.shop_name,
+                mockMode: true,
+            });
+        }
+
+        const credentials = await etsyAuth.getCredentials();
 
         if (!credentials) {
             return res.json({ connected: false });
@@ -50,6 +63,14 @@ router.get('/status', async (req, res) => {
  */
 router.get('/auth', (req, res) => {
     try {
+        // In mock mode, no OAuth needed - already "connected"
+        if (isMockMode()) {
+            return res.json({
+                mockMode: true,
+                message: 'Mock mode active - no OAuth required. Already connected.',
+            });
+        }
+
         const apiKey = process.env.ETSY_API_KEY;
         const redirectUri = process.env.ETSY_REDIRECT_URI;
 
@@ -128,8 +149,8 @@ router.get('/callback', async (req, res) => {
         const codeVerifier = stored.verifier;
         codeVerifiers.delete(state as string);
 
-        // Exchange code for tokens
-        const tokens = await etsyClient.exchangeCodeForTokens(code as string, codeVerifier);
+        // Exchange code for tokens (uses auth functions, not client interface)
+        const tokens = await etsyAuth.exchangeCodeForTokens(code as string, codeVerifier);
 
         // Extract user ID from access token (format: USER_ID.TOKEN)
         const userId = tokens.access_token.split('.')[0];
@@ -184,6 +205,11 @@ router.get('/callback', async (req, res) => {
  */
 router.post('/disconnect', async (req, res) => {
     try {
+        // In mock mode, just acknowledge (can't really disconnect mock)
+        if (isMockMode()) {
+            return res.json({ success: true, mockMode: true });
+        }
+
         await etsyClient.disconnect();
         res.json({ success: true });
     } catch (error) {

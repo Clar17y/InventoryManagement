@@ -6,9 +6,11 @@ import {
   ChevronDownIcon,
   ChevronUpIcon,
   XMarkIcon,
+  ArrowPathRoundedSquareIcon,
 } from '@heroicons/react/24/outline'
 import { hampers, categories, products, hamperVariants, Hamper, HamperDetail, Category, HamperVariantAvailability, Product, HamperVariant, HamperVariantCreateData } from '../lib/api'
 import { formatCurrency } from '../lib/formatting'
+import EtsySyncPanel from '../components/EtsySyncPanel'
 
 type HamperSortOption =
   | 'canmake-desc' | 'canmake-asc'
@@ -78,6 +80,7 @@ export default function Hampers() {
   const [sortBy, setSortBy] = useState<HamperSortOption>(
     () => (localStorage.getItem('hampers-sort') as HamperSortOption) || 'canmake-desc'
   )
+  const [showEtsyPanel, setShowEtsyPanel] = useState(false)
 
   const loadData = async () => {
     try {
@@ -335,13 +338,32 @@ export default function Hampers() {
       {/* Header */}
       <div className="flex justify-between items-center">
         <h2 className="text-xl font-semibold">Hampers</h2>
-        {!showForm && (
-          <button onClick={() => setShowForm(true)} className="btn-primary flex items-center gap-1">
-            <PlusIcon className="h-5 w-5" />
-            New Hamper
-          </button>
-        )}
+        <div className="flex gap-2">
+          {!showForm && (
+            <>
+              <button
+                onClick={() => setShowEtsyPanel(true)}
+                className="btn-secondary flex items-center gap-1"
+                title="Sync with Etsy"
+              >
+                <ArrowPathRoundedSquareIcon className="h-5 w-5" />
+                Etsy Sync
+              </button>
+              <button onClick={() => setShowForm(true)} className="btn-primary flex items-center gap-1">
+                <PlusIcon className="h-5 w-5" />
+                New Hamper
+              </button>
+            </>
+          )}
+        </div>
       </div>
+
+      {/* Etsy Sync Panel */}
+      <EtsySyncPanel
+        isOpen={showEtsyPanel}
+        onClose={() => setShowEtsyPanel(false)}
+        onImportComplete={loadData}
+      />
 
       {/* Sort Controls */}
       {!showForm && (

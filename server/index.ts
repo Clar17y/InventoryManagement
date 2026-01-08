@@ -10,6 +10,8 @@ import hampersRouter from './routes/hampers'
 import salesRouter from './routes/sales'
 import settingsRouter from './routes/settings'
 import expensesRouter from './routes/expenses'
+import etsyRouter from './routes/etsy'
+import etsySyncRouter from './routes/etsySync'
 import { requireAuth } from './middleware/requireAuth'
 
 const app = express()
@@ -37,6 +39,10 @@ app.use('/api/hampers', hampersRouter)
 app.use('/api/sales', salesRouter)
 app.use('/api/settings', settingsRouter)
 app.use('/api/expenses', expensesRouter)
+app.use('/api/etsy', etsyRouter)
+app.use('/api/etsy/sync', etsySyncRouter)
+
+
 
 // Serve static files in production
 app.use(express.static(path.join(__dirname, '../dist')))

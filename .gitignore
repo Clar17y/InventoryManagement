@@ -36,3 +36,11 @@ nul
 
 # Backups
 backups/
+
+# AI agent working directories
+.agent/
+.claude/
+
+# Business data files
+*.xlsx
+*.xml

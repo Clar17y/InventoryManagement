@@ -14,6 +14,11 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
     return next()
   }
 
+  // Etsy redirects back without our Supabase session, so this callback must be public.
+  if (req.method === 'GET' && req.path === '/etsy/callback') {
+    return next()
+  }
+
   const authorization = req.headers.authorization
   const match = authorization?.match(/^Bearer\s+(.+)$/i)
   const token = match?.[1]

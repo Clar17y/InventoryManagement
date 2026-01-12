@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import {
   PlusIcon,
+  ArrowPathRoundedSquareIcon,
   ChevronDownIcon,
   ChevronUpIcon,
   XMarkIcon,
@@ -9,6 +10,7 @@ import {
   PencilIcon,
   ChartBarIcon,
 } from '@heroicons/react/24/outline'
+import EtsyOrdersSyncPanel from '../components/EtsyOrdersSyncPanel'
 import DateSearchFilter, { useDateSearchFilter } from '../components/filters/DateSearchFilter'
 import {
   sales,
@@ -82,6 +84,7 @@ export default function Sales() {
   const [error, setError] = useState<string | null>(null)
   const [viewMode, setViewMode] = useState<ViewMode>('list')
   const [expandedId, setExpandedId] = useState<string | null>(null)
+  const [showEtsyOrdersPanel, setShowEtsyOrdersPanel] = useState(false)
 
   // Summary and filter state
   const [showSummary, setShowSummary] = useState(false)
@@ -859,6 +862,14 @@ export default function Sales() {
         <h2 className="text-xl font-semibold">Sales</h2>
         <div className="flex gap-2">
           <button
+            onClick={() => setShowEtsyOrdersPanel(true)}
+            className="btn-secondary flex items-center gap-1"
+            title="Import pending Etsy orders"
+          >
+            <ArrowPathRoundedSquareIcon className="h-5 w-5" />
+            Etsy Sync
+          </button>
+          <button
             onClick={() => setShowSummary(!showSummary)}
             className={`p-2 rounded-lg ${showSummary ? 'bg-primary-100 text-primary-700' : 'bg-gray-100 text-gray-600'}`}
             title="Toggle summary"
@@ -874,6 +885,12 @@ export default function Sales() {
           </button>
         </div>
       </div>
+
+      <EtsyOrdersSyncPanel
+        isOpen={showEtsyOrdersPanel}
+        onClose={() => setShowEtsyOrdersPanel(false)}
+        onImportComplete={loadData}
+      />
 
       {error && <div className="bg-red-50 text-red-700 p-3 rounded-lg text-sm">{error}</div>}
 

@@ -68,6 +68,7 @@ export interface EtsySyncComparison {
     hamperId: string
     variants: Array<{
         etsySku: string | null
+        etsyProductId: string | null
         variantId: string | null
         variantName: string
         etsyQuantity: number
@@ -81,6 +82,7 @@ export interface EtsySyncPushRequest {
     updates: Array<{
         etsyListingId: string
         etsySku: string | null
+        etsyProductId: string | null
         quantity: number
     }>
 }
@@ -98,6 +100,8 @@ export interface EtsyPendingOrderItem {
     quantity: number
     price: number
     sku: string | null
+    productId: number | null
+    variantName: string | null
 }
 
 export interface EtsyPendingOrder {
@@ -124,6 +128,46 @@ export interface EtsyOrderImportResult {
         etsyOrderId: string
         lines: number
     }
+}
+
+export interface EtsyPendingSku {
+    hamperId: string
+    hamperName: string
+    etsyListingId: string
+    variantId: string
+    variantName: string
+    localSku: string
+    etsySku: string | null
+    etsyProductId: string | null
+    needsSync: boolean
+}
+
+export interface EtsySkuPushResult {
+    success: boolean
+    totalUpdated: number
+    totalListings: number
+    errors: number
+    results: Array<{
+        etsyListingId: string
+        hamperName: string
+        success: boolean
+        updated: number
+        skipped: number
+        error?: string
+    }>
+}
+
+export interface EtsyPendingPriceUpdate {
+    hamperId: string
+    hamperName: string
+    etsyListingId: string
+    variantId: string
+    variantName: string
+    etsySku: string | null
+    etsyProductId: string | null
+    localPrice: number | null
+    etsyPrice: number
+    needsSync: boolean
 }
 
 // Etsy API client
@@ -180,4 +224,48 @@ export const etsy = {
             method: 'POST',
             body: JSON.stringify(data)
         }),
+
+    /**
+     * Generate SKUs for variants that don't have them
+     */
+    generateSkus: () =>
+        request<{ success: boolean; generated: number; results: Array<{ hamperName: string; variantName: string; sku: string }> }>(
+            '/etsy/sync/skus/generate',
+            { method: 'POST' }
+        ),
+
+    /**
+     * Get pending SKU syncs (local SKUs that differ from Etsy)
+     */
+    getPendingSkus: () =>
+        request<{ skus: EtsyPendingSku[]; needsSyncCount: number; totalVariants: number }>(
+            '/etsy/sync/skus/pending'
+        ),
+
+    /**
+     * Push local SKUs to Etsy
+     */
+    pushSkus: (listingIds?: string[]) =>
+        request<EtsySkuPushResult>('/etsy/sync/skus/push', {
+            method: 'POST',
+            body: JSON.stringify({ listingIds })
+        }),
+
+    /**
+     * Get price comparisons for Etsy-linked hampers/variants (includes in-sync rows; use `needsSync` to filter)
+     */
+    getPendingPriceUpdates: () =>
+        request<{ updates: EtsyPendingPriceUpdate[]; count: number; needsSyncCount?: number }>('/etsy/sync/prices/pending'),
+
+    /**
+     * Push local prices to Etsy for specified variants
+     */
+    pushPrices: (updates: Array<{ etsyListingId: string; etsySku: string | null; etsyProductId: string | null; price: number }>) =>
+        request<{ success: boolean; updated: number; errors: number; results: Array<{ listingId: string; success: boolean; error?: string }> }>(
+            '/etsy/sync/prices/push',
+            {
+                method: 'POST',
+                body: JSON.stringify({ updates })
+            }
+        ),
 }

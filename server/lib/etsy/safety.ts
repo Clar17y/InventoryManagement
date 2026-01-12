@@ -6,6 +6,7 @@ import {
   ThrottleConfig,
   ThrottleDeps,
 } from './types';
+import { findItemByEtsyProduct } from './matching';
 
 // =============================================================================
 // Dry Run Mode
@@ -187,14 +188,15 @@ export function groupUpdatesByListing(
   updates: Array<{
     etsyListingId: string;
     etsySku: string | null;
+    etsyProductId: string | null;
     quantity: number;
   }>
-): Map<string, Array<{ etsySku: string | null; quantity: number }>> {
-  const grouped = new Map<string, Array<{ etsySku: string | null; quantity: number }>>();
+): Map<string, Array<{ etsySku: string | null; etsyProductId: string | null; quantity: number }>> {
+  const grouped = new Map<string, Array<{ etsySku: string | null; etsyProductId: string | null; quantity: number }>>();
 
   for (const update of updates) {
     const existing = grouped.get(update.etsyListingId) || [];
-    existing.push({ etsySku: update.etsySku, quantity: update.quantity });
+    existing.push({ etsySku: update.etsySku, etsyProductId: update.etsyProductId, quantity: update.quantity });
     grouped.set(update.etsyListingId, existing);
   }
 
@@ -205,32 +207,39 @@ export function groupUpdatesByListing(
  * Convert grouped updates to EtsyInventoryUpdateProduct format.
  *
  * @param currentInventory - Current inventory to get price/enabled state from
- * @param updates - Updates to apply
+ * @param updates - Updates to apply (matches by SKU first, then product_id)
  * @returns Products in Etsy API format
  */
 export function buildInventoryUpdateProducts(
   currentInventory: EtsyInventory,
-  updates: Array<{ etsySku: string | null; quantity: number }>
+  updates: Array<{ etsySku: string | null; etsyProductId: string | null; quantity: number }>
 ): EtsyInventoryUpdateProduct[] {
-  const defaultVariantUpdate = updates.find((u) => u.etsySku === null);
+  const defaultVariantUpdate = updates.find((u) => u.etsySku === null && u.etsyProductId === null);
 
   if (defaultVariantUpdate && currentInventory.products.length !== 1) {
     throw new Error(
-      'Default-variant update (etsySku=null) is only supported for listings with a single product. Provide explicit SKUs for multi-variant listings.'
+      'Default-variant update is only supported for listings with a single product. Provide explicit product IDs or SKUs for multi-variant listings.'
     );
   }
 
   return currentInventory.products.map((product) => {
-    const productUpdate = updates.find((u) => {
-      return u.etsySku === product.sku;
-    });
+    // Match by SKU first (preferred), then fall back to product_id
+    const productUpdate = findItemByEtsyProduct(updates, product);
 
     return {
       sku: product.sku,
+      // Include property_values to identify variants (required when SKUs are empty)
+      property_values: product.property_values.map((pv) => ({
+        property_id: pv.property_id,
+        property_name: pv.property_name,
+        value_ids: pv.value_ids,
+        values: pv.values,
+      })),
       offerings: product.offerings.map((offering) => ({
         quantity: (productUpdate ?? defaultVariantUpdate)?.quantity ?? offering.quantity,
         price: offering.price.amount / offering.price.divisor,
         is_enabled: offering.is_enabled,
+        readiness_state_id: offering.readiness_state_id,
       })),
     };
   });

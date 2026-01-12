@@ -179,7 +179,7 @@ describe('etsy API', () => {
       mockRequest.mockResolvedValue({ success: true, updated: 1 });
 
       const updates = {
-        updates: [{ etsyListingId: '123', etsySku: null, quantity: 10 }],
+        updates: [{ etsyListingId: '123', etsySku: null, etsyProductId: '456', quantity: 10 }],
       };
 
       await etsy.pushUpdates(updates);

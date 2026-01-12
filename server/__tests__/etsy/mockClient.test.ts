@@ -107,6 +107,7 @@ describe('MockEtsyClient', () => {
       await client.updateListingInventory(listingId, [
         {
           sku: 'LPH-GS',
+          property_values: [],
           offerings: [{ quantity: originalQty + 10, price: 65, is_enabled: true }],
         },
       ]);
@@ -121,6 +122,7 @@ describe('MockEtsyClient', () => {
       await client.updateListingInventory(listingId, [
         {
           sku: 'LBH-BLUE-001',
+          property_values: [],
           offerings: [{ quantity: 20, price: 45, is_enabled: true }],
         },
       ]);
@@ -133,7 +135,7 @@ describe('MockEtsyClient', () => {
     it('throws 404 for non-existent listing', async () => {
       await expect(
         client.updateListingInventory(99999, [
-          { sku: 'TEST', offerings: [{ quantity: 1, price: 10, is_enabled: true }] },
+          { sku: 'TEST', property_values: [], offerings: [{ quantity: 1, price: 10, is_enabled: true }] },
         ])
       ).rejects.toThrow(EtsyApiError);
     });
@@ -235,6 +237,7 @@ describe('MockEtsyClient', () => {
       await client.updateListingInventory(listingId, [
         {
           sku: 'LBH-BLUE-001',
+          property_values: [],
           offerings: [{ quantity: 999, price: 45, is_enabled: true }],
         },
       ]);

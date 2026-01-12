@@ -168,13 +168,17 @@ router.get('/callback', async (req, res) => {
         );
 
         if (!shopResponse.ok) {
+            const errorText = await shopResponse.text();
+            console.error('Failed to get shop info:', shopResponse.status, errorText);
             return res.redirect('/?etsy_error=Failed+to+get+shop+info');
         }
 
         const shopData = await shopResponse.json();
-        const shop = shopData.results?.[0];
+        // API returns shop directly, not wrapped in results array
+        const shop = shopData.shop_id ? shopData : shopData.results?.[0];
 
         if (!shop) {
+            console.error('No shop found. Response:', shopData);
             return res.redirect('/?etsy_error=No+shop+found+for+this+account');
         }
 
@@ -283,7 +287,7 @@ router.post('/import', async (req, res) => {
                 const price = listing.price.amount / listing.price.divisor;
 
                 // Get inventory to check for variants
-                let variants: Array<{ name: string; sku: string }> = [];
+                let variants: Array<{ name: string; sku: string | null; productId: string; sellingPrice: number | null }> = [];
                 let hasVariants = false;
 
                 try {
@@ -292,13 +296,28 @@ router.post('/import', async (req, res) => {
                     if (inventory.products && inventory.products.length > 1) {
                         hasVariants = true;
                         variants = inventory.products
-                            .filter(p => p.sku) // Only include products with SKUs
+                            .filter(p => !p.is_deleted)
                             .map(p => {
                                 // Build variant name from property values
                                 const name = p.property_values
                                     .map(pv => pv.values.join(', '))
-                                    .join(' / ') || p.sku;
-                                return { name, sku: p.sku };
+                                    .join(' / ') || `Variant ${p.product_id}`;
+
+                                // Convert empty string to null (Etsy returns "" for no SKU)
+                                const sku = p.sku && p.sku.trim() !== '' ? p.sku : null;
+
+                                // Get price from first offering
+                                const offering = p.offerings?.[0];
+                                const sellingPrice = offering?.price
+                                    ? offering.price.amount / offering.price.divisor
+                                    : null;
+
+                                return {
+                                    name,
+                                    sku,
+                                    productId: String(p.product_id),
+                                    sellingPrice,
+                                };
                             });
                     }
                 } catch (invErr) {
@@ -316,16 +335,46 @@ router.post('/import', async (req, res) => {
                     },
                 });
 
-                // Create variants if any
+                // Create variants one by one to handle unique constraint errors gracefully
                 if (variants.length > 0) {
-                    await prisma.hamperVariant.createMany({
-                        data: variants.map(v => ({
-                            hamperId: hamper.id,
-                            name: v.name,
-                            etsySku: v.sku,
-                            isActive: true,
-                        })),
-                    });
+                    for (const v of variants) {
+                        try {
+                            await prisma.hamperVariant.create({
+                                data: {
+                                    hamperId: hamper.id,
+                                    name: v.name,
+                                    sellingPrice: v.sellingPrice,
+                                    etsySku: v.sku,
+                                    etsyProductId: v.productId,
+                                    isActive: true,
+                                },
+                            });
+                        } catch (variantErr) {
+                            // If unique constraint fails, try to find and update existing variant
+                            const existingBySku = v.sku
+                                ? await prisma.hamperVariant.findFirst({
+                                    where: { etsySku: v.sku },
+                                })
+                                : null;
+                            const existingByProductId = v.productId
+                                ? await prisma.hamperVariant.findFirst({
+                                    where: { etsyProductId: v.productId },
+                                })
+                                : null;
+                            const existingVariant = existingBySku ?? existingByProductId;
+
+                            if (existingVariant) {
+                                // Update orphaned variant to point to new hamper
+                                await prisma.hamperVariant.update({
+                                    where: { id: existingVariant.id },
+                                    data: { hamperId: hamper.id },
+                                });
+                                console.warn(`Re-linked orphaned variant ${v.name} to hamper ${hamper.id}`);
+                            } else {
+                                console.warn(`Skipping variant ${v.name}: ${variantErr instanceof Error ? variantErr.message : variantErr}`);
+                            }
+                        }
+                    }
                 }
 
                 results.created++;

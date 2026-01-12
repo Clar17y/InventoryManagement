@@ -140,14 +140,18 @@ export class MockEtsyClient implements IEtsyClient {
       throw new EtsyApiError(404, `Listing ${listingId} not found`);
     }
 
-    // Return a deep copy
+    // Return a deep copy with all fields
     return {
       listing_id: inventory.listing_id,
+      price_on_property: [...(inventory.price_on_property || [])],
+      quantity_on_property: [...(inventory.quantity_on_property || [])],
+      sku_on_property: [...(inventory.sku_on_property || [])],
       products: inventory.products.map((p) => ({
         ...p,
         offerings: p.offerings.map((o) => ({ ...o, price: { ...o.price } })),
         property_values: p.property_values.map((pv) => ({
           ...pv,
+          value_ids: [...(pv.value_ids || [])],
           values: [...pv.values],
         })),
       })),
@@ -156,7 +160,9 @@ export class MockEtsyClient implements IEtsyClient {
 
   async updateListingInventory(
     listingId: number,
-    products: EtsyInventoryUpdateProduct[]
+    products: EtsyInventoryUpdateProduct[],
+    _currentInventory?: EtsyInventory,
+    _options?: { skuOnProperty?: number[] }
   ): Promise<EtsyInventory> {
     this.checkConnected();
     this.maybeThrowError(listingId);
@@ -167,14 +173,40 @@ export class MockEtsyClient implements IEtsyClient {
     }
 
     // Apply updates to internal state
+    // Match by property_values when SKU is empty (like real Etsy API)
     const updatedProducts = current.products.map((existingProduct) => {
-      const updateProduct = products.find((p) => p.sku === existingProduct.sku);
+      // Try to match by SKU first (if not empty)
+      let updateProduct = existingProduct.sku
+        ? products.find((p) => p.sku === existingProduct.sku)
+        : null;
+
+      // If SKU is empty, match by property_values (value_ids)
+      if (!updateProduct && !existingProduct.sku) {
+        updateProduct = products.find((p) => {
+          if (p.property_values.length !== existingProduct.property_values.length) {
+            return false;
+          }
+          return p.property_values.every((pv, idx) => {
+            const existingPv = existingProduct.property_values[idx];
+            if (!existingPv) return false;
+            // Match by value_ids
+            return (
+              pv.property_id === existingPv.property_id &&
+              pv.value_ids.length === existingPv.value_ids.length &&
+              pv.value_ids.every((vid, i) => vid === existingPv.value_ids[i])
+            );
+          });
+        });
+      }
+
       if (!updateProduct) return existingProduct;
 
       return {
         ...existingProduct,
+        // Persist SKU updates (important for SKU push functionality)
+        sku: updateProduct.sku,
         offerings: existingProduct.offerings.map((offering, idx) => {
-          const updateOffering = updateProduct.offerings[idx];
+          const updateOffering = updateProduct!.offerings[idx];
           if (!updateOffering) return offering;
 
           return {
@@ -191,9 +223,12 @@ export class MockEtsyClient implements IEtsyClient {
       };
     });
 
-    // Persist to state
+    // Persist to state (preserve the *_on_property arrays)
     const updatedInventory: EtsyInventory = {
       listing_id: listingId,
+      price_on_property: current.price_on_property || [],
+      quantity_on_property: current.quantity_on_property || [],
+      sku_on_property: current.sku_on_property || [],
       products: updatedProducts,
     };
     this.inventoryByListingId.set(listingId, updatedInventory);

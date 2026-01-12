@@ -16,15 +16,23 @@ vi.mock('../../lib/api', () => ({
   inventory: {
     lotsByCategory: vi.fn(),
   },
+  etsy: {
+    getStatus: vi.fn(),
+    initiateAuth: vi.fn(),
+    disconnect: vi.fn(),
+    getPendingOrders: vi.fn(),
+    importOrder: vi.fn(),
+  },
 }));
 
 import Sales from '../../pages/Sales';
-import { sales, hampers } from '../../lib/api';
+import { sales, hampers, etsy } from '../../lib/api';
 
 const mockSalesList = vi.mocked(sales.list);
 const mockSalesSummary = vi.mocked(sales.summary);
 const mockSalesPreview = vi.mocked(sales.preview);
 const mockHampersList = vi.mocked(hampers.list);
+const mockEtsyGetStatus = vi.mocked(etsy.getStatus);
 
 describe('Sales', () => {
   const sampleHampers = [
@@ -116,6 +124,7 @@ describe('Sales', () => {
     mockSalesSummary.mockResolvedValue(sampleSummary);
     mockHampersList.mockResolvedValue(sampleHampers as any);
     mockSalesPreview.mockResolvedValue(samplePreview as any);
+    mockEtsyGetStatus.mockResolvedValue({ connected: false });
   });
 
   describe('loading state', () => {
@@ -137,6 +146,13 @@ describe('Sales', () => {
       render(<Sales />);
       await waitFor(() => {
         expect(screen.getByText('Sales')).toBeInTheDocument();
+      });
+    });
+
+    it('has Etsy Sync button', async () => {
+      render(<Sales />);
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: /etsy sync/i })).toBeInTheDocument();
       });
     });
 

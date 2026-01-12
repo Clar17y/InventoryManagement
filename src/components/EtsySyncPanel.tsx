@@ -255,7 +255,7 @@ export default function EtsySyncPanel({ isOpen, onClose, onImportComplete }: Ets
     }
 
     const handleImport = async () => {
-        if (!confirm('Import all Etsy listings as hampers? Existing hampers with matching Etsy IDs will be skipped.')) return
+        if (!confirm('Import all Etsy listings as hampers? Existing hampers will be refreshed with the latest Etsy variant mapping (requirements/mappings won\'t be changed).')) return
 
         setImporting(true)
         setError(null)
@@ -265,7 +265,7 @@ export default function EtsySyncPanel({ isOpen, onClose, onImportComplete }: Ets
             const result = await etsy.importListings()
             setImportResult(result)
 
-            if (result.created > 0) {
+            if (result.created > 0 || result.updated > 0) {
                 onImportComplete()
                 await loadComparison()
             }
@@ -435,7 +435,7 @@ export default function EtsySyncPanel({ isOpen, onClose, onImportComplete }: Ets
                                         Import Complete
                                     </div>
                                     <div className="text-sm text-blue-700">
-                                        Created: {importResult.created} • Skipped: {importResult.skipped}
+                                        Created: {importResult.created} • Updated: {importResult.updated} • Skipped: {importResult.skipped}
                                         {importResult.errors.length > 0 && (
                                             <span className="text-red-600"> • Errors: {importResult.errors.length}</span>
                                         )}

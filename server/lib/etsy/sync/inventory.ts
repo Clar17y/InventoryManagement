@@ -8,7 +8,7 @@ import {
   buildInventoryUpdateProducts,
   groupUpdatesByListing,
 } from '../safety';
-import { findEtsyProductByIdentifiers } from '../matching';
+import { findEtsyProductByIdentifiers, findEtsyProductByVariantName } from '../matching';
 
 export type InventoryUpdate = {
   etsyListingId: string;
@@ -75,8 +75,6 @@ export async function getSyncComparison() {
 
     if (hamper.hasVariants && hamper.variants.length > 0) {
       for (const variant of hamper.variants) {
-        if (!variant.etsyProductId && !variant.etsySku) continue;
-
         let canMake = Infinity;
 
         const mappedByCategory = new Map(variant.mappings.map((m) => [m.categoryId, m]));
@@ -116,27 +114,39 @@ export async function getSyncComparison() {
         if (canMake === Infinity) canMake = 0;
 
         let etsyQuantity = 0;
-        if (etsyInventory && (variant.etsyProductId || variant.etsySku)) {
-          const etsyProduct = findEtsyProductByIdentifiers(etsyInventory.products, {
-            etsySku: variant.etsySku,
-            etsyProductId: variant.etsyProductId,
-          });
+        let resolvedEtsyProductId: string | null = variant.etsyProductId;
+        let resolvedEtsySku: string | null = variant.etsySku;
+
+        if (etsyInventory) {
+          const etsyProduct =
+            findEtsyProductByIdentifiers(etsyInventory.products, {
+              etsySku: variant.etsySku,
+              etsyProductId: variant.etsyProductId,
+            }) ??
+            findEtsyProductByVariantName(etsyInventory.products, variant.name);
+
           if (etsyProduct && etsyProduct.offerings.length > 0) {
             etsyQuantity = etsyProduct.offerings[0].quantity;
+            resolvedEtsyProductId ??= String(etsyProduct.product_id);
+            if (!resolvedEtsySku) {
+              resolvedEtsySku = etsyProduct.sku?.trim() ? etsyProduct.sku : null;
+            }
           }
         }
 
         const difference = canMake - etsyQuantity;
+        const canIdentifyEtsyProduct =
+          resolvedEtsyProductId !== null || resolvedEtsySku !== null;
 
         variantComparisons.push({
-          etsySku: variant.etsySku,
-          etsyProductId: variant.etsyProductId,
+          etsySku: resolvedEtsySku,
+          etsyProductId: resolvedEtsyProductId,
           variantId: variant.id,
           variantName: variant.name,
           etsyQuantity,
           inventoryQuantity: canMake,
           difference,
-          needsSync: difference !== 0,
+          needsSync: difference !== 0 && canIdentifyEtsyProduct,
         });
       }
     } else {
@@ -175,6 +185,7 @@ export async function getSyncComparison() {
 
       variantComparisons.push({
         etsySku: null,
+        etsyProductId: null,
         variantId: null,
         variantName: 'Default',
         etsyQuantity,

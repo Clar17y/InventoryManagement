@@ -6,7 +6,7 @@ import {
   startLogSession,
   endLogSession,
 } from '../debugLogger';
-import { generateVariantSku } from '../skuGenerator';
+import { generateHamperSku, generateVariantSku } from '../skuGenerator';
 import {
   findEtsyProductByIdentifiers,
   findEtsyProductByVariantName,
@@ -21,15 +21,9 @@ export async function generateSkus() {
       where: {
         etsyListingId: { not: null },
         isActive: true,
-        hasVariants: true,
       },
       include: {
-        variants: {
-          where: {
-            isActive: true,
-            etsySku: null,
-          },
-        },
+        variants: { where: { isActive: true } },
       },
     });
 
@@ -50,34 +44,83 @@ export async function generateSkus() {
     }> = [];
 
     for (const hamper of hampers) {
-      for (const variant of hamper.variants) {
-        const baseSku = generateVariantSku(
-          hamper.name,
-          variant.name,
-          hamper.etsyListingId!
-        );
+      const treatAsVariantListing = hamper.hasVariants || hamper.variants.length > 1;
 
-        let sku = baseSku;
-        let suffix = 2;
-        while (existingSkus.has(sku)) {
-          sku = `${baseSku}-${suffix}`;
-          suffix++;
+      if (treatAsVariantListing) {
+        for (const variant of hamper.variants) {
+          if (!variant.isActive || variant.etsySku) continue;
+
+          const baseSku = generateVariantSku(
+            hamper.name,
+            variant.name,
+            hamper.etsyListingId!
+          );
+
+          let sku = baseSku;
+          let suffix = 2;
+          while (existingSkus.has(sku)) {
+            sku = `${baseSku}-${suffix}`;
+            suffix++;
+          }
+
+          existingSkus.add(sku);
+
+          await prisma.hamperVariant.update({
+            where: { id: variant.id },
+            data: { etsySku: sku },
+          });
+
+          results.push({
+            hamperName: hamper.name,
+            variantName: variant.name,
+            sku,
+          });
+          generated++;
         }
-
-        existingSkus.add(sku);
-
-        await prisma.hamperVariant.update({
-          where: { id: variant.id },
-          data: { etsySku: sku },
-        });
-
-        results.push({
-          hamperName: hamper.name,
-          variantName: variant.name,
-          sku,
-        });
-        generated++;
+        continue;
       }
+
+      // Non-variant listing: store SKU on a single "Default" hamperVariant.
+      let defaultVariant = hamper.variants.find((v) => v.name === 'Default') ??
+        (hamper.variants.length === 1 ? hamper.variants[0] : undefined);
+
+      if (!defaultVariant) {
+        defaultVariant = await prisma.hamperVariant.create({
+          data: {
+            hamperId: hamper.id,
+            name: 'Default',
+            sellingPrice: null,
+            etsySku: null,
+            etsyProductId: null,
+            isActive: true,
+          },
+        });
+      }
+
+      if (defaultVariant.etsySku) continue;
+
+      const baseSku = generateHamperSku(hamper.name, hamper.etsyListingId!);
+
+      let sku = baseSku;
+      let suffix = 2;
+      while (existingSkus.has(sku)) {
+        sku = `${baseSku}-${suffix}`;
+        suffix++;
+      }
+
+      existingSkus.add(sku);
+
+      await prisma.hamperVariant.update({
+        where: { id: defaultVariant.id },
+        data: { etsySku: sku },
+      });
+
+      results.push({
+        hamperName: hamper.name,
+        variantName: defaultVariant.name,
+        sku,
+      });
+      generated++;
     }
 
     return {
@@ -97,7 +140,6 @@ export async function getPendingSkus() {
       where: {
         etsyListingId: { not: null },
         isActive: true,
-        hasVariants: true,
       },
       include: {
         variants: {
@@ -132,20 +174,47 @@ export async function getPendingSkus() {
         continue;
       }
 
+      const products = etsyInventory?.products ?? [];
+      if (products.length === 0) continue;
+
+      if (products.length === 1) {
+        const product = products[0];
+
+        const defaultVariant =
+          hamper.variants.find((v) => v.name === 'Default') ??
+          (hamper.variants.length === 1 ? hamper.variants[0] : undefined);
+
+        if (defaultVariant?.etsySku) {
+          const etsySku = product.sku?.trim() ? product.sku : null;
+          const needsSync = etsySku !== defaultVariant.etsySku;
+
+          pendingSkus.push({
+            hamperId: hamper.id,
+            hamperName: hamper.name,
+            etsyListingId: hamper.etsyListingId!,
+            variantId: defaultVariant.id,
+            variantName: defaultVariant.name,
+            localSku: defaultVariant.etsySku,
+            etsySku,
+            etsyProductId: defaultVariant.etsyProductId ?? String(product.product_id),
+            needsSync,
+          });
+        }
+
+        continue;
+      }
+
       for (const variant of hamper.variants) {
         if (!variant.etsySku) continue;
 
         const etsyProduct =
-          findEtsyProductByIdentifiers(etsyInventory?.products ?? [], {
+          findEtsyProductByIdentifiers(products, {
             etsySku: variant.etsySku,
             etsyProductId: variant.etsyProductId,
           }) ??
-          findEtsyProductByVariantName(
-            etsyInventory?.products ?? [],
-            variant.name
-          );
+          findEtsyProductByVariantName(products, variant.name);
 
-        const etsySku = etsyProduct?.sku || null;
+        const etsySku = etsyProduct?.sku?.trim() ? etsyProduct.sku : null;
         const needsSync = etsySku !== variant.etsySku;
 
         pendingSkus.push({
@@ -156,7 +225,7 @@ export async function getPendingSkus() {
           variantName: variant.name,
           localSku: variant.etsySku,
           etsySku,
-          etsyProductId: variant.etsyProductId,
+          etsyProductId: variant.etsyProductId ?? (etsyProduct ? String(etsyProduct.product_id) : null),
           needsSync,
         });
       }
@@ -181,11 +250,9 @@ export async function pushSkus(listingIds?: string[]) {
     const whereClause: {
       etsyListingId: { not: null; in?: string[] };
       isActive: true;
-      hasVariants: true;
     } = {
       etsyListingId: { not: null },
       isActive: true,
-      hasVariants: true,
     };
     if (listingIds && listingIds.length > 0) {
       whereClause.etsyListingId = { not: null, in: listingIds };
@@ -232,13 +299,18 @@ export async function pushSkus(listingIds?: string[]) {
         let updated = 0;
         let skipped = 0;
 
+        const listingHasSingleProduct = currentInventory.products.length === 1;
+
         const updatedProducts = currentInventory.products.map((etsyProduct) => {
-          const localVariant =
+          let localVariant =
             findItemByEtsyProduct(hamper.variants, etsyProduct) ??
-            findItemByVariantName(
-              hamper.variants,
-              getEtsyVariantName(etsyProduct)
-            );
+            findItemByVariantName(hamper.variants, getEtsyVariantName(etsyProduct));
+
+          if (!localVariant && listingHasSingleProduct) {
+            localVariant =
+              hamper.variants.find((v) => v.name === 'Default') ??
+              (hamper.variants.length === 1 ? hamper.variants[0] : undefined);
+          }
 
           const newSku = localVariant?.etsySku || etsyProduct.sku;
           const skuChanged = newSku !== etsyProduct.sku;

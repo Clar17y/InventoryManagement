@@ -438,10 +438,16 @@ router.put('/:id', async (req, res) => {
 // DELETE (soft delete) hamper
 router.delete('/:id', async (req, res) => {
   try {
-    await prisma.hamper.update({
-      where: { id: req.params.id },
-      data: { isActive: false },
-    })
+    await prisma.$transaction([
+      prisma.hamperVariant.updateMany({
+        where: { hamperId: req.params.id },
+        data: { isActive: false },
+      }),
+      prisma.hamper.update({
+        where: { id: req.params.id },
+        data: { isActive: false },
+      }),
+    ])
     res.status(204).send()
   } catch (error) {
     console.error('Error deleting hamper:', error)

@@ -286,11 +286,13 @@ export default function Hampers() {
     setEditingVariantId(variant.id)
     setVariantFormData({
       name: variant.name,
+      sellingPrice: variant.sellingPrice ?? null,
       etsySku: variant.etsySku || '',
       mappings: variant.mappings?.map(m => ({ categoryId: m.categoryId, productId: m.productId })) || []
     })
     setShowVariantForm(true)
   }
+
 
   const handleDeleteVariant = async (variantId: string) => {
     if (!editingId || !confirm('Delete this variant?')) return
@@ -528,7 +530,7 @@ export default function Hampers() {
               {/* Add Variant Form */}
               {showVariantForm && (
                 <div className="bg-primary-50 p-4 rounded-lg mb-4 space-y-4">
-                  <div className="grid grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                     <div>
                       <label className="block text-xs font-medium text-gray-700 mb-1">Variant Name *</label>
                       <input
@@ -537,6 +539,21 @@ export default function Hampers() {
                         onChange={(e) => setVariantFormData({ ...variantFormData, name: e.target.value })}
                         className="input text-sm"
                         placeholder="e.g., Small, Blue, 500g"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-gray-700 mb-1">Selling Price (£)</label>
+                      <input
+                        type="number"
+                        min="0.01"
+                        step="0.01"
+                        value={variantFormData.sellingPrice ?? ''}
+                        onChange={(e) => setVariantFormData({
+                          ...variantFormData,
+                          sellingPrice: e.target.value ? parseFloat(e.target.value) : null
+                        })}
+                        className="input text-sm"
+                        placeholder="Leave blank = use hamper price"
                       />
                     </div>
                     <div>
@@ -550,6 +567,7 @@ export default function Hampers() {
                       />
                     </div>
                   </div>
+
 
                   <div>
                     <div className="flex justify-between items-center mb-2">
@@ -670,8 +688,10 @@ export default function Hampers() {
                     <div className="flex justify-between items-start">
                       <div>
                         <div className="font-medium text-gray-900">{variant.name}</div>
+                        {variant.sellingPrice && <div className="text-xs text-green-600 font-medium">£{Number(variant.sellingPrice).toFixed(2)}</div>}
                         {variant.etsySku && <div className="text-xs text-gray-500 font-mono">SKU: {variant.etsySku}</div>}
                       </div>
+
                       <div className="flex gap-1">
                         <button
                           type="button"

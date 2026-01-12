@@ -15,6 +15,11 @@ vi.mock('../../lib/api', () => ({
     pushUpdates: vi.fn(),
     getPendingOrders: vi.fn(),
     importOrder: vi.fn(),
+    getPendingSkus: vi.fn(),
+    generateSkus: vi.fn(),
+    pushSkus: vi.fn(),
+    getPendingPriceUpdates: vi.fn(),
+    pushPrices: vi.fn(),
   },
 }));
 
@@ -27,6 +32,8 @@ const mockDisconnect = vi.mocked(etsy.disconnect);
 const mockGetComparison = vi.mocked(etsy.getComparison);
 const mockImportListings = vi.mocked(etsy.importListings);
 const mockGetPendingOrders = vi.mocked(etsy.getPendingOrders);
+const mockGetPendingSkus = vi.mocked(etsy.getPendingSkus);
+const mockGetPendingPriceUpdates = vi.mocked(etsy.getPendingPriceUpdates);
 
 describe('EtsySyncPanel', () => {
   const mockOnClose = vi.fn();
@@ -37,6 +44,8 @@ describe('EtsySyncPanel', () => {
     mockGetStatus.mockResolvedValue({ connected: false });
     mockGetComparison.mockResolvedValue({ comparisons: [] });
     mockGetPendingOrders.mockResolvedValue({ orders: [] });
+    mockGetPendingSkus.mockResolvedValue({ skus: [], needsSyncCount: 0, totalVariants: 0 });
+    mockGetPendingPriceUpdates.mockResolvedValue({ updates: [], count: 0, needsSyncCount: 0 });
   });
 
   describe('when closed', () => {
@@ -299,30 +308,48 @@ describe('EtsySyncPanel', () => {
       });
     });
 
-    it('shows pending orders tab', async () => {
+    it('shows SKU and Price tabs', async () => {
       render(
         <EtsySyncPanel isOpen={true} onClose={mockOnClose} onImportComplete={mockOnImportComplete} />
       );
 
       await waitFor(() => {
-        expect(screen.getByText(/Pending Orders/)).toBeInTheDocument();
+        expect(screen.getByText(/SKU Sync/)).toBeInTheDocument();
+        expect(screen.getByText(/Price Sync/)).toBeInTheDocument();
       });
     });
 
-    it('switches to orders tab when clicked', async () => {
+    it('switches to SKU sync tab when clicked', async () => {
       const user = userEvent.setup();
       render(
         <EtsySyncPanel isOpen={true} onClose={mockOnClose} onImportComplete={mockOnImportComplete} />
       );
 
       await waitFor(() => {
-        expect(screen.getByText(/Pending Orders/)).toBeInTheDocument();
+        expect(screen.getByText(/SKU Sync/)).toBeInTheDocument();
       });
 
-      await user.click(screen.getByText(/Pending Orders/));
+      await user.click(screen.getByText(/SKU Sync/));
 
       await waitFor(() => {
-        expect(mockGetPendingOrders).toHaveBeenCalled();
+        expect(mockGetPendingSkus).toHaveBeenCalled();
+      });
+    });
+
+    it('switches to price sync tab when clicked', async () => {
+      const user = userEvent.setup();
+      render(
+        <EtsySyncPanel isOpen={true} onClose={mockOnClose} onImportComplete={mockOnImportComplete} />
+      );
+
+      await waitFor(() => {
+        expect(screen.getByText(/Price Sync/)).toBeInTheDocument();
+      });
+
+      await user.click(screen.getByText(/Price Sync/));
+
+      await waitFor(() => {
+        expect(mockGetPendingPriceUpdates).toHaveBeenCalled();
       });
     });
   });

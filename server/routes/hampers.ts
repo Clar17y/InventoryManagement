@@ -33,12 +33,22 @@ const variantMappingSchema = z.object({
 
 const createVariantSchema = z.object({
   name: z.string().min(1).max(100),
+  sellingPrice: z.union([z.number(), z.string()]).optional().nullable().transform(v => {
+    if (v === null || v === undefined || v === '') return null;
+    const num = typeof v === 'number' ? v : parseFloat(v);
+    return isNaN(num) ? null : num;
+  }),
   etsySku: z.string().max(50).optional().nullable().transform(v => v === "" ? null : v),
   mappings: z.array(variantMappingSchema).min(1),
 })
 
 const updateVariantSchema = z.object({
   name: z.string().min(1).max(100).optional(),
+  sellingPrice: z.union([z.number(), z.string()]).optional().nullable().transform(v => {
+    if (v === null || v === undefined || v === '') return null;
+    const num = typeof v === 'number' ? v : parseFloat(v);
+    return isNaN(num) ? null : num;
+  }),
   etsySku: z.string().max(50).optional().nullable().transform(v => v === "" ? null : v),
   mappings: z.array(variantMappingSchema).optional(),
 })
@@ -169,7 +179,7 @@ async function calculateVariantAvailability(variantId: string): Promise<number> 
 }
 
 // Get variant availability for all variants of a hamper
-async function getVariantAvailabilities(hamperId: string): Promise<{ variantId: string; name: string; etsySku: string | null; canMake: number }[]> {
+async function getVariantAvailabilities(hamperId: string): Promise<{ variantId: string; name: string; etsySku: string | null; sellingPrice: number | null; canMake: number }[]> {
   const variants = await prisma.hamperVariant.findMany({
     where: { hamperId, isActive: true },
     orderBy: { name: 'asc' },
@@ -180,6 +190,7 @@ async function getVariantAvailabilities(hamperId: string): Promise<{ variantId: 
       variantId: v.id,
       name: v.name,
       etsySku: v.etsySku,
+      sellingPrice: v.sellingPrice ? Number(v.sellingPrice) : null,
       canMake: await calculateVariantAvailability(v.id),
     }))
   )
@@ -317,6 +328,7 @@ router.get('/:id', async (req, res) => {
           variantId: v.id,
           name: v.name,
           etsySku: v.etsySku,
+          sellingPrice: v.sellingPrice ? Number(v.sellingPrice) : null,
           canMake: await calculateVariantAvailability(v.id),
           mappings: v.mappings.map((m) => ({
             categoryId: m.categoryId,
@@ -523,6 +535,7 @@ router.post('/:id/variants', async (req, res) => {
       data: {
         hamperId,
         name: data.name,
+        sellingPrice: data.sellingPrice,
         etsySku: data.etsySku,
         mappings: {
           create: data.mappings.map((m) => ({
@@ -580,6 +593,7 @@ router.put('/:id/variants/:variantId', async (req, res) => {
       where: { id: req.params.variantId },
       data: {
         ...(data.name && { name: data.name }),
+        ...(data.sellingPrice !== undefined && { sellingPrice: data.sellingPrice }),
         ...(data.etsySku !== undefined && { etsySku: data.etsySku }),
         ...(data.mappings && {
           mappings: {

@@ -41,7 +41,7 @@ describe('Etsy Integration', () => {
         firstProduct.offerings[0].price.divisor;
 
       await client.updateListingInventory(targetListing.listing_id, [
-        { sku, offerings: [{ quantity: mockCanMake, price, is_enabled: true }] },
+        { sku, property_values: [], offerings: [{ quantity: mockCanMake, price, is_enabled: true }] },
       ]);
 
       // 5. Verify update persisted
@@ -58,9 +58,9 @@ describe('Etsy Integration', () => {
 
       // Update all variants
       const updates = [
-        { sku: 'LPH-GS', offerings: [{ quantity: 2, price: 65, is_enabled: true }] },
-        { sku: 'LPH-FL', offerings: [{ quantity: 3, price: 65, is_enabled: true }] },
-        { sku: 'LPH-BEE', offerings: [{ quantity: 1, price: 65, is_enabled: true }] },
+        { sku: 'LPH-GS', property_values: [], offerings: [{ quantity: 2, price: 65, is_enabled: true }] },
+        { sku: 'LPH-FL', property_values: [], offerings: [{ quantity: 3, price: 65, is_enabled: true }] },
+        { sku: 'LPH-BEE', property_values: [], offerings: [{ quantity: 1, price: 65, is_enabled: true }] },
       ];
 
       await client.updateListingInventory(listingId, updates);
@@ -94,6 +94,7 @@ describe('Etsy Integration', () => {
       const updates = [
         {
           sku: 'LBH-BLUE-001',
+          property_values: [],
           offerings: [{ quantity: currentQty, price: 45, is_enabled: true }],
         },
       ];
@@ -116,6 +117,7 @@ describe('Etsy Integration', () => {
       const updates = [
         {
           sku: 'LBH-BLUE-001',
+          property_values: [],
           offerings: [{ quantity: newQty, price: 45, is_enabled: true }],
         },
       ];

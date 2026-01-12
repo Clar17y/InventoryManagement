@@ -38,6 +38,10 @@ export const MOCK_RECEIPTS: EtsyReceipt[] = [
         quantity: 1,
         price: { amount: 6500, divisor: 100, currency_code: 'GBP' },
         sku: 'LPH-GS',
+        product_id: 20020001,
+        variations: [
+          { property_id: 200, value_id: 1001, formatted_name: 'Style', formatted_value: 'Grey Star' },
+        ],
       },
     ],
   },
@@ -70,6 +74,10 @@ export const MOCK_RECEIPTS: EtsyReceipt[] = [
         quantity: 2,
         price: { amount: 4500, divisor: 100, currency_code: 'GBP' },
         sku: 'LBH-BLUE-001',
+        product_id: 20010001,
+        variations: [
+          { property_id: 200, value_id: 2001, formatted_name: 'Color', formatted_value: 'Blue' },
+        ],
       },
     ],
   },
@@ -102,6 +110,10 @@ export const MOCK_RECEIPTS: EtsyReceipt[] = [
         quantity: 1,
         price: { amount: 4500, divisor: 100, currency_code: 'GBP' },
         sku: 'LBH-BLUE-001',
+        product_id: 20010001,
+        variations: [
+          { property_id: 200, value_id: 2001, formatted_name: 'Color', formatted_value: 'Blue' },
+        ],
       },
       {
         transaction_id: 4004,
@@ -110,11 +122,15 @@ export const MOCK_RECEIPTS: EtsyReceipt[] = [
         quantity: 1,
         price: { amount: 6500, divisor: 100, currency_code: 'GBP' },
         sku: 'LPH-FL',
+        product_id: 20020002,
+        variations: [
+          { property_id: 200, value_id: 1002, formatted_name: 'Style', formatted_value: 'Floral' },
+        ],
       },
     ],
   },
 
-  // Order with null SKU (older listing or manual entry)
+  // Order with null SKU but valid product_id (like real Etsy data)
   {
     receipt_id: 3004,
     receipt_type: 0,
@@ -141,7 +157,11 @@ export const MOCK_RECEIPTS: EtsyReceipt[] = [
         title: 'Gift Basket - Blue',
         quantity: 1,
         price: { amount: 3500, divisor: 100, currency_code: 'GBP' },
-        sku: null, // No SKU recorded
+        sku: null,
+        product_id: 20030001,
+        variations: [
+          { property_id: 200, value_id: 3001, formatted_name: 'Color', formatted_value: 'Blue' },
+        ],
       },
     ],
   },
@@ -174,6 +194,8 @@ export const MOCK_RECEIPTS: EtsyReceipt[] = [
         quantity: 1,
         price: { amount: 4500, divisor: 100, currency_code: 'GBP' },
         sku: 'OOS-001',
+        product_id: 20050001,
+        variations: [],
       },
     ],
   },

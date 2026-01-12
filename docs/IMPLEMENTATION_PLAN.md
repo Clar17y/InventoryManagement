@@ -1,411 +1,112 @@
 # Savvy Hampers Inventory System - Implementation Plan
 
 ## Overview
-Inventory, costing, and margin system for Etsy hamper business. Cloud-hosted, mobile-first, single-user.
+Savvy Hampers is a mobile-first inventory, costing, sales and Etsy sync tool for an Etsy hamper business. It is designed to be simple, reliable and single-user, while still supporting accurate stock allocation, margin tracking and bi-directional Etsy syncing.
 
 ## Tech Stack
-- **Frontend**: React 18 + Vite + TypeScript + TailwindCSS
-- **Backend**: Node.js + Express + TypeScript (or tRPC for type safety)
-- **Database**: PostgreSQL (Neon or Supabase)
-- **ORM**: Prisma
-- **Auth**: Supabase Auth (simple, built-in) or NextAuth
-- **Hosting**: Vercel (frontend) + Railway/Render (API) or full-stack on Vercel
-- **Barcode**: QuaggaJS or html5-qrcode (browser-based camera scanning)
-
-## Project Structure
-```
-/
-├── prisma/
-│   └── schema.prisma
-├── src/
-│   ├── api/              # API routes (Express or Vercel API routes)
-│   ├── components/       # React components
-│   │   ├── ui/           # Reusable UI (buttons, inputs, cards)
-│   │   ├── inventory/    # Inventory-specific components
-│   │   ├── hampers/      # Hamper-specific components
-│   │   ├── sales/        # Sales-specific components
-│   │   └── scanner/      # Barcode scanner component
-│   ├── hooks/            # Custom React hooks
-│   ├── lib/              # Utilities, Prisma client, API client
-│   ├── pages/            # Page components / routes
-│   └── types/            # TypeScript types
-├── package.json
-├── vite.config.ts
-└── tailwind.config.js
-```
-
-## Database Schema (Prisma)
-
-```prisma
-// Core entities
-model ComponentCategory {
-  id          String    @id @default(cuid())
-  name        String    @unique
-  description String?
-  pickRule    PickRule  @default(FIFO)  // FIFO, FEFO, CHEAPEST, MANUAL
-  isActive    Boolean   @default(true)
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
-
-  products            Product[]
-  hamperRequirements  HamperRequirement[]
-}
-
-model Product {
-  id          String    @id @default(cuid())
-  name        String
-  barcode     String?   @unique  // EAN/UPC for scanning
-  categoryId  String
-  category    ComponentCategory @relation(fields: [categoryId], references: [id])
-  isActive    Boolean   @default(true)
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
-
-  costs       ProductCost[]
-  lots        InventoryLot[]
-}
-
-model ProductCost {
-  id          String    @id @default(cuid())
-  productId   String
-  product     Product   @relation(fields: [productId], references: [id])
-  unitCost    Decimal   @db.Decimal(10, 2)
-  effectiveFrom DateTime
-  effectiveTo   DateTime?
-  createdAt   DateTime  @default(now())
-
-  @@index([productId, effectiveFrom])
-}
-
-model InventoryLot {
-  id          String    @id @default(cuid())
-  productId   String
-  product     Product   @relation(fields: [productId], references: [id])
-  quantity    Decimal   @db.Decimal(10, 3)  // Supports grams, metres, etc.
-  remaining   Decimal   @db.Decimal(10, 3)
-  unitCost    Decimal   @db.Decimal(10, 2)  // Snapshot at receipt time
-  receivedAt  DateTime  @default(now())
-  expiresAt   DateTime?
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
-
-  consumptions SaleConsumption[]
-
-  @@index([productId, receivedAt])
-}
-
-model Hamper {
-  id          String    @id @default(cuid())
-  name        String
-  etsyListingId String? @unique  // For future Etsy sync
-  sellingPrice Decimal  @db.Decimal(10, 2)
-  isActive    Boolean   @default(true)
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
-
-  requirements HamperRequirement[]
-  saleLines    SaleLine[]
-}
-
-model HamperRequirement {
-  id          String    @id @default(cuid())
-  hamperId    String
-  hamper      Hamper    @relation(fields: [hamperId], references: [id], onDelete: Cascade)
-  categoryId  String
-  category    ComponentCategory @relation(fields: [categoryId], references: [id])
-  quantity    Decimal   @db.Decimal(10, 3)
-  isOptional  Boolean   @default(false)
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
-
-  @@unique([hamperId, categoryId])
-}
-
-model Sale {
-  id              String    @id @default(cuid())
-  saleDate        DateTime  @default(now())
-  etsyOrderId     String?   @unique  // For future Etsy sync
-  grossRevenue    Decimal   @db.Decimal(10, 2)
-  etsyFees        Decimal   @db.Decimal(10, 2) @default(0)
-  packagingOverhead Decimal @db.Decimal(10, 2) @default(0)
-  netRevenue      Decimal   @db.Decimal(10, 2)  // Computed: gross - fees - overhead
-  totalCost       Decimal   @db.Decimal(10, 2)  // Sum of all consumed costs
-  margin          Decimal   @db.Decimal(10, 2)  // netRevenue - totalCost
-  notes           String?
-  createdAt       DateTime  @default(now())
-  updatedAt       DateTime  @updatedAt
-
-  lines           SaleLine[]
-}
-
-model SaleLine {
-  id          String    @id @default(cuid())
-  saleId      String
-  sale        Sale      @relation(fields: [saleId], references: [id], onDelete: Cascade)
-  hamperId    String
-  hamper      Hamper    @relation(fields: [hamperId], references: [id])
-  quantity    Int       @default(1)
-  unitPrice   Decimal   @db.Decimal(10, 2)  // Snapshot
-  lineCost    Decimal   @db.Decimal(10, 2)  // Sum of consumptions
-  createdAt   DateTime  @default(now())
-
-  consumptions SaleConsumption[]
-}
-
-model SaleConsumption {
-  id          String    @id @default(cuid())
-  saleLineId  String
-  saleLine    SaleLine  @relation(fields: [saleLineId], references: [id], onDelete: Cascade)
-  lotId       String
-  lot         InventoryLot @relation(fields: [lotId], references: [id])
-  quantity    Decimal   @db.Decimal(10, 3)
-  unitCost    Decimal   @db.Decimal(10, 2)  // Snapshot from lot
-  createdAt   DateTime  @default(now())
-}
-
-// Configuration
-model EtsyFeeConfig {
-  id              String    @id @default(cuid())
-  name            String
-  percentageFee   Decimal   @db.Decimal(5, 4)  // e.g., 0.0650 = 6.5%
-  fixedFee        Decimal   @db.Decimal(10, 2) // e.g., 0.20
-  paymentFee      Decimal   @db.Decimal(5, 4)  // Payment processing %
-  effectiveFrom   DateTime
-  effectiveTo     DateTime?
-  createdAt       DateTime  @default(now())
-}
-
-model PackagingOverhead {
-  id              String    @id @default(cuid())
-  name            String    // e.g., "Tape", "Bubble wrap"
-  costPerOrder    Decimal   @db.Decimal(10, 2)
-  effectiveFrom   DateTime
-  effectiveTo     DateTime?
-  createdAt       DateTime  @default(now())
-}
-
-enum PickRule {
-  FIFO
-  FEFO
-  CHEAPEST
-  MANUAL
-}
-```
-
-## Key API Endpoints
-
-### Products & Inventory
-- `GET /api/products` - List products with current stock levels
-- `GET /api/products/barcode/:barcode` - Lookup product by barcode (for scanning)
-- `POST /api/products` - Create product
-- `POST /api/inventory/lots` - Add inventory lot (stock receipt)
-- `GET /api/inventory/low-stock` - Products/categories below threshold
-
-### Hampers
-- `GET /api/hampers` - List hampers with availability counts
-- `GET /api/hampers/:id/availability` - Detailed availability for one hamper
-- `POST /api/hampers` - Create hamper with requirements
-- `PUT /api/hampers/:id` - Update hamper
-
-### Sales
-- `GET /api/sales` - List sales with margins
-- `POST /api/sales/preview` - Preview stock allocation before confirming
-- `POST /api/sales` - Record sale and consume stock
-- `GET /api/sales/margins` - Margin analytics
-
-## UI Pages (Mobile-First)
-
-### 1. Dashboard (`/`)
-- Quick stats: Total products, low stock alerts, today's sales
-- Quick actions: Add Stock, Record Sale, View Hampers
-- Recent activity feed
-
-### 2. Inventory (`/inventory`)
-- List view: Products grouped by category
-- Each row shows: Name, current stock, unit, last cost
-- Tap to expand: See lot breakdown
-- FAB button: "Add Stock" (opens scanner)
-
-### 3. Add Stock (`/inventory/add`)
-- Camera viewfinder for barcode scanning
-- On scan: Show product name, confirm or search manually
-- Form: Quantity, cost, expiry (optional)
-- "Quick add more" option for batch entry
-
-### 4. Hampers (`/hampers`)
-- Card per hamper showing: Name, price, "Can make: X"
-- Color coding: Green (5+), Yellow (1-4), Red (0)
-- Tap to see requirement breakdown
-
-### 5. Record Sale (`/sales/new`)
-- Select hamper(s) and quantities
-- Show proposed stock allocation per requirement
-- Allow tap-to-override on any line
-- Show: Gross, Etsy fees, packaging, net, cost, margin
-- Confirm button
-
-### 6. Sales History (`/sales`)
-- List of past sales with date, hamper, margin
-- Tap for full breakdown
-
-### 7. Settings (`/settings`)
-- Etsy fee configuration
-- Packaging overhead rates
-- Categories management
-
-## Barcode Scanning Approach
-
-Use `html5-qrcode` library:
-- Works on mobile browsers (iOS Safari, Android Chrome)
-- No app install required
-- Requests camera permission
-- Decodes EAN-13, UPC-A, Code128, etc.
-
-Flow:
-1. User taps "Scan" button
-2. Camera opens in modal/page
-3. On successful scan → API lookup `/api/products/barcode/:code`
-4. If found → Pre-fill product, go to quantity/cost form
-5. If not found → "Product not recognized" → Option to create new product with this barcode
-
-## Authentication Approach
-
-**Recommendation: Supabase Auth**
-- Simple email/password or magic link
-- Free tier sufficient for single user
-- Built-in session management
-- Row-level security possible in Supabase
-
-Alternative: Simple JWT with environment-based secret
-- Single hardcoded user in env vars
-- Simpler but less flexible
-
-## Deployment Strategy
-
-**Option A (Recommended): Vercel + Neon**
-- Vercel: Frontend + API routes (serverless)
-- Neon: Serverless PostgreSQL (free tier generous)
-- Supabase Auth: User authentication
-- Total cost: $0 for low usage
-
-**Option B: Railway**
-- Full-stack deployment
-- PostgreSQL included
-- $5/month minimum after free tier
-
-## Implementation Phases
-
-### Phase 1A: Foundation ✅ COMPLETE
-1. Initialize Vite + React + TypeScript project
-2. Set up TailwindCSS
-3. Set up Prisma with schema
-4. Connect to Neon PostgreSQL
-5. Run initial migration
-6. Basic Express API or Vercel API routes
-7. Simple auth (Supabase or JWT)
-
-### Phase 1B: Core Data Management
-1. Categories CRUD UI
-2. Products CRUD UI (with barcode field)
-3. Inventory lots - add stock form
-4. Barcode scanner component integration
-5. Stock levels display
-
-### Phase 1C: Hampers
-1. Hamper CRUD UI
-2. Requirement management (add categories to hamper)
-3. Availability calculation logic
-4. Display "can make X" on hamper list
-
-### Phase 1D: Sales & Margins
-1. Stock allocation algorithm (FIFO/FEFO/Cheapest)
-2. Sale preview endpoint
-3. Record sale UI with allocation preview
-4. Override capability per line
-5. Confirm and consume stock
-6. Etsy fee and overhead application
-7. Margin calculation and display
-
-### Phase 1E: Polish & Alerts
-1. Dashboard with quick actions
-2. Low stock alerts
-3. Expiring lots warnings
-4. Sales history and margin reports
-5. Mobile UX polish
-
-### Phase 2: Full Financial Tracking (Spreadsheet Replacement) 🔄 IN PROGRESS
-
-Goal: Replace the "Savvy Finances" Excel spreadsheet with complete financial tracking.
-
-#### Phase 2A: Backend Infrastructure ✅ COMPLETE
-1. ✅ Schema updates (postage, channel, fee breakdown, bespoke lines, expenses)
-2. ✅ Database migration
-3. ✅ Expenses API (`/api/expenses`) - full CRUD + summary
-4. ✅ Sales API updates (postage, channel, bespoke items)
-5. ✅ EtsyFeeConfig granular rates (6 fee types)
-6. ✅ Frontend API client types
-
-#### Phase 2B: Frontend Updates ❌ NOT STARTED
-1. Expenses page - manage business expenses
-2. Sales page updates - postage/channel/bespoke UI
-3. Financial dashboard - true profit visibility
-
-#### Phase 2C: Historical Import ❌ NOT STARTED
-1. XML spreadsheet parser
-2. Import sales as historical records
-3. Import costs as business expenses
-
-#### New Database Models (Added in Phase 2A)
-
-**Sale** - Extended fields:
-- `saleChannel` - "etsy" | "direct" | "fair"
-- `postageCharged` - What customer pays
-- `postageCost` - What we pay Royal Mail
-- `isHistorical` - True for imported data
-- Fee breakdown: `transactionFee`, `postageTransactionFee`, `regulatoryFee`, `processingFee`, `vatOnProcessingFee`, `listingFee`
-
-**SaleLine** - Extended fields:
-- `hamperId` now optional (for bespoke items)
-- `description` - For bespoke item names
-
-**BusinessExpense** - New model:
-- `category` - ADVERTISING | LISTING_FEE | POSTAGE | PACKAGING | OTHER
-- `supplier`, `description`, `amountIncVat`, `amountExcVat`
-
-**EtsyFeeConfig** - Updated structure:
-- `transactionFee` (6.5%)
-- `regulatoryFee` (0.32%)
-- `paymentFeePercent` (4%)
-- `paymentFeeFixed` (£0.20)
-- `vatRate` (20%)
-- `listingFee` (£0.15)
-
-#### New API Endpoints
-
-**Expenses:**
-- `GET /api/expenses` - List with filters (category, date range)
-- `GET /api/expenses/summary` - Totals by category and month
-- `POST /api/expenses` - Create expense
-- `PUT /api/expenses/:id` - Update
-- `DELETE /api/expenses/:id` - Soft delete
-
-**Sales (Updated):**
-- `POST /api/sales` - Now accepts: `postageCharged`, `postageCost`, `saleChannel`, bespoke lines
-- `POST /api/sales/preview` - Updated with fee estimates by channel
-- `GET /api/sales/analytics/margins` - Now includes postage profit and channel breakdown
-
-### Phase 3 (Future): Etsy Integration
-- OAuth with Etsy API
-- Pull orders automatically
-- Push stock levels back
-- Sync pricing
-
-## Decisions Made
-
-- **Deployment**: Vercel + Neon (free tier, serverless) - generous free tiers, no AWS complexity
-- **Auth**: Magic link via Supabase Auth - no password to remember
-- **Data Import**: User will share Google Sheets for import assessment
-- **Etsy Fees**: Calculated with 6 granular fee types matching actual Etsy fee structure
-- **Historical Import**: Imported as read-only reference data with `isHistorical` flag
-- **Expense Categories**: Fixed enum (ADVERTISING, LISTING_FEE, POSTAGE, PACKAGING, OTHER)
-- **Bespoke Sales**: Allow sales without pre-defined hampers for custom/in-person orders
+- Client: React 19 + Vite + TypeScript + TailwindCSS
+- Server: Node.js + Express + TypeScript (`tsx` for dev)
+- Database: PostgreSQL + Prisma
+- Auth: Supabase Auth (client) + bearer token validation on the API
+- Tests: Vitest workspace (client `jsdom`, server `node`)
+- Ops: GitHub Actions daily DB backups + rclone upload to Google Drive
+
+## Repo Layout
+- `src/`: React app (pages, components, API client)
+- `server/`: Express API (routes + domain libraries)
+- `prisma/`: Prisma schema + migrations
+- `scripts/`: one-off scripts (historical import, DB backups)
+- `docs/`: project documentation
+
+## Source Of Truth
+- Data model: `prisma/schema.prisma`
+- Backend routes: `server/routes/`
+- Etsy sync logic: `server/lib/etsy/` and `server/lib/etsy/sync/`
+- Frontend pages: `src/pages/`
+
+## Core Data Model (High Level)
+Refer to `prisma/schema.prisma` for the authoritative schema. Key models:
+- Inventory: `ComponentCategory`, `Product`, `ProductBarcode` (many barcodes per product), `ProductCost`, `InventoryLot`
+- Hampers: `Hamper`, `HamperRequirement`, `HamperVariant`, `HamperVariantMapping`
+- Sales: `Sale`, `SaleLine` (supports bespoke items and variants), `SaleConsumption`
+- Finance: `BusinessExpense`, `EtsyFeeConfig`, `PackagingOverhead`
+- Etsy: `EtsyCredentials` (access/refresh tokens + shop/user metadata)
+
+## Major Features (Implemented)
+
+### Inventory
+- Category and product CRUD with unit-aware stock display (units vs continuous units like grams/metres/ml).
+- Lot-based inventory with cost snapshots and cost history (`ProductCost`).
+- Alerts: low stock and expiring lots (low stock threshold is per-product; `0` disables alerts).
+- Low stock shopping list: copy low stock alerts to clipboard for quick restocking.
+- Multi-barcode scanning: multiple barcodes can map to one product; scanner supports linking newly scanned codes to existing products.
+
+### Hampers And Variants
+- Hampers have category requirements (optional requirements supported).
+- Variants map category requirements to specific products (`HamperVariantMapping`) to mirror Etsy-like variant behaviour.
+- Variant availability ("can make") uses mapped product stock where present, falling back to category-wide aggregation otherwise.
+
+### Sales And Finance
+- Sale preview with stock allocation + manual lot override, then confirm to consume stock.
+- Sale channels: `etsy`, `direct`, `fair`, plus postage charged/cost tracking.
+- Fee breakdown matches Etsy structure (6 fee fields) + packaging overhead costs.
+- Bespoke sale lines supported (no hamper required).
+- Expenses CRUD + summary reporting; settings UI for Etsy fees and packaging overhead.
+- Reusable search + date filter component shared across Sales and Expenses pages.
+- Historical import (`scripts/import-historical.ts`) with `--dry-run`.
+
+### Etsy Integration
+- Two modes:
+  - Mock mode: `ETSY_MODE=mock` for local/testing without Etsy API keys.
+  - Real mode: OAuth + token refresh, storing credentials in `EtsyCredentials`.
+- Listing import: active Etsy listings can be imported as local hampers/variants.
+- Reconciliation: report mismatches between Etsy and local state (missing imports, orphaned records, SKU issues, quantity differences).
+- Sync:
+  - Inventory quantity sync (computed "can make" -> Etsy listing inventory)
+  - SKU sync (generate + push)
+  - Price sync (push local price to Etsy for non-variant and variant listings)
+- Orders:
+  - Fetch pending Etsy receipts not yet imported as sales
+  - Import selected orders as sales with stock validation (fails if requirements cannot be met)
+- Sync UX:
+  - Pending orders sync lives on the Sales page.
+  - Inventory/SKU/price sync lives on the Hampers page.
+  - All sync sections use the same pattern: `Show only differences` + `Select All Diff` + `Sync Selected`.
+
+#### Etsy Safety And Debugging
+- Dry run: request flag or `ETSY_DRY_RUN=true`
+- Throttling: `ETSY_THROTTLE_DELAY_MS`, `ETSY_MAX_UPDATES_PER_MIN`
+- Debug logs: `ETSY_DEBUG_LOG=true` writes request/response logs under `logs/etsy/` (dev/test only)
+
+## API (High Level)
+Routes live in `server/routes/`. All endpoints require auth via `server/middleware/requireAuth.ts` except the Etsy OAuth callback.
+- Core: `/api/categories`, `/api/products`, `/api/inventory`, `/api/hampers`, `/api/sales`, `/api/expenses`, `/api/settings`
+- Etsy: `/api/etsy/*` (status/auth/callback/disconnect/listings/import)
+- Etsy sync: `/api/etsy/sync/*` (comparison/push/reconciliation, skus, prices, orders)
+
+## Configuration
+- Database:
+  - `DATABASE_URL`
+- Supabase:
+  - Client: `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`
+  - Server: `SUPABASE_URL`/`SUPABASE_ANON_KEY` (or re-use the VITE_ vars)
+- Dev auth bypass (non-production only): `VITE_DEV_BYPASS_AUTH=true` or `DEV_BYPASS_AUTH=true`
+- Etsy:
+  - `ETSY_MODE=mock` (optional)
+  - Real mode: `ETSY_API_KEY`, `ETSY_REDIRECT_URI`
+  - Safety: `ETSY_DRY_RUN`, `ETSY_THROTTLE_DELAY_MS`, `ETSY_MAX_UPDATES_PER_MIN`
+  - Debug: `ETSY_DEBUG_LOG`
+
+## Testing
+- Workspace tests: `npm run test:run` (34 files / 480 tests)
+- Client only: `npm run test:client:run`
+- Server only: `npm run test:server:run`
+
+## Ops / Backups
+- Backup script: `npm run db:backup` generates `backups/backup_YYYY-MM-DD.json.gz`
+- GitHub Action: `.github/workflows/backup-database.yml` runs daily and uploads backups to Google Drive (rclone) and as GitHub artifacts.
+
+## Planned Improvements / Backlog
+- Implement Etsy listing inventory caching: `docs/ETSY_INVENTORY_CACHING_PLAN.md`
+- Consider persisting PKCE verifier/state for multi-instance deployments
+- Extend the shared sync-table pattern to any future sync tools/pages

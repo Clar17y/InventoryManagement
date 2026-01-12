@@ -21,34 +21,57 @@ export const MISSING_SKU_INVENTORY: EtsyInventory = {
     {
       product_id: 10005,
       sku: 'GB-RED',
+      is_deleted: false,
       offerings: [
         {
           offering_id: 100005,
           quantity: 4,
           price: { amount: 3500, divisor: 100, currency_code: 'GBP' },
           is_enabled: true,
+          is_deleted: false,
+          readiness_state_id: 1452994454691,
         },
       ],
       property_values: [
-        { property_id: 201, property_name: 'Color', values: ['Red'] },
+        {
+          property_id: 201,
+          property_name: 'Color',
+          scale_id: null,
+          scale_name: null,
+          value_ids: [55181013885],
+          values: ['Red'],
+        },
       ],
     },
     {
       product_id: 10006,
       sku: '', // Missing SKU!
+      is_deleted: false,
       offerings: [
         {
           offering_id: 100006,
           quantity: 4,
           price: { amount: 3500, divisor: 100, currency_code: 'GBP' },
           is_enabled: true,
+          is_deleted: false,
+          readiness_state_id: 1452994454691,
         },
       ],
       property_values: [
-        { property_id: 201, property_name: 'Color', values: ['Blue'] },
+        {
+          property_id: 201,
+          property_name: 'Color',
+          scale_id: null,
+          scale_name: null,
+          value_ids: [55181013993],
+          values: ['Blue'],
+        },
       ],
     },
   ],
+  price_on_property: [],
+  quantity_on_property: [],
+  sku_on_property: [],
 };
 
 // =============================================================================
@@ -72,34 +95,57 @@ export const DUPLICATE_SKU_INVENTORY: EtsyInventory = {
     {
       product_id: 10007,
       sku: 'DUPE-SKU-001',
+      is_deleted: false,
       offerings: [
         {
           offering_id: 100007,
           quantity: 3,
           price: { amount: 4000, divisor: 100, currency_code: 'GBP' },
           is_enabled: true,
+          is_deleted: false,
+          readiness_state_id: 1452994454691,
         },
       ],
       property_values: [
-        { property_id: 202, property_name: 'Size', values: ['Small'] },
+        {
+          property_id: 202,
+          property_name: 'Size',
+          scale_id: null,
+          scale_name: null,
+          value_ids: [55998730757],
+          values: ['Small'],
+        },
       ],
     },
     {
       product_id: 10008,
       sku: 'DUPE-SKU-001', // Duplicate!
+      is_deleted: false,
       offerings: [
         {
           offering_id: 100008,
           quantity: 2,
           price: { amount: 4500, divisor: 100, currency_code: 'GBP' },
           is_enabled: true,
+          is_deleted: false,
+          readiness_state_id: 1452994454691,
         },
       ],
       property_values: [
-        { property_id: 202, property_name: 'Size', values: ['Large'] },
+        {
+          property_id: 202,
+          property_name: 'Size',
+          scale_id: null,
+          scale_name: null,
+          value_ids: [55998730799],
+          values: ['Large'],
+        },
       ],
     },
   ],
+  price_on_property: [],
+  quantity_on_property: [],
+  sku_on_property: [],
 };
 
 // =============================================================================
@@ -123,17 +169,23 @@ export const ZERO_QTY_INVENTORY: EtsyInventory = {
     {
       product_id: 10009,
       sku: 'OOS-001',
+      is_deleted: false,
       offerings: [
         {
           offering_id: 100009,
           quantity: 0,
           price: { amount: 5000, divisor: 100, currency_code: 'GBP' },
           is_enabled: true,
+          is_deleted: false,
+          readiness_state_id: 1452994454691,
         },
       ],
       property_values: [],
     },
   ],
+  price_on_property: [],
+  quantity_on_property: [],
+  sku_on_property: [],
 };
 
 // =============================================================================
@@ -157,17 +209,23 @@ export const DRAFT_INVENTORY: EtsyInventory = {
     {
       product_id: 10010,
       sku: 'SUMMER-001',
+      is_deleted: false,
       offerings: [
         {
           offering_id: 100010,
           quantity: 10,
           price: { amount: 5500, divisor: 100, currency_code: 'GBP' },
           is_enabled: true,
+          is_deleted: false,
+          readiness_state_id: 1452994454691,
         },
       ],
       property_values: [],
     },
   ],
+  price_on_property: [],
+  quantity_on_property: [],
+  sku_on_property: [],
 };
 
 // =============================================================================
@@ -191,15 +249,21 @@ export const SKU_MISMATCH_INVENTORY: EtsyInventory = {
     {
       product_id: 10011,
       sku: 'NEW-SKU-2024', // Changed from 'OLD-SKU-2023' which local might have
+      is_deleted: false,
       offerings: [
         {
           offering_id: 100011,
           quantity: 6,
           price: { amount: 4200, divisor: 100, currency_code: 'GBP' },
           is_enabled: true,
+          is_deleted: false,
+          readiness_state_id: 1452994454691,
         },
       ],
       property_values: [],
     },
   ],
+  price_on_property: [],
+  quantity_on_property: [],
+  sku_on_property: [],
 };

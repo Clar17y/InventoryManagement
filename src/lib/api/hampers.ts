@@ -25,6 +25,7 @@ export interface HamperVariantAvailability {
   variantId: string
   name: string
   etsySku: string | null
+  sellingPrice?: number | null
   canMake: number
   mappings?: HamperVariantMapping[]
 }
@@ -33,6 +34,7 @@ export interface HamperVariant {
   id: string
   hamperId: string
   name: string
+  sellingPrice?: number | null
   etsySku: string | null
   isActive: boolean
   createdAt: string
@@ -75,6 +77,7 @@ export interface HamperCreateData {
 
 export interface HamperVariantCreateData {
   name: string
+  sellingPrice?: number | null
   etsySku?: string
   mappings: { categoryId: string; productId: string }[]
 }

@@ -8,6 +8,7 @@ This folder contains project documentation for the Savvy Hampers Inventory Syste
 |----------|---------|
 | [IMPLEMENTATION_PLAN.md](./IMPLEMENTATION_PLAN.md) | Full technical specification and design |
 | [PROGRESS.md](./PROGRESS.md) | **Multi-agent tracking** - Update this when working! |
+| [ETSY_INVENTORY_CACHING_PLAN.md](./ETSY_INVENTORY_CACHING_PLAN.md) | Planned server-side caching for Etsy listing inventory |
 
 ## Multi-Agent Workflow
 

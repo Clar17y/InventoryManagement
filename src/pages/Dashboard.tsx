@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { Link } from 'react-router-dom'
+import { ArrowDownTrayIcon, PlusIcon, ShoppingBagIcon, TagIcon } from '@heroicons/react/24/outline'
 import { settings, inventory, type Product, type InventoryLot } from '../lib/api'
 import { formatCurrency } from '../lib/formatting'
 import AlertCard from '../components/ui/AlertCard'
@@ -30,7 +31,7 @@ export default function Dashboard() {
   const copyShoppingList = async () => {
     if (lowStockProducts.length === 0) return
 
-    const lines = lowStockProducts.map(p => `☐ ${p.name} (${p.totalStock ?? 0} left)`)
+    const lines = lowStockProducts.map(p => `[ ] ${p.name} (${p.totalStock ?? 0} left)`)
     const text = `Shopping List:\n${lines.join('\n')}`
 
     try {
@@ -91,28 +92,28 @@ export default function Dashboard() {
             to="/inventory"
             className="card flex flex-col items-center justify-center py-6 hover:border-indigo-300 hover:shadow-md transition-all"
           >
-            <span className="text-3xl mb-2">📦</span>
+            <ArrowDownTrayIcon className="h-10 w-10 mb-2 text-gray-500" aria-hidden="true" />
             <span className="font-medium">Add Stock</span>
           </Link>
           <Link
             to="/sales"
             className="card flex flex-col items-center justify-center py-6 hover:border-indigo-300 hover:shadow-md transition-all"
           >
-            <span className="text-3xl mb-2">💰</span>
+            <PlusIcon className="h-10 w-10 mb-2 text-gray-500" aria-hidden="true" />
             <span className="font-medium">Record Sale</span>
           </Link>
           <Link
             to="/hampers"
             className="card flex flex-col items-center justify-center py-6 hover:border-indigo-300 hover:shadow-md transition-all"
           >
-            <span className="text-3xl mb-2">🎁</span>
+            <ShoppingBagIcon className="h-10 w-10 mb-2 text-gray-500" aria-hidden="true" />
             <span className="font-medium">View Hampers</span>
           </Link>
           <Link
             to="/products"
             className="card flex flex-col items-center justify-center py-6 hover:border-indigo-300 hover:shadow-md transition-all"
           >
-            <span className="text-3xl mb-2">📊</span>
+            <TagIcon className="h-10 w-10 mb-2 text-gray-500" aria-hidden="true" />
             <span className="font-medium">Products</span>
           </Link>
         </div>

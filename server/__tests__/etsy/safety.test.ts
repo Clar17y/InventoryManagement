@@ -16,6 +16,7 @@ describe('computeDiff', () => {
     const updates = [
       {
         sku: 'LBH-BLUE-001',
+        property_values: [],
         offerings: [{ quantity: 10, price: 45, is_enabled: true }],
       },
     ];
@@ -35,6 +36,7 @@ describe('computeDiff', () => {
     const updates = [
       {
         sku: 'LBH-BLUE-001',
+        property_values: [],
         offerings: [{ quantity: 5, price: 45, is_enabled: true }],
       },
     ];
@@ -47,9 +49,9 @@ describe('computeDiff', () => {
 
   it('handles multiple product updates', () => {
     const updates = [
-      { sku: 'LPH-GS', offerings: [{ quantity: 10, price: 65, is_enabled: true }] },
-      { sku: 'LPH-FL', offerings: [{ quantity: 8, price: 65, is_enabled: true }] },
-      { sku: 'LPH-BEE', offerings: [{ quantity: 3, price: 65, is_enabled: true }] }, // No change
+      { sku: 'LPH-GS', property_values: [], offerings: [{ quantity: 10, price: 65, is_enabled: true }] },
+      { sku: 'LPH-FL', property_values: [], offerings: [{ quantity: 8, price: 65, is_enabled: true }] },
+      { sku: 'LPH-BEE', property_values: [], offerings: [{ quantity: 3, price: 65, is_enabled: true }] }, // No change
     ];
 
     const result = computeDiff(MULTI_VARIANT_INVENTORY, updates);
@@ -63,6 +65,7 @@ describe('computeDiff', () => {
     const updates = [
       {
         sku: 'NON-EXISTENT',
+        property_values: [],
         offerings: [{ quantity: 10, price: 45, is_enabled: true }],
       },
     ];
@@ -79,6 +82,7 @@ describe('shouldSkipUpdate', () => {
     const updates = [
       {
         sku: 'LBH-BLUE-001',
+        property_values: [],
         offerings: [{ quantity: 5, price: 45, is_enabled: true }],
       },
     ];
@@ -90,6 +94,7 @@ describe('shouldSkipUpdate', () => {
     const updates = [
       {
         sku: 'LBH-BLUE-001',
+        property_values: [],
         offerings: [{ quantity: 10, price: 45, is_enabled: true }],
       },
     ];
@@ -209,9 +214,9 @@ describe('ThrottleManager', () => {
 describe('groupUpdatesByListing', () => {
   it('groups updates by listing ID', () => {
     const updates = [
-      { etsyListingId: '1001', etsySku: 'SKU-A', quantity: 5 },
-      { etsyListingId: '1001', etsySku: 'SKU-B', quantity: 3 },
-      { etsyListingId: '1002', etsySku: 'SKU-C', quantity: 10 },
+      { etsyListingId: '1001', etsySku: 'SKU-A', etsyProductId: null, quantity: 5 },
+      { etsyListingId: '1001', etsySku: 'SKU-B', etsyProductId: null, quantity: 3 },
+      { etsyListingId: '1002', etsySku: 'SKU-C', etsyProductId: null, quantity: 10 },
     ];
 
     const grouped = groupUpdatesByListing(updates);
@@ -229,7 +234,7 @@ describe('groupUpdatesByListing', () => {
 
 describe('buildInventoryUpdateProducts', () => {
   it('builds update products preserving original prices', () => {
-    const updates = [{ etsySku: 'LBH-BLUE-001', quantity: 10 }];
+    const updates = [{ etsySku: 'LBH-BLUE-001', etsyProductId: null, quantity: 10 }];
 
     const products = buildInventoryUpdateProducts(SINGLE_VARIANT_INVENTORY, updates);
 
@@ -240,7 +245,7 @@ describe('buildInventoryUpdateProducts', () => {
   });
 
   it('handles null SKU (default variant)', () => {
-    const updates = [{ etsySku: null, quantity: 15 }];
+    const updates = [{ etsySku: null, etsyProductId: null, quantity: 15 }];
 
     const products = buildInventoryUpdateProducts(SINGLE_VARIANT_INVENTORY, updates);
 
@@ -248,7 +253,7 @@ describe('buildInventoryUpdateProducts', () => {
   });
 
   it('rejects null SKU for multi-variant listings', () => {
-    const updates = [{ etsySku: null, quantity: 15 }];
+    const updates = [{ etsySku: null, etsyProductId: null, quantity: 15 }];
 
     expect(() =>
       buildInventoryUpdateProducts(MULTI_VARIANT_INVENTORY, updates)
@@ -256,7 +261,7 @@ describe('buildInventoryUpdateProducts', () => {
   });
 
   it('preserves products without updates', () => {
-    const updates = [{ etsySku: 'LPH-GS', quantity: 20 }];
+    const updates = [{ etsySku: 'LPH-GS', etsyProductId: null, quantity: 20 }];
 
     const products = buildInventoryUpdateProducts(MULTI_VARIANT_INVENTORY, updates);
 

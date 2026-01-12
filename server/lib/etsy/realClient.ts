@@ -11,6 +11,12 @@ import {
   EtsyCredentialsRecord,
   EtsyAuthFunctions,
 } from './types';
+import {
+  logApiRequest,
+  logApiResponse,
+  logApiError,
+  logDebug,
+} from './debugLogger';
 
 const ETSY_API_BASE = 'https://api.etsy.com/v3';
 
@@ -44,6 +50,9 @@ export class RealEtsyClient implements IEtsyClient {
     credentialsId: string,
     refreshToken: string
   ): Promise<EtsyCredentialsRecord> {
+    logDebug('AUTH', 'Refreshing tokens', { credentialsId });
+    const startTime = Date.now();
+
     const response = await fetch('https://api.etsy.com/v3/public/oauth/token', {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
@@ -54,7 +63,11 @@ export class RealEtsyClient implements IEtsyClient {
       }),
     });
 
+    const durationMs = Date.now() - startTime;
+
     if (!response.ok) {
+      const errorText = await response.text();
+      logApiError('POST', '/public/oauth/token (refresh)', response.status, errorText, durationMs);
       await prisma.etsyCredentials.delete({ where: { id: credentialsId } });
       throw new EtsyApiError(
         response.status,
@@ -63,6 +76,10 @@ export class RealEtsyClient implements IEtsyClient {
     }
 
     const data = await response.json();
+    logApiResponse('POST', '/public/oauth/token (refresh)', response.status, {
+      expires_in: data.expires_in,
+      token_type: data.token_type,
+    }, durationMs);
 
     const updated = await prisma.etsyCredentials.update({
       where: { id: credentialsId },
@@ -85,6 +102,12 @@ export class RealEtsyClient implements IEtsyClient {
       throw new EtsyApiError(401, 'Not connected to Etsy');
     }
 
+    const method = options.method || 'GET';
+    const startTime = Date.now();
+
+    // Log the request
+    logApiRequest(method, endpoint, options.body ? JSON.parse(options.body as string) : undefined);
+
     const response = await fetch(`${ETSY_API_BASE}${endpoint}`, {
       ...options,
       headers: {
@@ -95,6 +118,8 @@ export class RealEtsyClient implements IEtsyClient {
       },
     });
 
+    const durationMs = Date.now() - startTime;
+
     if (!response.ok) {
       const errorText = await response.text();
       let details: unknown;
@@ -103,6 +128,12 @@ export class RealEtsyClient implements IEtsyClient {
       } catch {
         details = errorText;
       }
+
+      // Log the error
+      logApiError(method, endpoint, response.status, {
+        errorText,
+        details,
+      }, durationMs);
 
       const retryAfter =
         response.status === 429
@@ -117,7 +148,12 @@ export class RealEtsyClient implements IEtsyClient {
       );
     }
 
-    return response.json();
+    const data = await response.json();
+
+    // Log successful response
+    logApiResponse(method, endpoint, response.status, data, durationMs);
+
+    return data;
   }
 
   async getShop(): Promise<EtsyShop> {
@@ -146,11 +182,12 @@ export class RealEtsyClient implements IEtsyClient {
       throw new EtsyApiError(401, 'Not connected to Etsy');
     }
 
+    // Use all listings endpoint - /listings/active doesn't work reliably for test shops
     const response = await this.request<{
       results: EtsyListing[];
       count: number;
     }>(
-      `/application/shops/${credentials.shopId}/listings/active?limit=${limit}&offset=${offset}`
+      `/application/shops/${credentials.shopId}/listings?limit=${limit}&offset=${offset}&state=active`
     );
 
     return { listings: response.results || [], count: response.count };
@@ -165,13 +202,37 @@ export class RealEtsyClient implements IEtsyClient {
 
   async updateListingInventory(
     listingId: number,
-    products: EtsyInventoryUpdateProduct[]
+    products: EtsyInventoryUpdateProduct[],
+    currentInventory?: EtsyInventory,
+    options?: { skuOnProperty?: number[] }
   ): Promise<EtsyInventory> {
+    // Determine sku_on_property: if products have different SKUs, we need to specify which property
+    let skuOnProperty = currentInventory?.sku_on_property ?? [];
+
+    // If explicitly provided, use that
+    if (options?.skuOnProperty !== undefined) {
+      skuOnProperty = options.skuOnProperty;
+    } else if (products.length > 1) {
+      // Check if products have different SKUs
+      const uniqueSkus = new Set(products.map(p => p.sku).filter(Boolean));
+      if (uniqueSkus.size > 1 && skuOnProperty.length === 0) {
+        // SKUs differ but sku_on_property is empty - use same properties as quantity/price
+        skuOnProperty = currentInventory?.quantity_on_property ?? currentInventory?.price_on_property ?? [];
+      }
+    }
+
+    const requestBody = {
+      products,
+      // Preserve the *_on_property settings from current inventory
+      price_on_property: currentInventory?.price_on_property ?? [],
+      quantity_on_property: currentInventory?.quantity_on_property ?? [],
+      sku_on_property: skuOnProperty,
+    };
     const response = await this.request<EtsyInventory>(
       `/application/listings/${listingId}/inventory`,
       {
         method: 'PUT',
-        body: JSON.stringify({ products }),
+        body: JSON.stringify(requestBody),
       }
     );
     return response;

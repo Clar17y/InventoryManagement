@@ -7,9 +7,10 @@ import {
     ArrowDownTrayIcon,
     ArrowUpTrayIcon,
     LinkIcon,
-    ShoppingBagIcon,
+    TagIcon,
+    CurrencyDollarIcon,
 } from '@heroicons/react/24/outline'
-import { etsy, EtsyStatus, EtsySyncComparison, EtsyImportResult, EtsyPendingOrder } from '../lib/api'
+import { etsy, EtsyStatus, EtsySyncComparison, EtsyImportResult, EtsyPendingSku, EtsyPendingPriceUpdate } from '../lib/api'
 import { formatCurrency } from '../lib/formatting'
 
 interface EtsySyncPanelProps {
@@ -28,10 +29,23 @@ export default function EtsySyncPanel({ isOpen, onClose, onImportComplete }: Ets
     const [error, setError] = useState<string | null>(null)
     const [importResult, setImportResult] = useState<EtsyImportResult | null>(null)
     const [showOnlyDiff, setShowOnlyDiff] = useState(true)
-    const [activeTab, setActiveTab] = useState<'inventory' | 'orders'>('inventory')
-    const [pendingOrders, setPendingOrders] = useState<EtsyPendingOrder[]>([])
-    const [orderPostageCosts, setOrderPostageCosts] = useState<Record<number, string>>({})
-    const [importingOrderId, setImportingOrderId] = useState<number | null>(null)
+    const [showOnlySkuDiff, setShowOnlySkuDiff] = useState(true)
+    const [showOnlyPriceDiff, setShowOnlyPriceDiff] = useState(true)
+    const [activeTab, setActiveTab] = useState<'inventory' | 'skus' | 'prices'>('inventory')
+
+    // SKU Sync State
+    const [pendingSkus, setPendingSkus] = useState<EtsyPendingSku[]>([])
+    const [selectedSkuItems, setSelectedSkuItems] = useState<Set<string>>(new Set())
+    const [pushingSkus, setPushingSkus] = useState(false)
+    const [generatingSkus, setGeneratingSkus] = useState(false)
+    const [skuPushResult, setSkuPushResult] = useState<{ updated: number; errors: number } | null>(null)
+    const [skuGenerateResult, setSkuGenerateResult] = useState<{ generated: number } | null>(null)
+
+    // Price Sync State
+    const [pendingPrices, setPendingPrices] = useState<EtsyPendingPriceUpdate[]>([])
+    const [selectedPriceItems, setSelectedPriceItems] = useState<Set<string>>(new Set())
+    const [pushingPrices, setPushingPrices] = useState(false)
+    const [pricePushResult, setPricePushResult] = useState<{ updated: number; errors: number } | null>(null)
 
     const loadStatus = async () => {
         try {
@@ -59,19 +73,156 @@ export default function EtsySyncPanel({ isOpen, onClose, onImportComplete }: Ets
         }
     }
 
-    const loadPendingOrders = async () => {
+    const loadPendingSkus = async () => {
         try {
-            const data = await etsy.getPendingOrders()
-            setPendingOrders(data.orders)
-            // Initialize postage cost fields
-            const costs: Record<number, string> = {}
-            data.orders.forEach(o => {
-                costs[o.receiptId] = o.shippingCost.toFixed(2)
-            })
-            setOrderPostageCosts(costs)
+            const data = await etsy.getPendingSkus()
+            setPendingSkus(data.skus)
         } catch (err) {
-            console.warn('Failed to load pending orders:', err)
-            setPendingOrders([])
+            console.warn('Failed to load pending SKUs:', err)
+            setPendingSkus([])
+        }
+    }
+
+    const loadPendingPrices = async () => {
+        try {
+            const data = await etsy.getPendingPriceUpdates()
+            setPendingPrices(data.updates)
+        } catch (err) {
+            console.warn('Failed to load pending prices:', err)
+            setPendingPrices([])
+        }
+    }
+
+    const handleGenerateSkus = async () => {
+        if (!confirm('Generate SKUs for all variants without one? This will create SKUs like "PTSH-9096-BRN" based on hamper and variant names.')) {
+            return
+        }
+
+        setGeneratingSkus(true)
+        setError(null)
+        setSkuGenerateResult(null)
+
+        try {
+            const result = await etsy.generateSkus()
+            setSkuGenerateResult({ generated: result.generated })
+            if (result.generated > 0) {
+                await loadPendingSkus() // Refresh the list
+            }
+        } catch (err) {
+            setError(err instanceof Error ? err.message : 'Failed to generate SKUs')
+        } finally {
+            setGeneratingSkus(false)
+        }
+    }
+
+    const handlePushSkus = async () => {
+        if (selectedSkuItems.size === 0) return
+
+        const skusToPush = pendingSkus.filter(s => s.needsSync && selectedSkuItems.has(s.variantId))
+        if (skusToPush.length === 0) return
+
+        // Extract unique listing IDs from selected SKUs
+        const listingIds = [...new Set(skusToPush.map(s => s.etsyListingId))]
+
+        if (!confirm(`Push ${skusToPush.length} SKU(s) to Etsy? This will update SKUs on your Etsy listings.`)) {
+            return
+        }
+
+        setPushingSkus(true)
+        setError(null)
+        setSkuPushResult(null)
+
+        try {
+            const result = await etsy.pushSkus(listingIds)
+            setSkuPushResult({ updated: result.totalUpdated, errors: result.errors })
+            if (result.success) {
+                setSelectedSkuItems(new Set())
+                await loadPendingSkus() // Refresh the list
+            } else {
+                setError(`Some SKUs failed to sync: ${result.errors} error(s)`)
+            }
+        } catch (err) {
+            setError(err instanceof Error ? err.message : 'Failed to push SKUs')
+        } finally {
+            setPushingSkus(false)
+        }
+    }
+
+    const toggleSkuItem = (variantId: string) => {
+        const newSelected = new Set(selectedSkuItems)
+        if (newSelected.has(variantId)) {
+            newSelected.delete(variantId)
+        } else {
+            newSelected.add(variantId)
+        }
+        setSelectedSkuItems(newSelected)
+    }
+
+    const selectAllSkuDiff = () => {
+        const newSelected = new Set<string>()
+        for (const sku of pendingSkus) {
+            if (sku.needsSync) {
+                newSelected.add(sku.variantId)
+            }
+        }
+        setSelectedSkuItems(newSelected)
+    }
+
+    const togglePriceItem = (variantId: string) => {
+        const newSelected = new Set(selectedPriceItems)
+        if (newSelected.has(variantId)) {
+            newSelected.delete(variantId)
+        } else {
+            newSelected.add(variantId)
+        }
+        setSelectedPriceItems(newSelected)
+    }
+
+    const selectAllPriceDiff = () => {
+        const newSelected = new Set<string>()
+        for (const item of pendingPrices) {
+            if (item.needsSync) {
+                newSelected.add(item.variantId)
+            }
+        }
+        setSelectedPriceItems(newSelected)
+    }
+
+    const handleSyncPrices = async () => {
+        if (selectedPriceItems.size === 0) return
+
+        const pricesToPush = pendingPrices
+            .filter(p => p.needsSync && selectedPriceItems.has(p.variantId) && p.localPrice !== null)
+            .map(p => ({
+                etsyListingId: p.etsyListingId,
+                etsySku: p.etsySku,
+                etsyProductId: p.etsyProductId,
+                price: p.localPrice!
+            }))
+
+        if (pricesToPush.length === 0) return
+
+        if (!confirm(`Update ${pricesToPush.length} variant price(s) on Etsy?`)) {
+            return
+        }
+
+        setPushingPrices(true)
+        setError(null)
+        setPricePushResult(null)
+
+        try {
+            const result = await etsy.pushPrices(pricesToPush)
+            setPricePushResult({ updated: result.updated, errors: result.errors })
+            if (result.success) {
+                setSelectedPriceItems(new Set())
+                await loadPendingPrices() // Refresh the list
+            } else {
+                setError(`Some prices failed to sync: ${result.errors} error(s)`)
+            }
+        } catch (err) {
+            setError(err instanceof Error ? err.message : 'Failed to push prices')
+        } finally {
+            setPushingPrices(false)
         }
     }
 
@@ -128,15 +279,16 @@ export default function EtsySyncPanel({ isOpen, onClose, onImportComplete }: Ets
     const handleSync = async () => {
         if (selectedItems.size === 0) return
 
-        const updates: Array<{ etsyListingId: string; etsySku: string | null; quantity: number }> = []
+        const updates: Array<{ etsyListingId: string; etsySku: string | null; etsyProductId: string | null; quantity: number }> = []
 
         for (const comparison of comparisons) {
             for (const variant of comparison.variants) {
-                const key = `${comparison.etsyListingId}-${variant.etsySku || 'default'}`
+                const key = `${comparison.etsyListingId}-${variant.etsySku || variant.etsyProductId || 'default'}`
                 if (selectedItems.has(key) && variant.needsSync) {
                     updates.push({
                         etsyListingId: comparison.etsyListingId,
                         etsySku: variant.etsySku ?? null,
+                        etsyProductId: variant.etsyProductId ?? null,
                         quantity: variant.inventoryQuantity,
                     })
                 }
@@ -164,8 +316,8 @@ export default function EtsySyncPanel({ isOpen, onClose, onImportComplete }: Ets
         }
     }
 
-    const toggleItem = (listingId: string, sku: string | null) => {
-        const key = `${listingId}-${sku || 'default'}`
+    const toggleItem = (listingId: string, productId: string | null, sku: string | null) => {
+        const key = `${listingId}-${sku || productId || 'default'}`
         const newSelected = new Set(selectedItems)
         if (newSelected.has(key)) {
             newSelected.delete(key)
@@ -180,34 +332,11 @@ export default function EtsySyncPanel({ isOpen, onClose, onImportComplete }: Ets
         for (const comparison of comparisons) {
             for (const variant of comparison.variants) {
                 if (variant.needsSync) {
-                    newSelected.add(`${comparison.etsyListingId}-${variant.etsySku || 'default'}`)
+                    newSelected.add(`${comparison.etsyListingId}-${variant.etsySku || variant.etsyProductId || 'default'}`)
                 }
             }
         }
         setSelectedItems(newSelected)
-    }
-
-    const handleImportOrder = async (receiptId: number) => {
-        const postageCostStr = orderPostageCosts[receiptId]
-        const postageCost = parseFloat(postageCostStr || '0')
-
-        if (isNaN(postageCost) || postageCost < 0) {
-            setError('Please enter a valid postage cost')
-            return
-        }
-
-        setImportingOrderId(receiptId)
-        setError(null)
-
-        try {
-            await etsy.importOrder({ receiptId, postageCost })
-            // Remove from pending list
-            setPendingOrders(prev => prev.filter(o => o.receiptId !== receiptId))
-        } catch (err) {
-            setError(err instanceof Error ? err.message : 'Failed to import order')
-        } finally {
-            setImportingOrderId(null)
-        }
     }
 
     const filteredComparisons = showOnlyDiff
@@ -218,6 +347,12 @@ export default function EtsySyncPanel({ isOpen, onClose, onImportComplete }: Ets
         (sum, c) => sum + c.variants.filter(v => v.needsSync).length,
         0
     )
+
+    const skuNeedsSyncCount = pendingSkus.filter(s => s.needsSync).length
+    const filteredSkus = showOnlySkuDiff ? pendingSkus.filter(s => s.needsSync) : pendingSkus
+
+    const priceNeedsSyncCount = pendingPrices.filter(p => p.needsSync).length
+    const filteredPrices = showOnlyPriceDiff ? pendingPrices.filter(p => p.needsSync) : pendingPrices
 
     if (!isOpen) return null
 
@@ -340,14 +475,24 @@ export default function EtsySyncPanel({ isOpen, onClose, onImportComplete }: Ets
                                     Inventory Sync
                                 </button>
                                 <button
-                                    onClick={() => { setActiveTab('orders'); loadPendingOrders(); }}
-                                    className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px ${activeTab === 'orders'
+                                    onClick={() => { setActiveTab('skus'); loadPendingSkus(); }}
+                                    className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px ${activeTab === 'skus'
                                         ? 'border-primary-500 text-primary-600'
                                         : 'border-transparent text-gray-500 hover:text-gray-700'
                                         }`}
                                 >
-                                    <ShoppingBagIcon className="h-4 w-4 inline mr-1" />
-                                    Pending Orders {pendingOrders.length > 0 && `(${pendingOrders.length})`}
+                                    <TagIcon className="h-4 w-4 inline mr-1" />
+                                    SKU Sync
+                                </button>
+                                <button
+                                    onClick={() => { setActiveTab('prices'); loadPendingPrices(); }}
+                                    className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px ${activeTab === 'prices'
+                                        ? 'border-primary-500 text-primary-600'
+                                        : 'border-transparent text-gray-500 hover:text-gray-700'
+                                        }`}
+                                >
+                                    <CurrencyDollarIcon className="h-4 w-4 inline mr-1" />
+                                    Price Sync
                                 </button>
                             </div>
 
@@ -396,7 +541,7 @@ export default function EtsySyncPanel({ isOpen, onClose, onImportComplete }: Ets
                                             <tbody className="divide-y divide-gray-100">
                                                 {filteredComparisons.map((comparison) => (
                                                     comparison.variants.map((variant, idx) => {
-                                                        const key = `${comparison.etsyListingId}-${variant.etsySku || 'default'}`
+                                                        const key = `${comparison.etsyListingId}-${variant.etsySku || variant.etsyProductId || 'default'}`
                                                         const isSelected = selectedItems.has(key)
 
                                                         return (
@@ -409,7 +554,7 @@ export default function EtsySyncPanel({ isOpen, onClose, onImportComplete }: Ets
                                                                         <input
                                                                             type="checkbox"
                                                                             checked={isSelected}
-                                                                            onChange={() => toggleItem(comparison.etsyListingId, variant.etsySku)}
+                                                                            onChange={() => toggleItem(comparison.etsyListingId, variant.etsyProductId, variant.etsySku)}
                                                                             className="rounded border-gray-300"
                                                                         />
                                                                     ) : (
@@ -468,77 +613,252 @@ export default function EtsySyncPanel({ isOpen, onClose, onImportComplete }: Ets
                                 </div>
                             )}
 
-                            {/* Pending Orders Tab */}
-                            {activeTab === 'orders' && (
-                                <div className="space-y-3">
-                                    {pendingOrders.length === 0 ? (
+                            {/* SKU Sync Tab */}
+                            {activeTab === 'skus' && (
+                                <div className="space-y-4">
+                                    {/* SKU Generate Result */}
+                                    {skuGenerateResult && (
+                                        <div className="p-3 rounded-lg text-sm bg-green-50 text-green-800">
+                                            <CheckCircleIcon className="h-5 w-5 inline mr-2" />
+                                            Generated {skuGenerateResult.generated} SKU(s)
+                                        </div>
+                                    )}
+
+                                    {/* SKU Push Result */}
+                                    {skuPushResult && (
+                                        <div className={`p-3 rounded-lg text-sm ${skuPushResult.errors > 0 ? 'bg-yellow-50 text-yellow-800' : 'bg-green-50 text-green-800'}`}>
+                                            <CheckCircleIcon className="h-5 w-5 inline mr-2" />
+                                            Updated {skuPushResult.updated} SKU(s) on Etsy
+                                            {skuPushResult.errors > 0 && ` (${skuPushResult.errors} error(s))`}
+                                        </div>
+                                    )}
+
+                                    {/* Actions */}
+                                    <div className="flex flex-wrap gap-2 items-center justify-between">
+                                        <button
+                                            onClick={handleGenerateSkus}
+                                            disabled={generatingSkus}
+                                            className="btn-secondary text-sm py-1 flex items-center gap-1"
+                                        >
+                                            <TagIcon className="h-4 w-4" />
+                                            {generatingSkus ? 'Generating...' : 'Generate Missing SKUs'}
+                                        </button>
+                                    </div>
+
+                                    {/* Filter and Sync */}
+                                    <div className="flex justify-between items-center">
+                                        <label className="flex items-center gap-2 text-sm">
+                                            <input
+                                                type="checkbox"
+                                                checked={showOnlySkuDiff}
+                                                onChange={(e) => setShowOnlySkuDiff(e.target.checked)}
+                                                className="rounded border-gray-300"
+                                            />
+                                            Show only differences ({skuNeedsSyncCount})
+                                        </label>
+                                        <div className="flex gap-2">
+                                            {skuNeedsSyncCount > 0 && (
+                                                <button onClick={selectAllSkuDiff} className="text-sm text-primary-600 hover:text-primary-700">
+                                                    Select All Diff
+                                                </button>
+                                            )}
+                                            <button
+                                                onClick={handlePushSkus}
+                                                disabled={pushingSkus || selectedSkuItems.size === 0}
+                                                className="btn-primary text-sm py-1 flex items-center gap-1"
+                                            >
+                                                <ArrowUpTrayIcon className="h-4 w-4" />
+                                                {pushingSkus ? 'Syncing...' : `Sync Selected (${selectedSkuItems.size})`}
+                                            </button>
+                                        </div>
+                                    </div>
+
+                                    {pendingSkus.length === 0 ? (
                                         <div className="text-center py-8 text-gray-500">
-                                            <ShoppingBagIcon className="h-12 w-12 mx-auto mb-2 text-gray-300" />
-                                            <p className="mb-1">No pending orders</p>
-                                            <p className="text-sm">New Etsy orders will appear here for import.</p>
+                                            <TagIcon className="h-12 w-12 mx-auto mb-2 text-gray-300" />
+                                            <p className="mb-1">No variant SKUs to display</p>
+                                            <p className="text-sm">Click "Generate Missing SKUs" to create SKUs for your variants.</p>
+                                        </div>
+                                    ) : filteredSkus.length === 0 ? (
+                                        <div className="text-center py-8 text-gray-500">
+                                            <TagIcon className="h-12 w-12 mx-auto mb-2 text-gray-300" />
+                                            <p className="mb-1">No SKU differences found</p>
+                                            <p className="text-sm">Your variant SKUs match Etsy.</p>
                                         </div>
                                     ) : (
-                                        pendingOrders.map(order => (
-                                            <div key={order.receiptId} className="border rounded-lg p-4 space-y-3">
-                                                <div className="flex justify-between items-start">
-                                                    <div>
-                                                        <div className="font-medium text-gray-900">
-                                                            Order #{order.receiptId}
-                                                        </div>
-                                                        <div className="text-xs text-gray-500">
-                                                            {order.buyerName} • {new Date(order.createdAt).toLocaleDateString()}
-                                                        </div>
-                                                    </div>
-                                                    <div className="text-right">
-                                                        <div className="font-medium">{formatCurrency(order.grandTotal)}</div>
-                                                        <div className="text-xs text-gray-500">
-                                                            {order.isShipped ? '✓ Shipped' : 'Not shipped'}
-                                                        </div>
-                                                    </div>
-                                                </div>
+                                        <div className="border rounded-lg overflow-hidden">
+                                            <table className="w-full text-sm">
+                                                <thead className="bg-gray-50">
+                                                    <tr>
+                                                        <th className="w-8 px-3 py-2"></th>
+                                                        <th className="text-left px-3 py-2">Hamper / Variant</th>
+                                                        <th className="text-left px-3 py-2">Local SKU</th>
+                                                        <th className="text-left px-3 py-2">Etsy SKU</th>
+                                                        <th className="text-center px-3 py-2 w-24">Status</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody className="divide-y divide-gray-100">
+                                                    {filteredSkus.map((sku, idx) => {
+                                                        const isSelected = selectedSkuItems.has(sku.variantId)
+                                                        return (
+                                                            <tr key={`${sku.variantId}-${idx}`} className={isSelected ? 'bg-primary-50' : 'hover:bg-gray-50'}>
+                                                                <td className="px-3 py-2 text-center">
+                                                                    {sku.needsSync ? (
+                                                                        <input
+                                                                            type="checkbox"
+                                                                            checked={isSelected}
+                                                                            onChange={() => toggleSkuItem(sku.variantId)}
+                                                                            className="rounded border-gray-300"
+                                                                        />
+                                                                    ) : (
+                                                                        <CheckCircleIcon className="h-4 w-4 text-green-500 mx-auto" />
+                                                                    )}
+                                                                </td>
+                                                                <td className="px-3 py-2">
+                                                                    <div className="font-medium text-gray-900 truncate max-w-[180px]" title={sku.hamperName}>
+                                                                        {sku.hamperName}
+                                                                    </div>
+                                                                    <div className="text-xs text-gray-500">{sku.variantName}</div>
+                                                                </td>
+                                                                <td className="px-3 py-2 font-mono text-xs">{sku.localSku}</td>
+                                                                <td className="px-3 py-2 font-mono text-xs text-gray-500">
+                                                                    {sku.etsySku || <span className="italic text-gray-400">empty</span>}
+                                                                </td>
+                                                                <td className="px-3 py-2 text-center">
+                                                                    {sku.needsSync ? (
+                                                                        <span className="px-2 py-0.5 text-xs rounded-full bg-blue-100 text-blue-700">
+                                                                            Needs Sync
+                                                                        </span>
+                                                                    ) : (
+                                                                        <span className="px-2 py-0.5 text-xs rounded-full bg-green-100 text-green-700">
+                                                                            In Sync
+                                                                        </span>
+                                                                    )}
+                                                                </td>
+                                                            </tr>
+                                                        )
+                                                    })}
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                    )}
+                                </div>
+                            )}
 
-                                                {/* Items */}
-                                                <div className="bg-gray-50 rounded p-2 space-y-1">
-                                                    {order.items.map((item, idx) => (
-                                                        <div key={idx} className="flex justify-between text-sm">
-                                                            <span className="truncate max-w-[200px]" title={item.title}>
-                                                                {item.quantity}× {item.title}
-                                                            </span>
-                                                            <span className="text-gray-600">{formatCurrency(item.price)}</span>
-                                                        </div>
-                                                    ))}
-                                                </div>
+                            {/* Price Sync Tab */}
+                            {activeTab === 'prices' && (
+                                <div className="space-y-4">
+                                    {/* Price Push Result */}
+                                    {pricePushResult && (
+                                        <div className={`p-3 rounded-lg text-sm ${pricePushResult.errors > 0 ? 'bg-yellow-50 text-yellow-800' : 'bg-green-50 text-green-800'}`}>
+                                            <CheckCircleIcon className="h-5 w-5 inline mr-2" />
+                                            Updated {pricePushResult.updated} price(s) on Etsy
+                                            {pricePushResult.errors > 0 && ` (${pricePushResult.errors} error(s))`}
+                                        </div>
+                                    )}
 
-                                                {/* Postage Cost Input */}
-                                                <div className="flex items-center gap-3">
-                                                    <label className="text-sm text-gray-600 whitespace-nowrap">
-                                                        Actual postage cost:
-                                                    </label>
-                                                    <div className="flex items-center gap-1">
-                                                        <span className="text-gray-500">£</span>
-                                                        <input
-                                                            type="number"
-                                                            step="0.01"
-                                                            min="0"
-                                                            value={orderPostageCosts[order.receiptId] || ''}
-                                                            onChange={(e) => setOrderPostageCosts(prev => ({
-                                                                ...prev,
-                                                                [order.receiptId]: e.target.value
-                                                            }))}
-                                                            className="input w-24 text-sm py-1"
-                                                            placeholder="0.00"
-                                                        />
-                                                    </div>
-                                                    <button
-                                                        onClick={() => handleImportOrder(order.receiptId)}
-                                                        disabled={importingOrderId === order.receiptId}
-                                                        className="btn-primary text-sm py-1 ml-auto"
-                                                    >
-                                                        {importingOrderId === order.receiptId ? 'Importing...' : 'Import as Sale'}
-                                                    </button>
-                                                </div>
-                                            </div>
-                                        ))
+                                    {/* Filter and Sync */}
+                                    <div className="flex justify-between items-center">
+                                        <label className="flex items-center gap-2 text-sm">
+                                            <input
+                                                type="checkbox"
+                                                checked={showOnlyPriceDiff}
+                                                onChange={(e) => setShowOnlyPriceDiff(e.target.checked)}
+                                                className="rounded border-gray-300"
+                                            />
+                                            Show only differences ({priceNeedsSyncCount})
+                                        </label>
+                                        <div className="flex gap-2">
+                                            {priceNeedsSyncCount > 0 && (
+                                                <button onClick={selectAllPriceDiff} className="text-sm text-primary-600 hover:text-primary-700">
+                                                    Select All Diff
+                                                </button>
+                                            )}
+                                            <button
+                                                onClick={handleSyncPrices}
+                                                disabled={pushingPrices || selectedPriceItems.size === 0}
+                                                className="btn-primary text-sm py-1 flex items-center gap-1"
+                                            >
+                                                <ArrowUpTrayIcon className="h-4 w-4" />
+                                                {pushingPrices ? 'Syncing...' : `Sync Selected (${selectedPriceItems.size})`}
+                                            </button>
+                                        </div>
+                                    </div>
+
+                                    {pendingPrices.length === 0 ? (
+                                        <div className="text-center py-8 text-gray-500">
+                                            <CurrencyDollarIcon className="h-12 w-12 mx-auto mb-2 text-gray-300" />
+                                            <p className="mb-1">No prices to display</p>
+                                            <p className="text-sm">No Etsy-linked hampers/variants found.</p>
+                                        </div>
+                                    ) : filteredPrices.length === 0 ? (
+                                        <div className="text-center py-8 text-gray-500">
+                                            <CurrencyDollarIcon className="h-12 w-12 mx-auto mb-2 text-gray-300" />
+                                            <p className="mb-1">No price differences found</p>
+                                            <p className="text-sm">Your prices match Etsy.</p>
+                                        </div>
+                                    ) : (
+                                        <div className="border rounded-lg overflow-hidden">
+                                            <table className="w-full text-sm">
+                                                <thead className="bg-gray-50">
+                                                    <tr>
+                                                        <th className="w-8 px-3 py-2"></th>
+                                                        <th className="text-left px-3 py-2">Hamper / Variant</th>
+                                                        <th className="text-right px-3 py-2">Local</th>
+                                                        <th className="text-right px-3 py-2">Etsy</th>
+                                                        <th className="text-center px-3 py-2 w-24">Status</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody className="divide-y divide-gray-100">
+                                                    {filteredPrices.map((item, idx) => {
+                                                        const isSelected = selectedPriceItems.has(item.variantId)
+
+                                                        return (
+                                                            <tr key={`${item.variantId}-${idx}`} className={isSelected ? 'bg-primary-50' : 'hover:bg-gray-50'}>
+                                                                <td className="px-3 py-2 text-center">
+                                                                    {item.needsSync ? (
+                                                                        <input
+                                                                            type="checkbox"
+                                                                            checked={isSelected}
+                                                                            onChange={() => togglePriceItem(item.variantId)}
+                                                                            className="rounded border-gray-300"
+                                                                        />
+                                                                    ) : (
+                                                                        <CheckCircleIcon className="h-4 w-4 text-green-500 mx-auto" />
+                                                                    )}
+                                                                </td>
+                                                                <td className="px-3 py-2">
+                                                                    <div className="font-medium text-gray-900 truncate max-w-[180px]" title={item.hamperName}>
+                                                                        {item.hamperName}
+                                                                    </div>
+                                                                    <div className="text-xs text-gray-500 flex items-center gap-1">
+                                                                        {item.variantName}
+                                                                        {item.etsySku && <span className="font-mono text-gray-400">({item.etsySku})</span>}
+                                                                    </div>
+                                                                </td>
+                                                                <td className="px-3 py-2 text-right font-medium">
+                                                                    {item.localPrice !== null ? formatCurrency(item.localPrice) : <span className="text-gray-400 italic">--</span>}
+                                                                </td>
+                                                                <td className="px-3 py-2 text-right font-medium">
+                                                                    {formatCurrency(item.etsyPrice)}
+                                                                </td>
+                                                                <td className="px-3 py-2 text-center">
+                                                                    {item.needsSync ? (
+                                                                        <span className="px-2 py-0.5 text-xs rounded-full bg-blue-100 text-blue-700">
+                                                                            Needs Sync
+                                                                        </span>
+                                                                    ) : (
+                                                                        <span className="px-2 py-0.5 text-xs rounded-full bg-green-100 text-green-700">
+                                                                            In Sync
+                                                                        </span>
+                                                                    )}
+                                                                </td>
+                                                            </tr>
+                                                        )
+                                                    })}
+                                                </tbody>
+                                            </table>
+                                        </div>
                                     )}
                                 </div>
                             )}

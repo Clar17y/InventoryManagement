@@ -7,11 +7,10 @@ import {
     ArrowDownTrayIcon,
     ArrowUpTrayIcon,
     LinkIcon,
-    ShoppingBagIcon,
     TagIcon,
     CurrencyDollarIcon,
 } from '@heroicons/react/24/outline'
-import { etsy, EtsyStatus, EtsySyncComparison, EtsyImportResult, EtsyPendingOrder, EtsyPendingSku, EtsyPendingPriceUpdate } from '../lib/api'
+import { etsy, EtsyStatus, EtsySyncComparison, EtsyImportResult, EtsyPendingSku, EtsyPendingPriceUpdate } from '../lib/api'
 import { formatCurrency } from '../lib/formatting'
 
 interface EtsySyncPanelProps {
@@ -32,10 +31,7 @@ export default function EtsySyncPanel({ isOpen, onClose, onImportComplete }: Ets
     const [showOnlyDiff, setShowOnlyDiff] = useState(true)
     const [showOnlySkuDiff, setShowOnlySkuDiff] = useState(true)
     const [showOnlyPriceDiff, setShowOnlyPriceDiff] = useState(true)
-    const [activeTab, setActiveTab] = useState<'inventory' | 'orders' | 'skus' | 'prices'>('inventory')
-    const [pendingOrders, setPendingOrders] = useState<EtsyPendingOrder[]>([])
-    const [orderPostageCosts, setOrderPostageCosts] = useState<Record<number, string>>({})
-    const [importingOrderId, setImportingOrderId] = useState<number | null>(null)
+    const [activeTab, setActiveTab] = useState<'inventory' | 'skus' | 'prices'>('inventory')
 
     // SKU Sync State
     const [pendingSkus, setPendingSkus] = useState<EtsyPendingSku[]>([])
@@ -74,22 +70,6 @@ export default function EtsySyncPanel({ isOpen, onClose, onImportComplete }: Ets
         } catch (err) {
             console.warn('Failed to load comparison:', err)
             setComparisons([])
-        }
-    }
-
-    const loadPendingOrders = async () => {
-        try {
-            const data = await etsy.getPendingOrders()
-            setPendingOrders(data.orders)
-            // Initialize postage cost fields
-            const costs: Record<number, string> = {}
-            data.orders.forEach(o => {
-                costs[o.receiptId] = o.shippingCost.toFixed(2)
-            })
-            setOrderPostageCosts(costs)
-        } catch (err) {
-            console.warn('Failed to load pending orders:', err)
-            setPendingOrders([])
         }
     }
 
@@ -357,29 +337,6 @@ export default function EtsySyncPanel({ isOpen, onClose, onImportComplete }: Ets
             }
         }
         setSelectedItems(newSelected)
-    }
-
-    const handleImportOrder = async (receiptId: number) => {
-        const postageCostStr = orderPostageCosts[receiptId]
-        const postageCost = parseFloat(postageCostStr || '0')
-
-        if (isNaN(postageCost) || postageCost < 0) {
-            setError('Please enter a valid postage cost')
-            return
-        }
-
-        setImportingOrderId(receiptId)
-        setError(null)
-
-        try {
-            await etsy.importOrder({ receiptId, postageCost })
-            // Remove from pending list
-            setPendingOrders(prev => prev.filter(o => o.receiptId !== receiptId))
-        } catch (err) {
-            setError(err instanceof Error ? err.message : 'Failed to import order')
-        } finally {
-            setImportingOrderId(null)
-        }
     }
 
     const filteredComparisons = showOnlyDiff
@@ -653,86 +610,6 @@ export default function EtsySyncPanel({ isOpen, onClose, onImportComplete }: Ets
                                 <div className="text-center py-8 text-gray-500">
                                     <p className="mb-2">No hampers with Etsy IDs found.</p>
                                     <p className="text-sm">Click "Import from Etsy" to create hampers from your Etsy listings.</p>
-                                </div>
-                            )}
-
-                            {/* Pending Orders Tab */}
-                            {activeTab === 'orders' && (
-                                <div className="space-y-3">
-                                    {pendingOrders.length === 0 ? (
-                                        <div className="text-center py-8 text-gray-500">
-                                            <ShoppingBagIcon className="h-12 w-12 mx-auto mb-2 text-gray-300" />
-                                            <p className="mb-1">No pending orders</p>
-                                            <p className="text-sm">New Etsy orders will appear here for import.</p>
-                                        </div>
-                                    ) : (
-                                        pendingOrders.map(order => (
-                                            <div key={order.receiptId} className="border rounded-lg p-4 space-y-3">
-                                                <div className="flex justify-between items-start">
-                                                    <div>
-                                                        <div className="font-medium text-gray-900">
-                                                            Order #{order.receiptId}
-                                                        </div>
-                                                        <div className="text-xs text-gray-500">
-                                                            {order.buyerName} • {new Date(order.createdAt).toLocaleDateString()}
-                                                        </div>
-                                                    </div>
-                                                    <div className="text-right">
-                                                        <div className="font-medium">{formatCurrency(order.grandTotal)}</div>
-                                                        <div className="text-xs text-gray-500">
-                                                            {order.isShipped ? '✓ Shipped' : 'Not shipped'}
-                                                        </div>
-                                                    </div>
-                                                </div>
-
-                                                {/* Items */}
-                                                <div className="bg-gray-50 rounded p-2 space-y-1">
-                                                    {order.items.map((item, idx) => {
-                                                        const displayTitle = item.variantName
-                                                            ? `${item.title} - ${item.variantName}`
-                                                            : item.title;
-                                                        return (
-                                                            <div key={idx} className="flex justify-between text-sm">
-                                                                <span className="truncate max-w-[200px]" title={displayTitle}>
-                                                                    {item.quantity}× {displayTitle}
-                                                                </span>
-                                                                <span className="text-gray-600">{formatCurrency(item.price)}</span>
-                                                            </div>
-                                                        );
-                                                    })}
-                                                </div>
-
-                                                {/* Postage Cost Input */}
-                                                <div className="flex items-center gap-3">
-                                                    <label className="text-sm text-gray-600 whitespace-nowrap">
-                                                        Actual postage cost:
-                                                    </label>
-                                                    <div className="flex items-center gap-1">
-                                                        <span className="text-gray-500">£</span>
-                                                        <input
-                                                            type="number"
-                                                            step="0.01"
-                                                            min="0"
-                                                            value={orderPostageCosts[order.receiptId] || ''}
-                                                            onChange={(e) => setOrderPostageCosts(prev => ({
-                                                                ...prev,
-                                                                [order.receiptId]: e.target.value
-                                                            }))}
-                                                            className="input w-24 text-sm py-1"
-                                                            placeholder="0.00"
-                                                        />
-                                                    </div>
-                                                    <button
-                                                        onClick={() => handleImportOrder(order.receiptId)}
-                                                        disabled={importingOrderId === order.receiptId}
-                                                        className="btn-primary text-sm py-1 ml-auto"
-                                                    >
-                                                        {importingOrderId === order.receiptId ? 'Importing...' : 'Import as Sale'}
-                                                    </button>
-                                                </div>
-                                            </div>
-                                        ))
-                                    )}
                                 </div>
                             )}
 

@@ -228,8 +228,8 @@ export default function AddStockForm({ onSuccess, onClose }: AddStockFormProps) 
                                             <div>
                                                 <p className="font-medium text-gray-900">{product.name}</p>
                                                 <p className="text-sm text-gray-500">
-                                                    {product.category?.name} · {product.unit}
-                                                    {product.barcode && ` · ${product.barcode}`}
+                                                    {product.category?.name} • {product.unit}
+                                                    {product.barcode && ` • ${product.barcode}`}
                                                 </p>
                                             </div>
                                             <div className="text-right">
@@ -278,7 +278,7 @@ export default function AddStockForm({ onSuccess, onClose }: AddStockFormProps) 
                                         <div>
                                             <p className="font-semibold text-indigo-900">{selectedProduct.name}</p>
                                             <p className="text-sm text-indigo-700">
-                                                {selectedProduct.category?.name} · {selectedProduct.unit}
+                                                {selectedProduct.category?.name} • {selectedProduct.unit}
                                             </p>
                                         </div>
                                         <button
@@ -687,8 +687,8 @@ export default function AddStockForm({ onSuccess, onClose }: AddStockFormProps) 
                                             <div>
                                                 <p className="font-medium text-gray-900">{product.name}</p>
                                                 <p className="text-sm text-gray-500">
-                                                    {product.category?.name} · {product.unit}
-                                                    {product.barcode && ` · ${product.barcode}`}
+                                                    {product.category?.name} • {product.unit}
+                                                    {product.barcode && ` • ${product.barcode}`}
                                                 </p>
                                             </div>
                                             <div className="text-right">

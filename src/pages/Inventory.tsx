@@ -399,10 +399,10 @@ function ProductRow({
           <p className="font-medium text-gray-900 truncate">{product.name}</p>
           <p className="text-sm text-gray-500">
             {showCategory && product.category?.name && (
-              <span className="text-indigo-600">{product.category.name} · </span>
+              <span className="text-indigo-600">{product.category.name} • </span>
             )}
             {product.unit}
-            {product.barcode && ` · ${product.barcode}`}
+            {product.barcode && ` • ${product.barcode}`}
           </p>
         </div>
         <div className="flex items-center gap-4">
@@ -498,7 +498,7 @@ function ProductRow({
                           </span>
                           {lot.expiresAt && (
                             <span className="text-amber-600 ml-2">
-                              · Expires {formatDate(lot.expiresAt)}
+                              • Expires {formatDate(lot.expiresAt)}
                             </span>
                           )}
                         </div>

@@ -377,7 +377,7 @@ export default function EtsyOrdersSyncPanel({ isOpen, onClose, onImportComplete 
                           Actual postage cost:
                         </label>
                         <div className="flex items-center gap-1">
-                          <span className="text-gray-500">稖</span>
+                          <span className="text-gray-500">£</span>
                           <input
                             type="number"
                             step="0.01"

@@ -125,14 +125,16 @@ model HamperRequirement {
 
 // Represents a specific variant (e.g., "Grey Star" version of the hamper)
 model HamperVariant {
-  id        String   @id @default(cuid())
-  hamperId  String
-  hamper    Hamper   @relation(fields: [hamperId], references: [id], onDelete: Cascade)
-  name      String   // "Grey Star", "Floral", "Bee"
-  etsySku   String?  @unique // For future Etsy sync: "LPH-GS"
-  isActive  Boolean  @default(true)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id            String   @id @default(cuid())
+  hamperId      String
+  hamper        Hamper   @relation(fields: [hamperId], references: [id], onDelete: Cascade)
+  name          String   // "Grey Star", "Floral", "Bee"
+  sellingPrice  Decimal? @db.Decimal(10, 2) // Override price for this variant (null = use hamper price)
+  etsySku       String?  @unique // For future Etsy sync: "LPH-GS"
+  etsyProductId String?  @unique // Etsy's product_id for variant matching
+  isActive      Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
 
   mappings  HamperVariantMapping[]
   saleLines SaleLine[]

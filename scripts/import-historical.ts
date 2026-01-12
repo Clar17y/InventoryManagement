@@ -199,14 +199,21 @@ async function importSales(sales: SaleRecord[]) {
   console.log(`\nImporting ${sales.length} sales...`)
 
   let imported = 0
-  // Track how many times we've seen each order ID to create unique suffixes
-  const orderIdCounts: Record<string, number> = {}
+
+  // Track current index for each order ID (for suffix numbering)
+  const orderIdCurrentIndex: Record<string, number> = {}
 
   for (const sale of sales) {
     // Same Etsy order ID can have multiple items (e.g., 2 hampers in one order)
-    // Append item number suffix to make unique: "123456-1", "123456-2"
-    orderIdCounts[sale.orderId] = (orderIdCounts[sale.orderId] || 0) + 1
-    const uniqueOrderId = `${sale.orderId}-${orderIdCounts[sale.orderId]}`
+    // First item keeps original ID, duplicates get -2, -3, etc. suffix
+    // This ensures Etsy sync can match on the original order ID
+    orderIdCurrentIndex[sale.orderId] = (orderIdCurrentIndex[sale.orderId] || 0) + 1
+    const currentIndex = orderIdCurrentIndex[sale.orderId]
+
+    // First occurrence keeps original ID, subsequent get -2, -3, etc.
+    const uniqueOrderId = currentIndex > 1
+      ? `${sale.orderId}-${currentIndex}`
+      : sale.orderId
 
     if (isDryRun) {
       console.log(`  [DRY RUN] Would import: ${sale.date.toISOString().split('T')[0]} - ${sale.product} - £${sale.salePrice}`)

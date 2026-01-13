@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { products, inventory, categories, type Product, type Category } from '../../lib/api'
 import { formatPrice, formatCurrency } from '../../lib/formatting'
 import BarcodeScanner from '../scanner/BarcodeScanner'
@@ -27,6 +27,11 @@ export default function AddStockForm({ onSuccess, onClose }: AddStockFormProps) 
     const [error, setError] = useState<string | null>(null)
     const [scanError, setScanError] = useState<string | null>(null)
 
+    // Handheld scanner input
+    const [handheldBarcode, setHandheldBarcode] = useState('')
+    const [isProcessingHandheld, setIsProcessingHandheld] = useState(false)
+    const handheldInputRef = useRef<HTMLInputElement>(null)
+
     // New product creation state
     const [scannedBarcode, setScannedBarcode] = useState<string | null>(null)
     const [newProductName, setNewProductName] = useState('')
@@ -42,6 +47,36 @@ export default function AddStockForm({ onSuccess, onClose }: AddStockFormProps) 
     useEffect(() => {
         loadData()
     }, [])
+
+    // Auto-focus handheld scanner input when in select mode
+    useEffect(() => {
+        if (mode === 'select') {
+            // Small delay to ensure DOM is ready
+            const timer = setTimeout(() => {
+                handheldInputRef.current?.focus()
+            }, 100)
+            return () => clearTimeout(timer)
+        }
+    }, [mode])
+
+    const handleHandheldSubmit = async () => {
+        const trimmed = handheldBarcode.trim()
+        if (!trimmed || isProcessingHandheld) return
+
+        setIsProcessingHandheld(true)
+
+        // Vibrate feedback (if supported)
+        if (navigator.vibrate) {
+            navigator.vibrate(200)
+        }
+
+        try {
+            await handleBarcodeScan(trimmed)
+        } finally {
+            setIsProcessingHandheld(false)
+            setHandheldBarcode('')
+        }
+    }
 
     const loadData = async () => {
         setIsLoading(true)
@@ -172,16 +207,56 @@ export default function AddStockForm({ onSuccess, onClose }: AddStockFormProps) 
                     {/* Selection Mode */}
                     {mode === 'select' && (
                         <div className="space-y-4">
-                            {/* Scan button */}
+                            {/* Handheld Scanner Input */}
+                            <div className="p-4 bg-gradient-to-r from-indigo-50 to-purple-50 rounded-xl border-2 border-indigo-200">
+                                <div className="flex items-center gap-2 mb-2">
+                                    <svg className="w-5 h-5 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v1m6 11h2m-6 0h-2m0-8v8" />
+                                        <rect x="3" y="3" width="18" height="18" rx="2" strokeWidth={2} />
+                                    </svg>
+                                    <span className="text-sm font-medium text-indigo-700">Barcode Scanner</span>
+                                </div>
+                                <div className="flex gap-2">
+                                    <input
+                                        ref={handheldInputRef}
+                                        type="text"
+                                        value={handheldBarcode}
+                                        onChange={(e) => setHandheldBarcode(e.target.value)}
+                                        onKeyDown={(e) => {
+                                            if (e.key === 'Enter') {
+                                                e.preventDefault()
+                                                handleHandheldSubmit()
+                                            }
+                                        }}
+                                        placeholder="Scan with handheld or type barcode..."
+                                        disabled={isProcessingHandheld}
+                                        className="flex-1 px-4 py-3 border border-indigo-300 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 bg-white disabled:opacity-50"
+                                        aria-label="Barcode input for handheld scanner"
+                                    />
+                                    <button
+                                        type="button"
+                                        onClick={handleHandheldSubmit}
+                                        disabled={!handheldBarcode.trim() || isProcessingHandheld}
+                                        className="px-4 py-3 bg-indigo-600 text-white rounded-xl font-medium hover:bg-indigo-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                                    >
+                                        {isProcessingHandheld ? '...' : 'Go'}
+                                    </button>
+                                </div>
+                                <p className="text-xs text-indigo-600 mt-2">
+                                    Ready for handheld scanner - auto-submits on scan
+                                </p>
+                            </div>
+
+                            {/* Camera Scanner Button */}
                             <button
                                 onClick={() => setMode('scan')}
-                                className="w-full flex items-center justify-center gap-3 p-4 bg-gradient-to-r from-indigo-500 to-purple-600 text-white rounded-xl font-medium hover:from-indigo-600 hover:to-purple-700 transition-all shadow-lg"
+                                className="w-full flex items-center justify-center gap-3 p-4 bg-white border-2 border-gray-200 text-gray-700 rounded-xl font-medium hover:border-indigo-300 hover:bg-indigo-50 transition-all"
                             >
                                 <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v1m6 11h2m-6 0h-2m0-8v8" />
-                                    <rect x="3" y="3" width="18" height="18" rx="2" strokeWidth={2} />
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" />
                                 </svg>
-                                Scan Barcode
+                                Use Camera
                             </button>
 
                             <div className="relative">

@@ -4,6 +4,7 @@ import {
   CubeIcon,
   GiftIcon,
   CurrencyPoundIcon,
+  ChartBarIcon,
   Cog6ToothIcon,
   ArrowRightOnRectangleIcon
 } from '@heroicons/react/24/outline'
@@ -14,6 +15,7 @@ const navItems = [
   { to: '/inventory', icon: CubeIcon, label: 'Stock' },
   { to: '/hampers', icon: GiftIcon, label: 'Hampers' },
   { to: '/sales', icon: CurrencyPoundIcon, label: 'Sales' },
+  { to: '/analytics', icon: ChartBarIcon, label: 'Analytics' },
   { to: '/settings', icon: Cog6ToothIcon, label: 'Settings' },
 ]
 

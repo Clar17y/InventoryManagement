@@ -10,6 +10,7 @@ import Settings from './pages/Settings'
 import Categories from './pages/Categories'
 import Products from './pages/Products'
 import Expenses from './pages/Expenses'
+import Analytics from './pages/Analytics'
 
 // Dev bypass for testing without Supabase magic link
 const DEV_BYPASS_AUTH = import.meta.env.VITE_DEV_BYPASS_AUTH === 'true'
@@ -47,6 +48,7 @@ export default function App() {
         <Route path="categories" element={<Categories />} />
         <Route path="products" element={<Products />} />
         <Route path="expenses" element={<Expenses />} />
+        <Route path="analytics" element={<Analytics />} />
       </Route>
     </Routes>
   )

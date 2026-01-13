@@ -8,6 +8,7 @@ import productsRouter from './routes/products'
 import inventoryRouter from './routes/inventory'
 import hampersRouter from './routes/hampers'
 import salesRouter from './routes/sales'
+import analyticsRouter from './routes/analytics'
 import settingsRouter from './routes/settings'
 import expensesRouter from './routes/expenses'
 import etsyRouter from './routes/etsy'
@@ -37,6 +38,7 @@ app.use('/api/products', productsRouter)
 app.use('/api/inventory', inventoryRouter)
 app.use('/api/hampers', hampersRouter)
 app.use('/api/sales', salesRouter)
+app.use('/api/analytics', analyticsRouter)
 app.use('/api/settings', settingsRouter)
 app.use('/api/expenses', expensesRouter)
 app.use('/api/etsy', etsyRouter)

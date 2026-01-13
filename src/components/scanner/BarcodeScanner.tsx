@@ -25,7 +25,6 @@ export default function BarcodeScanner({ onScan, onError, onClose }: BarcodeScan
   const [isStarting, setIsStarting] = useState(true)
   const [cameraError, setCameraError] = useState<string | null>(null)
   const [debugInfo, setDebugInfo] = useState<string>('')
-  const [manualBarcode, setManualBarcode] = useState('')
 
   const stopScanner = useCallback(async () => {
     if (scannerRef.current) {
@@ -53,21 +52,6 @@ export default function BarcodeScanner({ onScan, onError, onClose }: BarcodeScan
     stopScanner()
     onScan(decodedText)
   }, [onScan, stopScanner])
-
-  const handleManualSubmit = useCallback(() => {
-    const trimmed = manualBarcode.trim()
-    if (!trimmed || hasScannedRef.current) return
-
-    hasScannedRef.current = true
-
-    // Vibrate on successful scan (mobile feedback)
-    if (navigator.vibrate) {
-      navigator.vibrate(200)
-    }
-
-    stopScanner()
-    onScan(trimmed)
-  }, [manualBarcode, onScan, stopScanner])
 
   useEffect(() => {
     const startScanner = async () => {
@@ -197,34 +181,10 @@ export default function BarcodeScanner({ onScan, onError, onClose }: BarcodeScan
         )}
       </div>
 
-      {/* Manual entry / Bluetooth scanner input */}
+      {/* Status footer */}
       <div className="p-4 bg-black/90 border-t border-white/10">
-        <div className="flex gap-2">
-          <input
-            type="text"
-            value={manualBarcode}
-            onChange={(e) => setManualBarcode(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') {
-                e.preventDefault()
-                handleManualSubmit()
-              }
-            }}
-            placeholder="Enter barcode or use Bluetooth scanner..."
-            className="flex-1 px-4 py-3 bg-white/10 text-white placeholder-white/50 border border-white/20 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 focus:outline-none"
-            aria-label="Manual barcode entry"
-          />
-          <button
-            type="button"
-            onClick={handleManualSubmit}
-            disabled={!manualBarcode.trim()}
-            className="px-4 py-3 bg-indigo-600 text-white rounded-xl font-medium hover:bg-indigo-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            Go
-          </button>
-        </div>
-        <p className="text-white/50 text-xs mt-2 text-center">
-          Bluetooth scanners will auto-submit • {debugInfo || 'Point camera at barcode'}
+        <p className="text-white/50 text-sm text-center">
+          {debugInfo || 'Point camera at barcode'}
         </p>
       </div>
     </div>

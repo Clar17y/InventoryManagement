@@ -81,11 +81,13 @@ describe('AddStockForm', () => {
       });
     });
 
-    it('shows scan barcode button', async () => {
+    it('shows barcode scanner section with handheld input and camera button', async () => {
       render(<AddStockForm onSuccess={mockOnSuccess} onClose={mockOnClose} />);
 
       await waitFor(() => {
-        expect(screen.getByText('Scan Barcode')).toBeInTheDocument();
+        expect(screen.getByText('Barcode Scanner')).toBeInTheDocument();
+        expect(screen.getByPlaceholderText('Scan with handheld or type barcode...')).toBeInTheDocument();
+        expect(screen.getByText('Use Camera')).toBeInTheDocument();
       });
     });
 
@@ -175,15 +177,15 @@ describe('AddStockForm', () => {
   });
 
   describe('scanner mode', () => {
-    it('shows scanner when scan button clicked', async () => {
+    it('shows scanner when camera button clicked', async () => {
       const user = userEvent.setup();
       render(<AddStockForm onSuccess={mockOnSuccess} onClose={mockOnClose} />);
 
       await waitFor(() => {
-        expect(screen.getByText('Scan Barcode')).toBeInTheDocument();
+        expect(screen.getByText('Use Camera')).toBeInTheDocument();
       });
 
-      await user.click(screen.getByText('Scan Barcode'));
+      await user.click(screen.getByText('Use Camera'));
 
       expect(screen.getByTestId('mock-scanner')).toBeInTheDocument();
     });
@@ -193,10 +195,10 @@ describe('AddStockForm', () => {
       render(<AddStockForm onSuccess={mockOnSuccess} onClose={mockOnClose} />);
 
       await waitFor(() => {
-        expect(screen.getByText('Scan Barcode')).toBeInTheDocument();
+        expect(screen.getByText('Use Camera')).toBeInTheDocument();
       });
 
-      await user.click(screen.getByText('Scan Barcode'));
+      await user.click(screen.getByText('Use Camera'));
       await user.click(screen.getByText('Close Scanner'));
 
       await waitFor(() => {
@@ -204,17 +206,17 @@ describe('AddStockForm', () => {
       });
     });
 
-    it('moves to form mode when known barcode scanned', async () => {
+    it('moves to form mode when known barcode scanned via camera', async () => {
       const user = userEvent.setup();
       mockGetByBarcode.mockResolvedValue(sampleProducts[0] as any);
 
       render(<AddStockForm onSuccess={mockOnSuccess} onClose={mockOnClose} />);
 
       await waitFor(() => {
-        expect(screen.getByText('Scan Barcode')).toBeInTheDocument();
+        expect(screen.getByText('Use Camera')).toBeInTheDocument();
       });
 
-      await user.click(screen.getByText('Scan Barcode'));
+      await user.click(screen.getByText('Use Camera'));
       await user.click(screen.getByText('Simulate Scan'));
 
       await waitFor(() => {
@@ -223,18 +225,55 @@ describe('AddStockForm', () => {
       });
     });
 
-    it('moves to new product mode when unknown barcode scanned', async () => {
+    it('moves to new product mode when unknown barcode scanned via camera', async () => {
       const user = userEvent.setup();
       mockGetByBarcode.mockRejectedValue(new Error('Not found'));
 
       render(<AddStockForm onSuccess={mockOnSuccess} onClose={mockOnClose} />);
 
       await waitFor(() => {
-        expect(screen.getByText('Scan Barcode')).toBeInTheDocument();
+        expect(screen.getByText('Use Camera')).toBeInTheDocument();
       });
 
-      await user.click(screen.getByText('Scan Barcode'));
+      await user.click(screen.getByText('Use Camera'));
       await user.click(screen.getByText('Simulate Scan'));
+
+      await waitFor(() => {
+        expect(screen.getByText('New Barcode Detected')).toBeInTheDocument();
+      });
+    });
+
+    it('moves to form mode when known barcode entered via handheld input', async () => {
+      const user = userEvent.setup();
+      mockGetByBarcode.mockResolvedValue(sampleProducts[0] as any);
+
+      render(<AddStockForm onSuccess={mockOnSuccess} onClose={mockOnClose} />);
+
+      await waitFor(() => {
+        expect(screen.getByPlaceholderText('Scan with handheld or type barcode...')).toBeInTheDocument();
+      });
+
+      const handheldInput = screen.getByPlaceholderText('Scan with handheld or type barcode...');
+      await user.type(handheldInput, '1234567890123{Enter}');
+
+      await waitFor(() => {
+        expect(screen.getByText('Enter Details')).toBeInTheDocument();
+        expect(screen.getByText('Dark Chocolate')).toBeInTheDocument();
+      });
+    });
+
+    it('moves to new product mode when unknown barcode entered via handheld input', async () => {
+      const user = userEvent.setup();
+      mockGetByBarcode.mockRejectedValue(new Error('Not found'));
+
+      render(<AddStockForm onSuccess={mockOnSuccess} onClose={mockOnClose} />);
+
+      await waitFor(() => {
+        expect(screen.getByPlaceholderText('Scan with handheld or type barcode...')).toBeInTheDocument();
+      });
+
+      const handheldInput = screen.getByPlaceholderText('Scan with handheld or type barcode...');
+      await user.type(handheldInput, '9999999999999{Enter}');
 
       await waitFor(() => {
         expect(screen.getByText('New Barcode Detected')).toBeInTheDocument();
@@ -410,10 +449,10 @@ describe('AddStockForm', () => {
       render(<AddStockForm onSuccess={mockOnSuccess} onClose={mockOnClose} />);
 
       await waitFor(() => {
-        expect(screen.getByText('Scan Barcode')).toBeInTheDocument();
+        expect(screen.getByText('Use Camera')).toBeInTheDocument();
       });
 
-      await user.click(screen.getByText('Scan Barcode'));
+      await user.click(screen.getByText('Use Camera'));
       await user.click(screen.getByText('Simulate Scan'));
 
       await waitFor(() => {
@@ -426,10 +465,10 @@ describe('AddStockForm', () => {
       render(<AddStockForm onSuccess={mockOnSuccess} onClose={mockOnClose} />);
 
       await waitFor(() => {
-        expect(screen.getByText('Scan Barcode')).toBeInTheDocument();
+        expect(screen.getByText('Use Camera')).toBeInTheDocument();
       });
 
-      await user.click(screen.getByText('Scan Barcode'));
+      await user.click(screen.getByText('Use Camera'));
       await user.click(screen.getByText('Simulate Scan'));
 
       await waitFor(() => {
@@ -443,10 +482,10 @@ describe('AddStockForm', () => {
       render(<AddStockForm onSuccess={mockOnSuccess} onClose={mockOnClose} />);
 
       await waitFor(() => {
-        expect(screen.getByText('Scan Barcode')).toBeInTheDocument();
+        expect(screen.getByText('Use Camera')).toBeInTheDocument();
       });
 
-      await user.click(screen.getByText('Scan Barcode'));
+      await user.click(screen.getByText('Use Camera'));
       await user.click(screen.getByText('Simulate Scan'));
 
       await waitFor(() => {
@@ -460,10 +499,10 @@ describe('AddStockForm', () => {
       render(<AddStockForm onSuccess={mockOnSuccess} onClose={mockOnClose} />);
 
       await waitFor(() => {
-        expect(screen.getByText('Scan Barcode')).toBeInTheDocument();
+        expect(screen.getByText('Use Camera')).toBeInTheDocument();
       });
 
-      await user.click(screen.getByText('Scan Barcode'));
+      await user.click(screen.getByText('Use Camera'));
       await user.click(screen.getByText('Simulate Scan'));
 
       await waitFor(() => {

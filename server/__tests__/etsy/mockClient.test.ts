@@ -36,10 +36,13 @@ describe('MockEtsyClient', () => {
     });
 
     it('returns correct count (total before pagination)', async () => {
-      const { count } = await client.getActiveListings();
-      const { listings } = await client.getActiveListings(100, 0);
-      // count should equal total active listings
-      expect(count).toBe(listings.length);
+      const state = client.getInternalState();
+      const expectedActiveCount = state.listings.filter(
+        (l) => l.state === 'active'
+      ).length;
+
+      const { count } = await client.getActiveListings(1, 0);
+      expect(count).toBe(expectedActiveCount);
     });
 
     it('supports pagination with limit', async () => {
@@ -103,11 +106,17 @@ describe('MockEtsyClient', () => {
       const listingId = MULTI_VARIANT_LISTING.listing_id;
       const before = await client.getListingInventory(listingId);
       const originalQty = before.products[0].offerings[0].quantity;
+      const target = before.products[0];
 
       await client.updateListingInventory(listingId, [
         {
-          sku: 'LPH-GS',
-          property_values: [],
+          sku: target.sku,
+          property_values: target.property_values.map((pv) => ({
+            property_id: pv.property_id,
+            property_name: pv.property_name,
+            value_ids: pv.value_ids,
+            values: pv.values,
+          })),
           offerings: [{ quantity: originalQty + 10, price: 65, is_enabled: true }],
         },
       ]);
@@ -121,7 +130,7 @@ describe('MockEtsyClient', () => {
 
       await client.updateListingInventory(listingId, [
         {
-          sku: 'LBH-BLUE-001',
+          sku: '',
           property_values: [],
           offerings: [{ quantity: 20, price: 45, is_enabled: true }],
         },
@@ -236,7 +245,7 @@ describe('MockEtsyClient', () => {
       // Make changes
       await client.updateListingInventory(listingId, [
         {
-          sku: 'LBH-BLUE-001',
+          sku: '',
           property_values: [],
           offerings: [{ quantity: 999, price: 45, is_enabled: true }],
         },

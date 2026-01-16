@@ -5,6 +5,7 @@ export * from './shop';
 export * from './listings';
 export * from './edgeCases';
 export * from './orders';
+export * from './bulk';
 
 // Import for building default set
 import { MOCK_SHOP } from './shop';
@@ -29,6 +30,7 @@ import {
   SKU_MISMATCH_INVENTORY,
 } from './edgeCases';
 import { MOCK_RECEIPTS } from './orders';
+import { generateBulkHamperFixtures } from './bulk';
 
 // =============================================================================
 // Default Fixture Set
@@ -41,8 +43,15 @@ export interface DefaultFixtures {
   receipts: EtsyReceipt[];
 }
 
+function parsePositiveInt(value: string | undefined): number | null {
+  if (!value) return null;
+  const parsed = Number.parseInt(value, 10);
+  if (!Number.isFinite(parsed) || parsed <= 0) return null;
+  return parsed;
+}
+
 export function getDefaultFixtures(): DefaultFixtures {
-  const listings = [
+  const listings: EtsyListing[] = [
     SINGLE_VARIANT_LISTING,
     MULTI_VARIANT_LISTING,
     EMPTY_SKU_LISTING,
@@ -63,6 +72,31 @@ export function getDefaultFixtures(): DefaultFixtures {
     [DRAFT_LISTING.listing_id, DRAFT_INVENTORY],
     [SKU_MISMATCH_LISTING.listing_id, SKU_MISMATCH_INVENTORY],
   ]);
+
+  const desiredActiveCount = parsePositiveInt(process.env.ETSY_MOCK_ACTIVE_LISTINGS);
+  if (desiredActiveCount) {
+    const baseActiveCount = listings.filter((l) => l.state === 'active').length;
+
+    if (desiredActiveCount > baseActiveCount) {
+      const extraCount = desiredActiveCount - baseActiveCount;
+      const multiVariantEvery =
+        parsePositiveInt(process.env.ETSY_MOCK_MULTI_VARIANT_EVERY) ?? 10;
+      const variantsPerListing =
+        parsePositiveInt(process.env.ETSY_MOCK_VARIANTS_PER_LISTING) ?? 3;
+
+      const bulk = generateBulkHamperFixtures(extraCount, {
+        startListingId: 2000,
+        currencyCode: 'GBP',
+        multiVariantEvery,
+        variantsPerListing,
+      });
+
+      listings.push(...bulk.listings);
+      for (const [listingId, inventory] of bulk.inventoryByListingId.entries()) {
+        inventoryByListingId.set(listingId, inventory);
+      }
+    }
+  }
 
   return {
     shop: MOCK_SHOP,

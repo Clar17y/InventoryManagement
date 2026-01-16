@@ -288,6 +288,56 @@ describe('Hampers', () => {
     });
   });
 
+  describe('edit hamper', () => {
+    it('scrolls to the form when editing a hamper', async () => {
+      const user = userEvent.setup();
+      const scrollSpy = vi.fn();
+
+      const originalScrollIntoView = HTMLElement.prototype.scrollIntoView;
+      Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', {
+        value: scrollSpy,
+        writable: true,
+      });
+
+      try {
+        mockHampersList.mockResolvedValue([
+          {
+            id: 'ham-mock-1',
+            name: 'Mock Imported Hamper',
+            sellingPrice: 35,
+            etsyListingId: '2000',
+            hasVariants: true,
+            isActive: true,
+            createdAt: '2024-01-03T00:00:00Z',
+            requirements: [],
+            canMake: 0,
+          },
+        ] as any);
+
+        render(<Hampers />);
+
+        await waitFor(() => {
+          expect(screen.getByText('Mock Imported Hamper')).toBeInTheDocument();
+        });
+
+        await user.click(screen.getByRole('button', { name: 'Edit hamper Mock Imported Hamper' }));
+
+        await waitFor(() => {
+          expect(screen.getByText('Edit Hamper')).toBeInTheDocument();
+        });
+
+        await waitFor(() => {
+          expect(scrollSpy).toHaveBeenCalled();
+        });
+      } finally {
+        Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', {
+          value: originalScrollIntoView,
+          writable: true,
+        });
+      }
+    });
+  });
+
   describe('Etsy sync', () => {
     it('has Etsy Sync button', async () => {
       render(<Hampers />);

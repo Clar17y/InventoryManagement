@@ -20,7 +20,7 @@ export const MISSING_SKU_INVENTORY: EtsyInventory = {
   products: [
     {
       product_id: 10005,
-      sku: 'GB-RED',
+      sku: '',
       is_deleted: false,
       offerings: [
         {
@@ -45,7 +45,7 @@ export const MISSING_SKU_INVENTORY: EtsyInventory = {
     },
     {
       product_id: 10006,
-      sku: '', // Missing SKU!
+      sku: '',
       is_deleted: false,
       offerings: [
         {
@@ -94,7 +94,7 @@ export const DUPLICATE_SKU_INVENTORY: EtsyInventory = {
   products: [
     {
       product_id: 10007,
-      sku: 'DUPE-SKU-001',
+      sku: '',
       is_deleted: false,
       offerings: [
         {
@@ -119,7 +119,7 @@ export const DUPLICATE_SKU_INVENTORY: EtsyInventory = {
     },
     {
       product_id: 10008,
-      sku: 'DUPE-SKU-001', // Duplicate!
+      sku: '',
       is_deleted: false,
       offerings: [
         {
@@ -168,7 +168,7 @@ export const ZERO_QTY_INVENTORY: EtsyInventory = {
   products: [
     {
       product_id: 10009,
-      sku: 'OOS-001',
+      sku: '',
       is_deleted: false,
       offerings: [
         {
@@ -208,7 +208,7 @@ export const DRAFT_INVENTORY: EtsyInventory = {
   products: [
     {
       product_id: 10010,
-      sku: 'SUMMER-001',
+      sku: '',
       is_deleted: false,
       offerings: [
         {
@@ -248,7 +248,7 @@ export const SKU_MISMATCH_INVENTORY: EtsyInventory = {
   products: [
     {
       product_id: 10011,
-      sku: 'NEW-SKU-2024', // Changed from 'OLD-SKU-2023' which local might have
+      sku: '',
       is_deleted: false,
       offerings: [
         {

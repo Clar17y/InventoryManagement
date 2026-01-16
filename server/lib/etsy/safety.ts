@@ -32,8 +32,73 @@ export function computeDiff(
 ): DryRunResult {
   const changes: DryRunChange[] = [];
 
-  for (const update of updates) {
-    const existingProduct = current.products.find((p) => p.sku === update.sku);
+  const normalizeSku = (sku: string): string | null => {
+    const trimmed = sku.trim();
+    return trimmed.length > 0 ? trimmed : null;
+  };
+
+  const toSignature = (
+    propertyValues: Array<{ property_id: number; value_ids: number[] }> | undefined
+  ): string => {
+    const values = propertyValues ?? [];
+    if (values.length === 0) return '';
+
+    const parts = values
+      .map((pv) => {
+        const ids = [...pv.value_ids].sort((a, b) => a - b);
+        return `${pv.property_id}:${ids.join(',')}`;
+      })
+      .sort();
+
+    return parts.join('|');
+  };
+
+  const productsBySku = new Map<string, Array<(typeof current.products)[0]>>();
+  const productsBySignature = new Map<string, Array<(typeof current.products)[0]>>();
+
+  for (const product of current.products) {
+    const skuKey = normalizeSku(product.sku);
+    if (skuKey) {
+      const bucket = productsBySku.get(skuKey) ?? [];
+      bucket.push(product);
+      productsBySku.set(skuKey, bucket);
+    }
+
+    const signature = toSignature(product.property_values);
+    const signatureBucket = productsBySignature.get(signature) ?? [];
+    signatureBucket.push(product);
+    productsBySignature.set(signature, signatureBucket);
+  }
+
+  for (const [updateIndex, update] of updates.entries()) {
+    let existingProduct: (typeof current.products)[0] | undefined;
+
+    const updateSkuKey = normalizeSku(update.sku);
+    if (updateSkuKey) {
+      const bucket = productsBySku.get(updateSkuKey) ?? [];
+      if (bucket.length === 1) {
+        existingProduct = bucket[0];
+      }
+    }
+
+    if (!existingProduct) {
+      const signature = toSignature(update.property_values);
+      const bucket = productsBySignature.get(signature) ?? [];
+      if (bucket.length === 1) {
+        existingProduct = bucket[0];
+      } else if (
+        bucket.length > 1 &&
+        updates.length === current.products.length &&
+        current.products[updateIndex]
+      ) {
+        existingProduct = current.products[updateIndex];
+      }
+    }
+
+    if (!existingProduct && current.products.length === 1) {
+      existingProduct = current.products[0];
+    }
+
     if (!existingProduct) continue;
 
     const currentQty = existingProduct.offerings[0]?.quantity ?? 0;
@@ -41,7 +106,7 @@ export function computeDiff(
 
     if (currentQty !== newQty) {
       changes.push({
-        sku: update.sku,
+        sku: normalizeSku(existingProduct.sku) ?? String(existingProduct.product_id),
         currentQuantity: currentQty,
         newQuantity: newQty,
       });

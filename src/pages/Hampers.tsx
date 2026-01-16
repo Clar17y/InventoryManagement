@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useRef } from 'react'
 import {
   PlusIcon,
   PencilIcon,
@@ -61,6 +61,7 @@ function getAvailabilityColor(canMake: number): string {
 }
 
 export default function Hampers() {
+  const formRef = useRef<HTMLFormElement | null>(null)
   const [hamperList, setHamperList] = useState<Hamper[]>([])
   const [categoryList, setCategoryList] = useState<Category[]>([])
   const [loading, setLoading] = useState(true)
@@ -108,6 +109,11 @@ export default function Hampers() {
   useEffect(() => {
     localStorage.setItem('hampers-sort', sortBy)
   }, [sortBy])
+
+  useEffect(() => {
+    if (!showForm) return
+    formRef.current?.scrollIntoView?.({ behavior: 'smooth', block: 'start' })
+  }, [showForm, editingId])
 
   // Sort hampers based on selected option
   const sortedHampers = useMemo(() => {
@@ -204,11 +210,13 @@ export default function Hampers() {
       sellingPrice: String(hamper.sellingPrice),
       etsyListingId: hamper.etsyListingId || '',
       hasVariants: hamper.hasVariants || false,
-      requirements: hamper.requirements.map((r) => ({
-        categoryId: r.categoryId,
-        quantity: Number(r.quantity),
-        isOptional: r.isOptional,
-      })),
+      requirements: hamper.requirements.length > 0
+        ? hamper.requirements.map((r) => ({
+          categoryId: r.categoryId,
+          quantity: Number(r.quantity),
+          isOptional: r.isOptional,
+        }))
+        : emptyForm.requirements,
     })
     setEditingId(hamper.id)
     setShowForm(true)
@@ -388,7 +396,7 @@ export default function Hampers() {
       {error && <div className="bg-red-50 text-red-700 p-3 rounded-lg text-sm">{error}</div>}
 
       {showForm && (
-        <form onSubmit={handleSubmit} className="card space-y-4">
+        <form ref={formRef} onSubmit={handleSubmit} className="card space-y-4">
           <h3 className="font-medium">{editingId ? 'Edit Hamper' : 'New Hamper'}</h3>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">

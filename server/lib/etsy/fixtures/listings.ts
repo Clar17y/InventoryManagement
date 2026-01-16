@@ -20,7 +20,7 @@ export const SINGLE_VARIANT_INVENTORY: EtsyInventory = {
   products: [
     {
       product_id: 10001,
-      sku: 'LBH-BLUE-001',
+      sku: '',
       is_deleted: false,
       offerings: [
         {
@@ -60,7 +60,7 @@ export const MULTI_VARIANT_INVENTORY: EtsyInventory = {
   products: [
     {
       product_id: 10002,
-      sku: 'LPH-GS',
+      sku: '',
       is_deleted: false,
       offerings: [
         {
@@ -85,7 +85,7 @@ export const MULTI_VARIANT_INVENTORY: EtsyInventory = {
     },
     {
       product_id: 10003,
-      sku: 'LPH-FL',
+      sku: '',
       is_deleted: false,
       offerings: [
         {
@@ -110,7 +110,7 @@ export const MULTI_VARIANT_INVENTORY: EtsyInventory = {
     },
     {
       product_id: 10004,
-      sku: 'LPH-BEE',
+      sku: '',
       is_deleted: false,
       offerings: [
         {

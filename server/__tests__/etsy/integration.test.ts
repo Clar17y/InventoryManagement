@@ -57,24 +57,41 @@ describe('Etsy Integration', () => {
       expect(inventory.products.length).toBe(3);
 
       // Update all variants
-      const updates = [
-        { sku: 'LPH-GS', property_values: [], offerings: [{ quantity: 2, price: 65, is_enabled: true }] },
-        { sku: 'LPH-FL', property_values: [], offerings: [{ quantity: 3, price: 65, is_enabled: true }] },
-        { sku: 'LPH-BEE', property_values: [], offerings: [{ quantity: 1, price: 65, is_enabled: true }] },
-      ];
+      const updates = inventory.products.map((p, idx) => ({
+        sku: p.sku,
+        property_values: p.property_values.map((pv) => ({
+          property_id: pv.property_id,
+          property_name: pv.property_name,
+          value_ids: pv.value_ids,
+          values: pv.values,
+        })),
+        offerings: [
+          {
+            quantity: idx === 0 ? 2 : idx === 1 ? 3 : 1,
+            price: 65,
+            is_enabled: true,
+          },
+        ],
+      }));
 
       await client.updateListingInventory(listingId, updates);
 
       // Verify all updates
       const afterUpdate = await client.getListingInventory(listingId);
+      const product0Id = inventory.products[0]!.product_id;
+      const product1Id = inventory.products[1]!.product_id;
+      const product2Id = inventory.products[2]!.product_id;
       expect(
-        afterUpdate.products.find((p) => p.sku === 'LPH-GS')?.offerings[0].quantity
+        afterUpdate.products.find((p) => p.product_id === product0Id)?.offerings[0]
+          .quantity
       ).toBe(2);
       expect(
-        afterUpdate.products.find((p) => p.sku === 'LPH-FL')?.offerings[0].quantity
+        afterUpdate.products.find((p) => p.product_id === product1Id)?.offerings[0]
+          .quantity
       ).toBe(3);
       expect(
-        afterUpdate.products.find((p) => p.sku === 'LPH-BEE')?.offerings[0].quantity
+        afterUpdate.products.find((p) => p.product_id === product2Id)?.offerings[0]
+          .quantity
       ).toBe(1);
 
       // Verify listing total quantity updated
@@ -93,7 +110,7 @@ describe('Etsy Integration', () => {
       const currentQty = inventory.products[0].offerings[0].quantity;
       const updates = [
         {
-          sku: 'LBH-BLUE-001',
+          sku: inventory.products[0].sku,
           property_values: [],
           offerings: [{ quantity: currentQty, price: 45, is_enabled: true }],
         },
@@ -116,7 +133,7 @@ describe('Etsy Integration', () => {
       const newQty = inventory.products[0].offerings[0].quantity + 5;
       const updates = [
         {
-          sku: 'LBH-BLUE-001',
+          sku: inventory.products[0].sku,
           property_values: [],
           offerings: [{ quantity: newQty, price: 45, is_enabled: true }],
         },

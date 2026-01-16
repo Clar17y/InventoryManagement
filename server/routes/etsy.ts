@@ -4,6 +4,7 @@ import type { Prisma } from '@prisma/client';
 import { prisma } from '../lib/prisma';
 import { etsyClient, etsyAuth } from '../lib/etsyClient';
 import { MOCK_SHOP } from '../lib/etsy/fixtures';
+import { fetchAllActiveListings } from '../lib/etsy/pagination';
 
 const isMockMode = () => process.env.ETSY_MODE === 'mock';
 
@@ -22,6 +23,32 @@ function generatePKCE() {
         .update(verifier)
         .digest('base64url');
     return { verifier, challenge };
+}
+
+async function mapWithConcurrency<T, R>(
+    items: T[],
+    concurrency: number,
+    mapper: (item: T, index: number) => Promise<R>
+): Promise<R[]> {
+    const results: R[] = new Array(items.length);
+    const maxConcurrency = Math.max(1, Math.floor(concurrency));
+
+    let nextIndex = 0;
+    const workers = Array.from(
+        { length: Math.min(maxConcurrency, items.length) },
+        async () => {
+            while (true) {
+                const currentIndex = nextIndex;
+                nextIndex += 1;
+                if (currentIndex >= items.length) return;
+
+                results[currentIndex] = await mapper(items[currentIndex]!, currentIndex);
+            }
+        }
+    );
+
+    await Promise.all(workers);
+    return results;
 }
 
 /**
@@ -229,11 +256,14 @@ router.post('/disconnect', async (req, res) => {
  */
 router.get('/listings', async (req, res) => {
     try {
-        const { listings, count } = await etsyClient.getActiveListings();
+        const listings = await fetchAllActiveListings(etsyClient);
+        const count = listings.length;
 
         // Fetch inventory for each listing to get variant info
-        const listingsWithInventory = await Promise.all(
-            listings.map(async (listing) => {
+        const listingsWithInventory = await mapWithConcurrency(
+            listings,
+            10,
+            async (listing) => {
                 try {
                     const inventory = await etsyClient.getListingInventory(listing.listing_id);
                     return {
@@ -247,7 +277,7 @@ router.get('/listings', async (req, res) => {
                         inventory: null,
                     };
                 }
-            })
+            }
         );
 
         res.json({ listings: listingsWithInventory, count });
@@ -263,7 +293,7 @@ router.get('/listings', async (req, res) => {
  */
 router.post('/import', async (req, res) => {
     try {
-        const { listings } = await etsyClient.getActiveListings();
+        const listings = await fetchAllActiveListings(etsyClient);
 
         const results = {
             created: 0,

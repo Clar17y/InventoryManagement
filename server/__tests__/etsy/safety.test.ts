@@ -15,7 +15,7 @@ describe('computeDiff', () => {
   it('detects quantity changes', () => {
     const updates = [
       {
-        sku: 'LBH-BLUE-001',
+        sku: '',
         property_values: [],
         offerings: [{ quantity: 10, price: 45, is_enabled: true }],
       },
@@ -26,7 +26,7 @@ describe('computeDiff', () => {
     expect(result.wouldUpdate).toBe(true);
     expect(result.changes).toHaveLength(1);
     expect(result.changes[0]).toEqual({
-      sku: 'LBH-BLUE-001',
+      sku: String(SINGLE_VARIANT_INVENTORY.products[0].product_id),
       currentQuantity: 5,
       newQuantity: 10,
     });
@@ -35,7 +35,7 @@ describe('computeDiff', () => {
   it('returns no changes when quantities match', () => {
     const updates = [
       {
-        sku: 'LBH-BLUE-001',
+        sku: '',
         property_values: [],
         offerings: [{ quantity: 5, price: 45, is_enabled: true }],
       },
@@ -48,20 +48,30 @@ describe('computeDiff', () => {
   });
 
   it('handles multiple product updates', () => {
-    const updates = [
-      { sku: 'LPH-GS', property_values: [], offerings: [{ quantity: 10, price: 65, is_enabled: true }] },
-      { sku: 'LPH-FL', property_values: [], offerings: [{ quantity: 8, price: 65, is_enabled: true }] },
-      { sku: 'LPH-BEE', property_values: [], offerings: [{ quantity: 3, price: 65, is_enabled: true }] }, // No change
-    ];
+    const updates = MULTI_VARIANT_INVENTORY.products.map((p, idx) => ({
+      sku: p.sku,
+      property_values: p.property_values.map((pv) => ({
+        property_id: pv.property_id,
+        property_name: pv.property_name,
+        value_ids: pv.value_ids,
+        values: pv.values,
+      })),
+      offerings: [
+        {
+          quantity: idx === 0 ? 10 : idx === 1 ? 8 : 3, // last has no change
+          price: 65,
+          is_enabled: true,
+        },
+      ],
+    }));
 
     const result = computeDiff(MULTI_VARIANT_INVENTORY, updates);
 
     expect(result.wouldUpdate).toBe(true);
-    // LPH-GS: 4->10, LPH-FL: 5->8, LPH-BEE: 3->3 (no change)
     expect(result.changes).toHaveLength(2);
   });
 
-  it('ignores updates for non-existent SKUs', () => {
+  it('ignores updates that do not match any product', () => {
     const updates = [
       {
         sku: 'NON-EXISTENT',
@@ -70,7 +80,7 @@ describe('computeDiff', () => {
       },
     ];
 
-    const result = computeDiff(SINGLE_VARIANT_INVENTORY, updates);
+    const result = computeDiff(MULTI_VARIANT_INVENTORY, updates);
 
     expect(result.wouldUpdate).toBe(false);
     expect(result.changes).toHaveLength(0);
@@ -81,7 +91,7 @@ describe('shouldSkipUpdate', () => {
   it('returns true when no changes needed', () => {
     const updates = [
       {
-        sku: 'LBH-BLUE-001',
+        sku: '',
         property_values: [],
         offerings: [{ quantity: 5, price: 45, is_enabled: true }],
       },
@@ -93,7 +103,7 @@ describe('shouldSkipUpdate', () => {
   it('returns false when changes are needed', () => {
     const updates = [
       {
-        sku: 'LBH-BLUE-001',
+        sku: '',
         property_values: [],
         offerings: [{ quantity: 10, price: 45, is_enabled: true }],
       },
@@ -234,12 +244,12 @@ describe('groupUpdatesByListing', () => {
 
 describe('buildInventoryUpdateProducts', () => {
   it('builds update products preserving original prices', () => {
-    const updates = [{ etsySku: 'LBH-BLUE-001', etsyProductId: null, quantity: 10 }];
+    const updates = [{ etsySku: null, etsyProductId: null, quantity: 10 }];
 
     const products = buildInventoryUpdateProducts(SINGLE_VARIANT_INVENTORY, updates);
 
     expect(products).toHaveLength(1);
-    expect(products[0].sku).toBe('LBH-BLUE-001');
+    expect(products[0].sku).toBe('');
     expect(products[0].offerings[0].quantity).toBe(10);
     expect(products[0].offerings[0].price).toBe(45); // Original price preserved
   });
@@ -261,17 +271,21 @@ describe('buildInventoryUpdateProducts', () => {
   });
 
   it('preserves products without updates', () => {
-    const updates = [{ etsySku: 'LPH-GS', etsyProductId: null, quantity: 20 }];
+    const updates = [
+      {
+        etsySku: null,
+        etsyProductId: String(MULTI_VARIANT_INVENTORY.products[0].product_id),
+        quantity: 20,
+      },
+    ];
 
     const products = buildInventoryUpdateProducts(MULTI_VARIANT_INVENTORY, updates);
 
     expect(products).toHaveLength(3);
     // Updated product
-    expect(products.find((p) => p.sku === 'LPH-GS')?.offerings[0].quantity).toBe(
-      20
-    );
+    expect(products[0].offerings[0].quantity).toBe(20);
     // Unchanged products keep original quantities
-    expect(products.find((p) => p.sku === 'LPH-FL')?.offerings[0].quantity).toBe(5);
-    expect(products.find((p) => p.sku === 'LPH-BEE')?.offerings[0].quantity).toBe(3);
+    expect(products[1].offerings[0].quantity).toBe(5);
+    expect(products[2].offerings[0].quantity).toBe(3);
   });
 });

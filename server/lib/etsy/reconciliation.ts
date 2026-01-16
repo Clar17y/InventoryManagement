@@ -11,29 +11,11 @@ import {
   ReconciliationQuantityDiff,
   ReconciliationSummary,
 } from './types';
+import { fetchAllActiveListings } from './pagination';
 
 // =============================================================================
 // Pagination Helpers
 // =============================================================================
-
-/**
- * Fetch all active listings from Etsy, handling pagination.
- */
-async function fetchAllListings(client: IEtsyClient): Promise<EtsyListing[]> {
-  const allListings: EtsyListing[] = [];
-  let offset = 0;
-  const limit = 100;
-
-  while (true) {
-    const { listings, count } = await client.getActiveListings(limit, offset);
-    allListings.push(...listings);
-
-    if (allListings.length >= count) break;
-    offset += limit;
-  }
-
-  return allListings;
-}
 
 /**
  * Fetch inventory for multiple listings, handling errors gracefully.
@@ -175,7 +157,7 @@ export async function generateReconciliationReport(
   // Fetch all Etsy listings
   let etsyListings: EtsyListing[] = [];
   try {
-    etsyListings = await fetchAllListings(client);
+    etsyListings = await fetchAllActiveListings(client);
   } catch (error) {
     console.error('Failed to fetch Etsy listings:', error);
     errorCount++;

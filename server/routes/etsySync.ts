@@ -3,7 +3,7 @@ import { prisma } from '../lib/prisma';
 import { etsyClient } from '../lib/etsyClient';
 import { generateReconciliationReport } from '../lib/etsy/reconciliation';
 import { getSyncComparison, pushSyncUpdates } from '../lib/etsy/sync/inventory';
-import { getPendingOrders, importOrder } from '../lib/etsy/sync/orders';
+import { getPendingOrders, importOrder, importOrdersBulk } from '../lib/etsy/sync/orders';
 import { generateSkus, getPendingSkus, pushSkus } from '../lib/etsy/sync/skus';
 import { getPendingPriceUpdates, pushPriceUpdates } from '../lib/etsy/sync/prices';
 import { SyncHttpError } from '../lib/etsy/sync/errors';
@@ -78,23 +78,56 @@ router.get('/orders/pending', async (req, res) => {
  * Validates:
  * - Hampers must exist for each listing
  * - Optional variant mapping (by SKU) if available
- * - Stock availability across all required categories
+ * - Stock availability across all required categories (unless isHistorical=true)
  *
  * Behavior:
  * - Hard error if any item lacks hamper mapping
- * - Hard error if insufficient stock for any required category
+ * - Hard error if insufficient stock for any required category (unless isHistorical=true)
  * - Warns (but allows) variant SKU fallback to category-wide allocation
+ * - Historical mode: skips stock validation and consumption
  */
 router.post('/orders/import', async (req, res) => {
     try {
-        const { receiptId, postageCost } = req.body as { receiptId: number; postageCost: number };
-        const result = await importOrder(receiptId, postageCost);
+        const { receiptId, postageCost, isHistorical = false } = req.body as {
+            receiptId: number;
+            postageCost: number;
+            isHistorical?: boolean;
+        };
+        const result = await importOrder(receiptId, postageCost, isHistorical);
         res.json(result);
     } catch (error) {
         if (error instanceof SyncHttpError) {
             return res.status(error.status).json(error.body);
         }
         const message = error instanceof Error ? error.message : 'Failed to import order';
+        res.status(500).json({ error: message });
+    }
+});
+
+/**
+ * POST /api/etsy/sync/orders/import-bulk
+ * Import multiple Etsy orders as sales in a single optimized operation
+ * 
+ * Much faster than calling /import multiple times - fetches Etsy receipts once
+ */
+router.post('/orders/import-bulk', async (req, res) => {
+    try {
+        const { orders, isHistorical = false } = req.body as {
+            orders: Array<{ receiptId: number; postageCost: number }>;
+            isHistorical?: boolean;
+        };
+
+        if (!orders || !Array.isArray(orders) || orders.length === 0) {
+            return res.status(400).json({ error: 'No orders provided' });
+        }
+
+        const result = await importOrdersBulk(orders, isHistorical);
+        res.json(result);
+    } catch (error) {
+        if (error instanceof SyncHttpError) {
+            return res.status(error.status).json(error.body);
+        }
+        const message = error instanceof Error ? error.message : 'Failed to import orders';
         res.status(500).json({ error: message });
     }
 });

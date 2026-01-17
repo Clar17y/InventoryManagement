@@ -28,6 +28,7 @@ const recordSaleSchema = z.object({
   etsyOrderId: z.string().max(100).optional(),
   notes: z.string().max(1000).optional(),
   lines: z.array(saleLineSchema).min(1),
+  isHistorical: z.boolean().default(false), // Skip inventory allocation for historical imports
   // Optional overrides for allocations
   allocationOverrides: z.record(z.string(), z.array(z.object({
     lotId: z.string().cuid(),
@@ -240,6 +241,19 @@ router.post('/', async (req, res) => {
           throw new Error(`Hamper ${line.hamperId} not found`)
         }
 
+        // Historical sales skip inventory allocation entirely
+        if (data.isHistorical) {
+          saleLines.push({
+            hamperId: hamper.id,
+            description: null,
+            quantity: line.quantity,
+            unitPrice: Number(hamper.sellingPrice),
+            lineCost: 0, // No stock cost for historical sales
+            consumptions: [],
+          })
+          continue
+        }
+
         let lineCost = 0
         const consumptions: Array<{ lotId: string; quantity: number; unitCost: number }> = []
 
@@ -357,6 +371,7 @@ router.post('/', async (req, res) => {
           margin,
           etsyOrderId: data.etsyOrderId,
           notes: data.notes,
+          isHistorical: data.isHistorical,
           lines: {
             create: saleLines.map((sl) => ({
               hamperId: sl.hamperId,

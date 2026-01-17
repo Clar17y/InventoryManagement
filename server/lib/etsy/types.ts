@@ -184,6 +184,9 @@ export interface EtsyCredentialsRecord {
   shopId: string;
   shopName: string;
   userId: string;
+  loginName: string | null;
+  isDefault: boolean;
+  isAppOwner: boolean;
 }
 
 export interface EtsyAuthFunctions {

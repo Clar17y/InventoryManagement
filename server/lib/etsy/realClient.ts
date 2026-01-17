@@ -22,16 +22,39 @@ const ETSY_API_BASE = 'https://api.etsy.com/v3';
 
 export class RealEtsyClient implements IEtsyClient {
   private apiKey: string;
+  private sharedSecret: string;
 
   constructor() {
     this.apiKey = process.env.ETSY_API_KEY || '';
+    this.sharedSecret = process.env.ETSY_SHARED_SECRET || '';
     if (!this.apiKey) {
       console.warn('ETSY_API_KEY not set - Etsy integration will not work');
     }
+    if (!this.sharedSecret) {
+      console.warn('ETSY_SHARED_SECRET not set - Etsy API calls may fail');
+    }
   }
 
+  /** Build x-api-key header value: KEYSTRING:SHARED_SECRET */
+  private getApiKeyHeader(): string {
+    return this.sharedSecret ? `${this.apiKey}:${this.sharedSecret}` : this.apiKey;
+  }
+
+  /**
+   * Get credentials for API calls.
+   * Prefers the default account (isDefault=true), falls back to first available.
+   */
   private async getCredentialsInternal(): Promise<EtsyCredentialsRecord | null> {
-    const credentials = await prisma.etsyCredentials.findFirst();
+    // First try to get the default account
+    let credentials = await prisma.etsyCredentials.findFirst({
+      where: { isDefault: true },
+    });
+
+    // Fallback to any account if no default set
+    if (!credentials) {
+      credentials = await prisma.etsyCredentials.findFirst();
+    }
+
     if (!credentials) return null;
 
     // Check if tokens need refresh (refresh 5 minutes before expiry)
@@ -44,6 +67,25 @@ export class RealEtsyClient implements IEtsyClient {
     }
 
     return credentials;
+  }
+
+  /**
+   * Set an account as the default for API calls.
+   * Uses a transaction to ensure only one account is default.
+   */
+  async setDefaultAccount(userId: string): Promise<void> {
+    await prisma.$transaction([
+      // Clear existing default
+      prisma.etsyCredentials.updateMany({
+        where: { isDefault: true },
+        data: { isDefault: false },
+      }),
+      // Set new default
+      prisma.etsyCredentials.update({
+        where: { userId },
+        data: { isDefault: true },
+      }),
+    ]);
   }
 
   private async refreshTokens(
@@ -111,8 +153,9 @@ export class RealEtsyClient implements IEtsyClient {
     const response = await fetch(`${ETSY_API_BASE}${endpoint}`, {
       ...options,
       headers: {
+        // accessToken already includes userId prefix (format: userId.token)
         Authorization: `Bearer ${credentials.accessToken}`,
-        'x-api-key': this.apiKey,
+        'x-api-key': this.getApiKeyHeader(),
         'Content-Type': 'application/json',
         ...options.headers,
       },
@@ -314,7 +357,13 @@ class EtsyAuthManager implements EtsyAuthFunctions {
   }
 
   async getCredentials(): Promise<EtsyCredentialsRecord | null> {
-    const credentials = await prisma.etsyCredentials.findFirst();
+    // Prefer default account, fallback to any
+    let credentials = await prisma.etsyCredentials.findFirst({
+      where: { isDefault: true },
+    });
+    if (!credentials) {
+      credentials = await prisma.etsyCredentials.findFirst();
+    }
     return credentials;
   }
 }

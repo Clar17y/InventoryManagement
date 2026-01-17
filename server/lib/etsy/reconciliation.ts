@@ -12,6 +12,7 @@ import {
   ReconciliationSummary,
 } from './types';
 import { fetchAllActiveListings } from './pagination';
+import { decodeHtmlEntities } from './utils';
 
 // =============================================================================
 // Pagination Helpers
@@ -226,7 +227,7 @@ export async function generateReconciliationReport(
       const inventory = inventoryMap.get(listing.listing_id);
       newListings.push({
         listingId: listing.listing_id,
-        title: listing.title,
+        title: decodeHtmlEntities(listing.title),
         state: listing.state,
         variantCount: inventory?.products.length ?? 0,
       });

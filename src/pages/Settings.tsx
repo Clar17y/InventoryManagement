@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
-import { ChevronRightIcon, CheckIcon, PencilIcon } from '@heroicons/react/24/outline'
-import { settings, EtsyFeeConfig, PackagingOverhead } from '../lib/api'
+import { ChevronRightIcon, CheckIcon, PencilIcon, LinkIcon, XMarkIcon } from '@heroicons/react/24/outline'
+import { settings, etsy, EtsyFeeConfig, PackagingOverhead, EtsyAccount } from '../lib/api'
 import { formatCurrency } from '../lib/formatting'
 
 const settingsLinks = [
@@ -48,6 +48,11 @@ export default function Settings() {
   // Packaging overhead editing
   const [newOverheadName, setNewOverheadName] = useState('')
   const [newOverheadCost, setNewOverheadCost] = useState('')
+
+  // Etsy Access Management
+  const [etsyAccounts, setEtsyAccounts] = useState<EtsyAccount[]>([])
+  const [loadingAccounts, setLoadingAccounts] = useState(false)
+  const [accountsError, setAccountsError] = useState<string | null>(null)
 
   const loadSettings = async () => {
     try {
@@ -142,6 +147,53 @@ export default function Settings() {
       await loadSettings()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to delete overhead')
+    }
+  }
+
+  // Etsy Access Management handlers
+  const loadEtsyAccounts = async () => {
+    setLoadingAccounts(true)
+    setAccountsError(null)
+    try {
+      const accountsRes = await etsy.getAccounts()
+      setEtsyAccounts(accountsRes.accounts)
+    } catch (err) {
+      setAccountsError(err instanceof Error ? err.message : 'Failed to load Etsy accounts')
+    } finally {
+      setLoadingAccounts(false)
+    }
+  }
+
+  useEffect(() => {
+    loadEtsyAccounts()
+  }, [])
+
+  const handleConnectEtsy = async () => {
+    try {
+      const { authUrl } = await etsy.initiateAuth()
+      window.location.href = authUrl
+    } catch (err) {
+      setAccountsError(err instanceof Error ? err.message : 'Failed to initiate Etsy connection')
+    }
+  }
+
+  const handleSetDefaultAccount = async (userId: string) => {
+    try {
+      await etsy.setDefaultAccount(userId)
+      await loadEtsyAccounts()
+    } catch (err) {
+      setAccountsError(err instanceof Error ? err.message : 'Failed to set default account')
+    }
+  }
+
+  const handleRemoveAccount = async (userId: string, shopName: string) => {
+    if (!confirm(`Remove ${shopName} from connected accounts?`)) return
+
+    try {
+      await etsy.removeAccount(userId)
+      await loadEtsyAccounts()
+    } catch (err) {
+      setAccountsError(err instanceof Error ? err.message : 'Failed to remove account')
     }
   }
 
@@ -378,6 +430,88 @@ export default function Settings() {
           >
             Add
           </button>
+        </div>
+      </section>
+
+      {/* Etsy Access Management Section */}
+      <section className="card space-y-4">
+        <div className="flex justify-between items-center">
+          <h3 className="font-medium">Etsy Access Management</h3>
+          {loadingAccounts && <span className="text-sm text-gray-500">Loading...</span>}
+        </div>
+        <p className="text-sm text-gray-500">
+          Manage connected Etsy accounts and provisional users (up to 5 users for app testing)
+        </p>
+
+        {accountsError && (
+          <div className="bg-red-50 text-red-700 p-3 rounded-lg text-sm">{accountsError}</div>
+        )}
+
+        {/* Connected Accounts */}
+        <div className="space-y-2">
+          <h4 className="text-sm font-medium text-gray-700">Connected Accounts</h4>
+          {etsyAccounts.length === 0 ? (
+            <div className="text-center py-6 text-gray-500">
+              <LinkIcon className="h-10 w-10 mx-auto mb-2 text-gray-300" />
+              <p className="text-sm">No Etsy accounts connected</p>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {etsyAccounts.map((account) => (
+                <div
+                  key={account.userId}
+                  className="flex justify-between items-center bg-gray-50 p-3 rounded-lg"
+                >
+                  <div>
+                    <div className="font-medium flex items-center gap-2">
+                      {account.shopName}
+                      {account.isAppOwner && (
+                        <span className="text-xs bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded">
+                          App Owner
+                        </span>
+                      )}
+                      {account.isDefault && (
+                        <span className="text-xs bg-green-100 text-green-700 px-1.5 py-0.5 rounded">
+                          Default
+                        </span>
+                      )}
+                    </div>
+                    <div className="text-sm text-gray-500">
+                      {account.loginName || `User ${account.userId}`}
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    {!account.isDefault && (
+                      <button
+                        onClick={() => handleSetDefaultAccount(account.userId)}
+                        className="text-sm text-primary-600 hover:text-primary-700"
+                      >
+                        Set Default
+                      </button>
+                    )}
+                    <button
+                      onClick={() => handleRemoveAccount(account.userId, account.shopName)}
+                      className="p-1 text-gray-400 hover:text-red-600"
+                      title="Remove account"
+                    >
+                      <XMarkIcon className="h-4 w-4" />
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+          <button onClick={handleConnectEtsy} className="btn-primary text-sm">
+            Connect Etsy Account
+          </button>
+        </div>
+
+        {/* Info about multi-user access */}
+        <div className="pt-4 border-t">
+          <p className="text-xs text-gray-500">
+            <strong>Note:</strong> Each user needs to click "Connect Etsy Account" to authorize this app.
+            Personal access allows up to 5 connected shops. Set the shop you want to use as "Default".
+          </p>
         </div>
       </section>
     </div>

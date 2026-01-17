@@ -104,6 +104,7 @@ export interface SaleCreateData {
   etsyOrderId?: string
   notes?: string
   lines: SaleLineInput[]
+  isHistorical?: boolean // Skip inventory allocation for historical imports
   allocationOverrides?: Record<string, { lotId: string; quantity: number }[]>
 }
 

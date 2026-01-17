@@ -119,6 +119,7 @@ export interface EtsyPendingOrder {
 export interface EtsyOrderImportRequest {
     receiptId: number
     postageCost: number
+    isHistorical?: boolean
 }
 
 export interface EtsyOrderImportResult {
@@ -128,6 +129,23 @@ export interface EtsyOrderImportResult {
         etsyOrderId: string
         lines: number
     }
+}
+
+export interface EtsyBulkImportRequest {
+    orders: Array<{ receiptId: number; postageCost: number }>
+    isHistorical?: boolean
+}
+
+export interface EtsyBulkImportResult {
+    success: boolean
+    imported: number
+    failed: number
+    results: Array<{
+        receiptId: number
+        success: boolean
+        saleId?: string
+        error?: string
+    }>
 }
 
 export interface EtsyPendingSku {
@@ -168,6 +186,22 @@ export interface EtsyPendingPriceUpdate {
     localPrice: number | null
     etsyPrice: number
     needsSync: boolean
+}
+
+// Account management types
+export interface EtsyAccount {
+    userId: string
+    shopId: string
+    shopName: string
+    loginName: string | null
+    isDefault: boolean
+    isAppOwner: boolean
+    expiresAt: string
+}
+
+export interface EtsyProvisionalUser {
+    user_id: number
+    login_name: string
 }
 
 // Etsy API client
@@ -226,6 +260,15 @@ export const etsy = {
         }),
 
     /**
+     * Bulk import multiple Etsy orders as sales (optimized - single Etsy API call)
+     */
+    importOrdersBulk: (data: EtsyBulkImportRequest) =>
+        request<EtsyBulkImportResult>('/etsy/sync/orders/import-bulk', {
+            method: 'POST',
+            body: JSON.stringify(data)
+        }),
+
+    /**
      * Generate SKUs for variants that don't have them
      */
     generateSkus: () =>
@@ -268,4 +311,50 @@ export const etsy = {
                 body: JSON.stringify({ updates })
             }
         ),
+
+    // =========================================================================
+    // Account Management
+    // =========================================================================
+
+    /**
+     * Get all connected Etsy accounts
+     */
+    getAccounts: () => request<{ accounts: EtsyAccount[] }>('/etsy/accounts'),
+
+    /**
+     * Set an account as the default for API calls
+     */
+    setDefaultAccount: (userId: string) =>
+        request<{ success: boolean }>(`/etsy/accounts/${userId}/set-default`, { method: 'POST' }),
+
+    /**
+     * Remove an Etsy account
+     */
+    removeAccount: (userId: string) =>
+        request<{ success: boolean }>(`/etsy/accounts/${userId}`, { method: 'DELETE' }),
+
+    // =========================================================================
+    // Provisional Users (Etsy API management)
+    // =========================================================================
+
+    /**
+     * Get registered provisional users from Etsy
+     */
+    getProvisionalUsers: () =>
+        request<{ provisionalUsers: EtsyProvisionalUser[] }>('/etsy/provisional-users'),
+
+    /**
+     * Register a user as a provisional user with Etsy (by login name)
+     */
+    addProvisionalUser: (loginName: string) =>
+        request<{ success: boolean }>('/etsy/provisional-users', {
+            method: 'POST',
+            body: JSON.stringify({ loginName }),
+        }),
+
+    /**
+     * Remove a provisional user from Etsy
+     */
+    removeProvisionalUser: (userId: string) =>
+        request<{ success: boolean }>(`/etsy/provisional-users/${userId}`, { method: 'DELETE' }),
 }

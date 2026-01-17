@@ -115,6 +115,7 @@ export default function Sales() {
   const [postageCost, setPostageCost] = useState('5.35')
   const [saleDate, setSaleDate] = useState(new Date().toISOString().split('T')[0] ?? '')
   const [saving, setSaving] = useState(false)
+  const [isHistorical, setIsHistorical] = useState(false)
 
   // Override state
   const [editingOverride, setEditingOverride] = useState<{ hamperIdx: number; categoryId: string } | null>(null)
@@ -281,6 +282,7 @@ export default function Sales() {
     setError(null)
     setOverrides({})
     setEditingOverride(null)
+    setIsHistorical(false)
   }
 
   const getOverrideKey = (hamperIdx: number, categoryId: string) => `${hamperIdx}:${categoryId}`
@@ -314,27 +316,30 @@ export default function Sales() {
   }
 
   const handleSubmit = async () => {
-    if (!preview) {
+    // For historical sales, we don't need preview or fulfillment checks
+    if (!isHistorical && !preview) {
       setError('No preview available')
       return
     }
 
-    // Check fulfillment considering overrides
-    const canFulfillAll = preview.lines.every((linePreview, idx) => {
-      return linePreview.requirements.every((req) => {
-        const key = getOverrideKey(idx, req.categoryId)
-        const override = overrides[key]
-        if (override) {
-          const totalOverride = override.reduce((sum, o) => sum + o.quantity, 0)
-          return totalOverride >= req.quantityRequired
-        }
-        return req.fulfilled
+    // Check fulfillment only for non-historical sales
+    if (!isHistorical && preview) {
+      const canFulfillAll = preview.lines.every((linePreview, idx) => {
+        return linePreview.requirements.every((req) => {
+          const key = getOverrideKey(idx, req.categoryId)
+          const override = overrides[key]
+          if (override) {
+            const totalOverride = override.reduce((sum, o) => sum + o.quantity, 0)
+            return totalOverride >= req.quantityRequired
+          }
+          return req.fulfilled
+        })
       })
-    })
 
-    if (!canFulfillAll) {
-      setError('Cannot fulfill all requirements - check stock levels')
-      return
+      if (!canFulfillAll) {
+        setError('Cannot fulfill all requirements - check stock levels')
+        return
+      }
     }
 
     setSaving(true)
@@ -343,23 +348,42 @@ export default function Sales() {
     try {
       const validLines = lines.filter((l) => (l.hamperId || (l.isBespoke && l.description && l.unitPrice)) && l.quantity > 0)
 
-      // Convert overrides to API format: { "hamperId:categoryId": [...] }
-      const allocationOverrides: Record<string, { lotId: string; quantity: number }[]> = {}
-      Object.entries(overrides).forEach(([key, lots]) => {
-        const parts = key.split(':')
-        const hamperIdx = parts[0]
-        const categoryId = parts[1]
-        if (hamperIdx && categoryId) {
-          const hamperId = validLines[parseInt(hamperIdx)]?.hamperId
-          if (hamperId) {
-            const apiKey = `${hamperId}:${categoryId}`
-            allocationOverrides[apiKey] = lots.map((l) => ({ lotId: l.lotId, quantity: l.quantity }))
+      if (validLines.length === 0) {
+        setError('At least one valid line is required')
+        setSaving(false)
+        return
+      }
+
+      // Calculate gross revenue from lines for historical sales
+      const grossRevenue = isHistorical
+        ? validLines.reduce((sum, line) => {
+          if (line.isBespoke) {
+            return sum + (line.unitPrice || 0) * line.quantity
           }
-        }
-      })
+          const hamper = hamperList.find((h) => h.id === line.hamperId)
+          return sum + (hamper ? Number(hamper.sellingPrice) * line.quantity : 0)
+        }, 0)
+        : preview!.summary.totalGross
+
+      // Convert overrides to API format (only for non-historical)
+      const allocationOverrides: Record<string, { lotId: string; quantity: number }[]> = {}
+      if (!isHistorical) {
+        Object.entries(overrides).forEach(([key, lots]) => {
+          const parts = key.split(':')
+          const hamperIdx = parts[0]
+          const categoryId = parts[1]
+          if (hamperIdx && categoryId) {
+            const hamperId = validLines[parseInt(hamperIdx)]?.hamperId
+            if (hamperId) {
+              const apiKey = `${hamperId}:${categoryId}`
+              allocationOverrides[apiKey] = lots.map((l) => ({ lotId: l.lotId, quantity: l.quantity }))
+            }
+          }
+        })
+      }
 
       await sales.create({
-        grossRevenue: preview.summary.totalGross,
+        grossRevenue,
         postageCharged: postageCharged ? parseFloat(postageCharged) : undefined,
         postageCost: postageCost ? parseFloat(postageCost) : undefined,
         saleChannel,
@@ -367,6 +391,7 @@ export default function Sales() {
         lines: validLines,
         notes: notes || undefined,
         etsyOrderId: etsyOrderId || undefined,
+        isHistorical: isHistorical || undefined,
         allocationOverrides: Object.keys(allocationOverrides).length > 0 ? allocationOverrides : undefined,
       })
       handleCancel()
@@ -388,18 +413,23 @@ export default function Sales() {
 
   // Record Sale View
   if (viewMode === 'record') {
-    // Check if can submit considering overrides
-    const canSubmit = preview && !saving && preview.lines.every((linePreview, idx) => {
-      return linePreview.requirements.every((req) => {
-        const key = getOverrideKey(idx, req.categoryId)
-        const override = overrides[key]
-        if (override) {
-          const totalOverride = override.reduce((sum, o) => sum + o.quantity, 0)
-          return totalOverride >= req.quantityRequired
-        }
-        return req.fulfilled
-      })
-    })
+    // For historical sales, we just need valid lines; for normal sales we check fulfillment
+    const hasValidLines = lines.some((l) => (l.hamperId || (l.isBespoke && l.description && l.unitPrice)) && l.quantity > 0)
+    const canSubmit = !saving && (
+      isHistorical
+        ? hasValidLines
+        : preview && preview.lines.every((linePreview, idx) => {
+          return linePreview.requirements.every((req) => {
+            const key = getOverrideKey(idx, req.categoryId)
+            const override = overrides[key]
+            if (override) {
+              const totalOverride = override.reduce((sum, o) => sum + o.quantity, 0)
+              return totalOverride >= req.quantityRequired
+            }
+            return req.fulfilled
+          })
+        })
+    )
 
     return (
       <div className="space-y-4">
@@ -445,6 +475,27 @@ export default function Sales() {
           {saleChannel !== 'etsy' && (
             <p className="text-xs text-gray-500">No marketplace fees for {channelLabels[saleChannel]} sales</p>
           )}
+
+          {/* Historical Sale Toggle */}
+          <div className="pt-3 border-t">
+            <label className="flex items-center gap-3 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={isHistorical}
+                onChange={(e) => setIsHistorical(e.target.checked)}
+                className="w-4 h-4 rounded border-gray-300 text-amber-600 focus:ring-amber-500"
+              />
+              <div>
+                <span className="font-medium text-sm">Historical Sale</span>
+                <p className="text-xs text-gray-500">Skip inventory checks (for importing past sales)</p>
+              </div>
+            </label>
+            {isHistorical && (
+              <div className="mt-2 bg-amber-50 border border-amber-200 rounded-lg p-2 text-sm text-amber-800">
+                ⚠️ Historical mode: This sale will not consume stock or check availability.
+              </div>
+            )}
+          </div>
         </div>
 
         {/* Hamper Selection */}
@@ -660,12 +711,48 @@ export default function Sales() {
           </div>
         </div>
 
-        {/* Allocation Preview */}
-        {previewLoading && (
+        {/* Allocation Preview - only for non-historical sales */}
+        {!isHistorical && previewLoading && (
           <div className="card text-center py-4 text-gray-500">Loading preview...</div>
         )}
 
-        {preview && !previewLoading && (
+        {/* Historical Sale Summary */}
+        {isHistorical && (
+          <div className="card space-y-4">
+            <h3 className="font-medium">Sale Summary (Historical)</h3>
+            <div className="text-sm text-gray-600">
+              <p>This sale will be recorded without checking or consuming inventory.</p>
+            </div>
+            <div className="border-t pt-3 space-y-2">
+              <div className="flex justify-between text-sm">
+                <span>Gross Revenue</span>
+                <span className="font-medium">
+                  {formatCurrency(
+                    lines.reduce((sum, line) => {
+                      if (line.isBespoke) {
+                        return sum + (line.unitPrice || 0) * line.quantity
+                      }
+                      const hamper = hamperList.find((h) => h.id === line.hamperId)
+                      return sum + (hamper ? Number(hamper.sellingPrice) * line.quantity : 0)
+                    }, 0)
+                  )}
+                </span>
+              </div>
+              {postageCharged && (
+                <div className="flex justify-between text-sm">
+                  <span>+ Postage Charged</span>
+                  <span className="font-medium">{formatCurrency(parseFloat(postageCharged))}</span>
+                </div>
+              )}
+              <div className="flex justify-between text-sm text-gray-500">
+                <span>Stock Cost</span>
+                <span>Not tracked (historical)</span>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {!isHistorical && preview && !previewLoading && (
           <div className="card space-y-4">
             <h3 className="font-medium">Stock Allocation Preview</h3>
 

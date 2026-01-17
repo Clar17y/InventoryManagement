@@ -12,6 +12,7 @@ import {
   endLogSession,
 } from '../debugLogger';
 import { SyncHttpError } from './errors';
+import { decodeHtmlEntities } from '../utils';
 
 export async function getPendingOrders() {
   const sessionId = startLogSession('PENDING_ORDERS');
@@ -81,7 +82,7 @@ export async function getPendingOrders() {
           return {
             transactionId: tx.transaction_id,
             listingId: tx.listing_id,
-            title: tx.title,
+            title: decodeHtmlEntities(tx.title),
             quantity: tx.quantity,
             price: tx.price.amount / tx.price.divisor,
             sku: tx.sku,
@@ -115,10 +116,10 @@ export async function getPendingOrders() {
   }
 }
 
-export async function importOrder(receiptId: number, postageCost: number) {
+export async function importOrder(receiptId: number, postageCost: number, isHistorical = false) {
   const sessionId = startLogSession('ORDER_IMPORT');
   try {
-    logWorkflow('IMPORT', 'Starting order import', { receiptId, postageCost });
+    logWorkflow('IMPORT', 'Starting order import', { receiptId, postageCost, isHistorical });
 
     if (!receiptId || postageCost === undefined) {
       logWorkflow('IMPORT', 'Validation failed - missing required fields', {
@@ -292,7 +293,7 @@ export async function importOrder(receiptId: number, postageCost: number) {
       });
 
       if (!hamper) {
-        missingMappings.push(`"${tx.title}" (listing ${tx.listing_id})`);
+        missingMappings.push(`"${decodeHtmlEntities(tx.title)}" (listing ${tx.listing_id})`);
         continue;
       }
 
@@ -365,7 +366,7 @@ export async function importOrder(receiptId: number, postageCost: number) {
               ? `product_id ${tx.product_id}`
               : 'unknown variant';
           variantFallbackWarnings.push(
-            `"${tx.title}" ${identifier} not mapped to variant, using category-wide allocation`
+            `"${decodeHtmlEntities(tx.title)}" ${identifier} not mapped to variant, using category-wide allocation`
           );
         }
       }
@@ -443,74 +444,79 @@ export async function importOrder(receiptId: number, postageCost: number) {
       });
     }
 
-    logWorkflow('IMPORT:PHASE2', 'Starting stock availability pre-check');
-    const stockShortages: Array<{
-      category: string;
-      product?: string;
-      need: number;
-      have: number;
-    }> = [];
+    // Phase 2: Stock availability pre-check (skip for historical imports)
+    if (!isHistorical) {
+      logWorkflow('IMPORT:PHASE2', 'Starting stock availability pre-check');
+      const stockShortages: Array<{
+        category: string;
+        product?: string;
+        need: number;
+        have: number;
+      }> = [];
 
-    for (const [key, need] of aggregatedNeeds) {
-      logWorkflow('IMPORT:PHASE2', `Checking stock for ${key}`, {
-        categoryId: need.categoryId,
-        categoryName: need.categoryName,
-        variantId: need.variantId,
-        totalNeeded: need.totalNeeded,
-        pickRule: need.pickRule,
-      });
-
-      const allocation = need.variantId
-        ? await allocateStockForVariantRequirement(
-          need.variantId,
-          need.categoryId,
-          need.totalNeeded,
-          need.pickRule as PickRule
-        )
-        : await allocateStockForRequirement(
-          need.categoryId,
-          need.totalNeeded,
-          need.pickRule as PickRule
-        );
-
-      logWorkflow('IMPORT:PHASE2', `Stock allocation result for ${key}`, {
-        fulfilled: allocation.fulfilled,
-        categoryName: allocation.categoryName,
-        productName: allocation.productName,
-        allocations: allocation.allocations.map((a) => ({
-          lotId: a.lotId,
-          quantity: a.quantity,
-          unitCost: a.unitCost,
-        })),
-      });
-
-      if (!allocation.fulfilled) {
-        const have = allocation.allocations.reduce((sum, a) => sum + a.quantity, 0);
-        stockShortages.push({
-          category: allocation.categoryName,
-          product: allocation.productName,
-          need: need.totalNeeded,
-          have,
+      for (const [key, need] of aggregatedNeeds) {
+        logWorkflow('IMPORT:PHASE2', `Checking stock for ${key}`, {
+          categoryId: need.categoryId,
+          categoryName: need.categoryName,
+          variantId: need.variantId,
+          totalNeeded: need.totalNeeded,
+          pickRule: need.pickRule,
         });
+
+        const allocation = need.variantId
+          ? await allocateStockForVariantRequirement(
+            need.variantId,
+            need.categoryId,
+            need.totalNeeded,
+            need.pickRule as PickRule
+          )
+          : await allocateStockForRequirement(
+            need.categoryId,
+            need.totalNeeded,
+            need.pickRule as PickRule
+          );
+
+        logWorkflow('IMPORT:PHASE2', `Stock allocation result for ${key}`, {
+          fulfilled: allocation.fulfilled,
+          categoryName: allocation.categoryName,
+          productName: allocation.productName,
+          allocations: allocation.allocations.map((a) => ({
+            lotId: a.lotId,
+            quantity: a.quantity,
+            unitCost: a.unitCost,
+          })),
+        });
+
+        if (!allocation.fulfilled) {
+          const have = allocation.allocations.reduce((sum, a) => sum + a.quantity, 0);
+          stockShortages.push({
+            category: allocation.categoryName,
+            product: allocation.productName,
+            need: need.totalNeeded,
+            have,
+          });
+        }
       }
-    }
 
-    logWorkflow('IMPORT:PHASE2', 'Phase 2 complete - stock pre-check', {
-      shortagesCount: stockShortages.length,
-      stockShortages,
-    });
-
-    if (stockShortages.length > 0) {
-      logWorkflow('IMPORT', 'FAILED - Insufficient stock', { stockShortages });
-      endLogSession(sessionId, {
-        success: false,
-        error: 'insufficient_stock',
+      logWorkflow('IMPORT:PHASE2', 'Phase 2 complete - stock pre-check', {
+        shortagesCount: stockShortages.length,
         stockShortages,
       });
-      throw new SyncHttpError(400, {
-        error: 'Insufficient stock to fulfill order',
-        shortages: stockShortages,
-      });
+
+      if (stockShortages.length > 0) {
+        logWorkflow('IMPORT', 'FAILED - Insufficient stock', { stockShortages });
+        endLogSession(sessionId, {
+          success: false,
+          error: 'insufficient_stock',
+          stockShortages,
+        });
+        throw new SyncHttpError(400, {
+          error: 'Insufficient stock to fulfill order',
+          shortages: stockShortages,
+        });
+      }
+    } else {
+      logWorkflow('IMPORT:PHASE2', 'SKIPPED - Historical import mode');
     }
 
     logWorkflow('IMPORT:PHASE3', 'Starting transactional import');
@@ -527,6 +533,20 @@ export async function importOrder(receiptId: number, postageCost: number) {
       }> = [];
 
       for (const lineMeta of lineMetas) {
+        // For historical imports, skip stock allocation and consumption
+        if (isHistorical) {
+          saleLines.push({
+            hamperId: lineMeta.hamperId,
+            variantId: lineMeta.variantId,
+            description: null,
+            quantity: lineMeta.quantity,
+            unitPrice: lineMeta.unitPrice,
+            lineCost: 0, // No stock cost for historical imports
+            consumptions: [],
+          });
+          continue;
+        }
+
         const consumptions: Array<{
           lotId: string;
           quantity: number;
@@ -588,11 +608,24 @@ export async function importOrder(receiptId: number, postageCost: number) {
       const margin = grossRevenue - totalCostWithFees;
       const netRevenue = grossRevenue - fees.etsyFees;
 
+      // Build notes in format: "Hamper Name(s) - Customer Name"
+      const hamperNames = lineMetas.map((lm) => decodeHtmlEntities(lm.title)).join(', ');
+      const notes = `${hamperNames} - ${receipt.name}`;
+
       const createdSale = await tx.sale.create({
         data: {
           saleDate: new Date(receipt.create_timestamp * 1000),
           grossRevenue,
           etsyOrderId: String(receipt.receipt_id),
+          saleChannel: 'etsy',
+          notes,
+          // Individual fee breakdown
+          transactionFee: fees.transactionFee,
+          postageTransactionFee: fees.postageTransactionFee,
+          regulatoryFee: fees.regulatoryFee,
+          processingFee: fees.processingFee,
+          vatOnProcessingFee: fees.vatOnProcessingFee,
+          listingFee: fees.listingFee,
           etsyFees: fees.etsyFees,
           postageCost,
           postageCharged,
@@ -600,7 +633,7 @@ export async function importOrder(receiptId: number, postageCost: number) {
           netRevenue,
           totalCost,
           margin,
-          isHistorical: false,
+          isHistorical,
           lines: {
             create: saleLines.map((sl) => ({
               hamperId: sl.hamperId,
@@ -695,4 +728,410 @@ export async function importOrder(receiptId: number, postageCost: number) {
     }
     throw error;
   }
+}
+
+/**
+ * Bulk import multiple Etsy orders with a single API call
+ * Much more efficient than calling importOrder multiple times
+ */
+export async function importOrdersBulk(
+  orders: Array<{ receiptId: number; postageCost: number }>,
+  isHistorical = false
+) {
+  const sessionId = startLogSession('BULK_ORDER_IMPORT');
+
+  try {
+    logWorkflow('BULK_IMPORT', 'Starting bulk import', {
+      orderCount: orders.length,
+      receiptIds: orders.map(o => o.receiptId),
+      isHistorical,
+    });
+
+    // Validate input
+    if (!orders || orders.length === 0) {
+      throw new SyncHttpError(400, { error: 'No orders provided' });
+    }
+
+    // Fetch ALL receipts once from Etsy
+    const thirtyDaysAgo = Math.floor((Date.now() - 30 * 24 * 60 * 60 * 1000) / 1000);
+    const { receipts } = await etsyClient.getReceipts(thirtyDaysAgo, 100);
+
+    logWorkflow('BULK_IMPORT', `Fetched ${receipts.length} receipts from Etsy (single API call)`);
+
+    // Check for already imported orders
+    const receiptIds = orders.map(o => String(o.receiptId));
+    const existingSales = await prisma.sale.findMany({
+      where: { etsyOrderId: { in: receiptIds } },
+      select: { etsyOrderId: true },
+    });
+    const alreadyImported = new Set(existingSales.map(s => s.etsyOrderId));
+
+    // Load fee config and overheads once
+    const feeConfig = await prisma.etsyFeeConfig.findFirst({
+      where: { isActive: true },
+    });
+    const overheads = await prisma.packagingOverhead.findMany({
+      where: { isActive: true },
+    });
+    const packagingOverhead = calculatePackagingOverhead(overheads);
+
+    // Process each order
+    const results: Array<{
+      receiptId: number;
+      success: boolean;
+      saleId?: string;
+      error?: string;
+    }> = [];
+
+    for (const order of orders) {
+      const { receiptId, postageCost } = order;
+
+      // Skip already imported
+      if (alreadyImported.has(String(receiptId))) {
+        results.push({
+          receiptId,
+          success: false,
+          error: 'Already imported',
+        });
+        continue;
+      }
+
+      // Find receipt in our cached data
+      const receipt = receipts.find(r => r.receipt_id === receiptId);
+      if (!receipt) {
+        results.push({
+          receiptId,
+          success: false,
+          error: 'Receipt not found on Etsy',
+        });
+        continue;
+      }
+
+      try {
+        // Process this order using the cached receipt
+        const saleResult = await processReceiptImport(
+          receipt,
+          postageCost,
+          isHistorical,
+          feeConfig,
+          packagingOverhead
+        );
+        results.push({
+          receiptId,
+          success: true,
+          saleId: saleResult.id,
+        });
+      } catch (err) {
+        results.push({
+          receiptId,
+          success: false,
+          error: err instanceof Error ? err.message : 'Import failed',
+        });
+      }
+    }
+
+    const imported = results.filter(r => r.success).length;
+    const failed = results.filter(r => !r.success).length;
+
+    logWorkflow('BULK_IMPORT', 'Bulk import complete', {
+      imported,
+      failed,
+      results,
+    });
+
+    endLogSession(sessionId, { success: true, imported, failed });
+
+    return {
+      success: true,
+      imported,
+      failed,
+      results,
+    };
+  } catch (error) {
+    console.error('Error in bulk import:', error);
+    logWorkflow('BULK_IMPORT', 'ERROR during bulk import', {
+      error: error instanceof Error ? { message: error.message, stack: error.stack } : error,
+    });
+    endLogSession(sessionId, { success: false, error: String(error) });
+    throw error;
+  }
+}
+
+/**
+ * Internal helper to process a single receipt import
+ * Used by both importOrder and importOrdersBulk
+ */
+async function processReceiptImport(
+  receipt: Awaited<ReturnType<typeof etsyClient.getReceipts>>['receipts'][0],
+  postageCost: number,
+  isHistorical: boolean,
+  feeConfig: Awaited<ReturnType<typeof prisma.etsyFeeConfig.findFirst>>,
+  packagingOverhead: number
+) {
+  const postageCharged = receipt.total_shipping_cost.amount / receipt.total_shipping_cost.divisor;
+  const subtotal = receipt.subtotal.amount / receipt.subtotal.divisor;
+  const grossRevenue = subtotal + postageCharged;
+
+  const fees = calculateEtsyFees({
+    grossRevenue,
+    postageCharged,
+    saleChannel: 'etsy' as SaleChannel,
+    feeConfig,
+  });
+
+  // Build line metadata
+  interface LineMeta {
+    transactionId: number;
+    title: string;
+    quantity: number;
+    unitPrice: number;
+    hamperId: string;
+    variantId: string | null;
+    requirements: Array<{
+      categoryId: string;
+      quantity: number;
+      categoryName: string;
+      pickRule: string;
+    }>;
+  }
+
+  const lineMetas: LineMeta[] = [];
+  const missingMappings: string[] = [];
+
+  for (const tx of receipt.transactions) {
+    const hamper = await prisma.hamper.findFirst({
+      where: { etsyListingId: String(tx.listing_id) },
+      include: {
+        requirements: { include: { category: true } },
+        variants: true,
+      },
+    });
+
+    if (!hamper) {
+      missingMappings.push(`"${decodeHtmlEntities(tx.title)}" (listing ${tx.listing_id})`);
+      continue;
+    }
+
+    let variantId: string | null = null;
+    if (hamper.hasVariants) {
+      let variant = null;
+      if (tx.sku) {
+        variant = await prisma.hamperVariant.findFirst({
+          where: { hamperId: hamper.id, etsySku: tx.sku },
+        });
+      }
+      if (!variant && tx.product_id) {
+        variant = await prisma.hamperVariant.findFirst({
+          where: { hamperId: hamper.id, etsyProductId: String(tx.product_id) },
+        });
+      }
+      if (variant) {
+        variantId = variant.id;
+        // Update variant's sellingPrice from Etsy if not already set
+        const etsyPrice = tx.price.amount / tx.price.divisor;
+        if (variant.sellingPrice === null) {
+          await prisma.hamperVariant.update({
+            where: { id: variant.id },
+            data: { sellingPrice: etsyPrice },
+          });
+        }
+      }
+    }
+
+    const lineRequirements = hamper.requirements
+      .filter(r => !r.isOptional)
+      .map(r => ({
+        categoryId: r.categoryId,
+        quantity: Number(r.quantity),
+        categoryName: r.category.name,
+        pickRule: r.category.pickRule,
+      }));
+
+    lineMetas.push({
+      transactionId: tx.transaction_id,
+      title: tx.title,
+      quantity: tx.quantity,
+      unitPrice: tx.price.amount / tx.price.divisor,
+      hamperId: hamper.id,
+      variantId,
+      requirements: lineRequirements,
+    });
+  }
+
+  if (missingMappings.length > 0) {
+    throw new Error(`Items missing hamper mapping: ${missingMappings.join(', ')}`);
+  }
+
+  // Skip stock validation for historical imports
+  if (!isHistorical) {
+    // Aggregate needs and check stock
+    const aggregatedNeeds = new Map<string, {
+      categoryId: string;
+      categoryName: string;
+      variantId: string | null;
+      totalNeeded: number;
+      pickRule: string;
+    }>();
+
+    for (const lineMeta of lineMetas) {
+      for (const req of lineMeta.requirements) {
+        const key = `${req.categoryId}-${lineMeta.variantId || 'all'}`;
+        const existing = aggregatedNeeds.get(key);
+        const totalNeeded = req.quantity * lineMeta.quantity;
+        if (existing) {
+          existing.totalNeeded += totalNeeded;
+        } else {
+          aggregatedNeeds.set(key, {
+            categoryId: req.categoryId,
+            categoryName: req.categoryName,
+            variantId: lineMeta.variantId,
+            totalNeeded,
+            pickRule: req.pickRule,
+          });
+        }
+      }
+    }
+
+    // Check stock availability
+    for (const [, need] of aggregatedNeeds) {
+      const allocation = need.variantId
+        ? await allocateStockForVariantRequirement(
+          need.variantId,
+          need.categoryId,
+          need.totalNeeded,
+          need.pickRule as PickRule
+        )
+        : await allocateStockForRequirement(
+          need.categoryId,
+          need.totalNeeded,
+          need.pickRule as PickRule
+        );
+
+      if (!allocation.fulfilled) {
+        throw new Error(`Insufficient stock for ${need.categoryName}`);
+      }
+    }
+  }
+
+  // Create sale in transaction
+  const sale = await prisma.$transaction(async (tx) => {
+    let totalCost = 0;
+    const saleLines: Array<{
+      hamperId: string;
+      variantId: string | null;
+      description: string | null;
+      quantity: number;
+      unitPrice: number;
+      lineCost: number;
+      consumptions: Array<{ lotId: string; quantity: number; unitCost: number }>;
+    }> = [];
+
+    for (const lineMeta of lineMetas) {
+      if (isHistorical) {
+        saleLines.push({
+          hamperId: lineMeta.hamperId,
+          variantId: lineMeta.variantId,
+          description: null,
+          quantity: lineMeta.quantity,
+          unitPrice: lineMeta.unitPrice,
+          lineCost: 0,
+          consumptions: [],
+        });
+        continue;
+      }
+
+      const consumptions: Array<{ lotId: string; quantity: number; unitCost: number }> = [];
+
+      for (const requirement of lineMeta.requirements) {
+        const totalNeeded = requirement.quantity * lineMeta.quantity;
+        const allocation = lineMeta.variantId
+          ? await allocateStockForVariantRequirement(
+            lineMeta.variantId,
+            requirement.categoryId,
+            totalNeeded,
+            requirement.pickRule as PickRule,
+            tx
+          )
+          : await allocateStockForRequirement(
+            requirement.categoryId,
+            totalNeeded,
+            requirement.pickRule as PickRule,
+            tx
+          );
+
+        for (const alloc of allocation.allocations) {
+          await tx.inventoryLot.update({
+            where: { id: alloc.lotId },
+            data: { remaining: { decrement: alloc.quantity } },
+          });
+          consumptions.push({
+            lotId: alloc.lotId,
+            quantity: alloc.quantity,
+            unitCost: alloc.unitCost,
+          });
+          totalCost += alloc.quantity * alloc.unitCost;
+        }
+      }
+
+      saleLines.push({
+        hamperId: lineMeta.hamperId,
+        variantId: lineMeta.variantId,
+        description: null,
+        quantity: lineMeta.quantity,
+        unitPrice: lineMeta.unitPrice,
+        lineCost: consumptions.reduce((sum, c) => sum + c.quantity * c.unitCost, 0),
+        consumptions,
+      });
+    }
+
+    const netRevenue = grossRevenue - fees.etsyFees;
+    const margin = grossRevenue - (totalCost + fees.etsyFees);
+
+    // Build notes in format: "Hamper Name(s) - Customer Name"
+    const hamperNames = lineMetas.map(lm => decodeHtmlEntities(lm.title)).join(', ');
+    const notes = `${hamperNames} - ${receipt.name}`;
+
+    return tx.sale.create({
+      data: {
+        saleDate: new Date(receipt.create_timestamp * 1000),
+        grossRevenue,
+        etsyOrderId: String(receipt.receipt_id),
+        saleChannel: 'etsy',
+        notes,
+        transactionFee: fees.transactionFee,
+        postageTransactionFee: fees.postageTransactionFee,
+        regulatoryFee: fees.regulatoryFee,
+        processingFee: fees.processingFee,
+        vatOnProcessingFee: fees.vatOnProcessingFee,
+        listingFee: fees.listingFee,
+        etsyFees: fees.etsyFees,
+        postageCost,
+        postageCharged,
+        packagingOverhead,
+        netRevenue,
+        totalCost,
+        margin,
+        isHistorical,
+        lines: {
+          create: saleLines.map(sl => ({
+            hamperId: sl.hamperId,
+            variantId: sl.variantId,
+            description: null,
+            quantity: sl.quantity,
+            unitPrice: sl.unitPrice,
+            lineCost: sl.lineCost,
+            consumptions: {
+              create: sl.consumptions.map(c => ({
+                lotId: c.lotId,
+                quantity: c.quantity,
+                unitCost: c.unitCost,
+              })),
+            },
+          })),
+        },
+      },
+    });
+  });
+
+  return sale;
 }

@@ -27,6 +27,7 @@ export default function EtsyOrdersSyncPanel({ isOpen, onClose, onImportComplete 
   const [importingSelected, setImportingSelected] = useState(false)
   const [lastImport, setLastImport] = useState<{ receiptId: number; saleId: string } | null>(null)
   const [bulkImportResult, setBulkImportResult] = useState<{ imported: number; failed: number } | null>(null)
+  const [isHistorical, setIsHistorical] = useState(false)
 
   const pendingCount = pendingOrders.length
 
@@ -67,12 +68,12 @@ export default function EtsyOrdersSyncPanel({ isOpen, onClose, onImportComplete 
   useEffect(() => {
     if (!isOpen) return
 
-    ;(async () => {
-      const statusData = await loadStatus()
-      if (statusData?.connected) {
-        await loadPendingOrders()
-      }
-    })()
+      ; (async () => {
+        const statusData = await loadStatus()
+        if (statusData?.connected) {
+          await loadPendingOrders()
+        }
+      })()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen])
 
@@ -129,7 +130,7 @@ export default function EtsyOrdersSyncPanel({ isOpen, onClose, onImportComplete 
     setBulkImportResult(null)
 
     try {
-      const result = await etsy.importOrder({ receiptId, postageCost })
+      const result = await etsy.importOrder({ receiptId, postageCost, isHistorical })
       setLastImport({ receiptId, saleId: result.sale.id })
       setPendingOrders((prev) => prev.filter((o) => o.receiptId !== receiptId))
       onImportComplete()
@@ -146,6 +147,7 @@ export default function EtsyOrdersSyncPanel({ isOpen, onClose, onImportComplete 
     const selected = pendingOrders.filter((o) => selectedOrders.has(o.receiptId))
     if (selected.length === 0) return
 
+    // Validate postage costs
     for (const order of selected) {
       const postageCostStr = orderPostageCosts[order.receiptId]
       const postageCost = parseFloat(postageCostStr || '0')
@@ -162,22 +164,20 @@ export default function EtsyOrdersSyncPanel({ isOpen, onClose, onImportComplete 
     setLastImport(null)
     setBulkImportResult(null)
 
-    const importedIds = new Set<number>()
-    const failed: Array<{ receiptId: number; error: string }> = []
-
     try {
-      for (const order of selected) {
-        const postageCost = parseFloat(orderPostageCosts[order.receiptId] || '0')
-        try {
-          await etsy.importOrder({ receiptId: order.receiptId, postageCost })
-          importedIds.add(order.receiptId)
-        } catch (err) {
-          failed.push({
-            receiptId: order.receiptId,
-            error: err instanceof Error ? err.message : 'Failed to import order',
-          })
-        }
-      }
+      // Build orders array for bulk import
+      const orders = selected.map((order) => ({
+        receiptId: order.receiptId,
+        postageCost: parseFloat(orderPostageCosts[order.receiptId] || '0'),
+      }))
+
+      // Single bulk API call instead of one per order
+      const result = await etsy.importOrdersBulk({ orders, isHistorical })
+
+      // Update UI based on results
+      const importedIds = new Set(
+        result.results.filter((r) => r.success).map((r) => r.receiptId)
+      )
 
       if (importedIds.size > 0) {
         setPendingOrders((prev) => prev.filter((o) => !importedIds.has(o.receiptId)))
@@ -189,10 +189,15 @@ export default function EtsyOrdersSyncPanel({ isOpen, onClose, onImportComplete 
         onImportComplete()
       }
 
-      setBulkImportResult({ imported: importedIds.size, failed: failed.length })
-      if (failed.length > 0) {
-        setError(`Failed to import ${failed.length} order(s). First: #${failed[0]!.receiptId} — ${failed[0]!.error}`)
+      setBulkImportResult({ imported: result.imported, failed: result.failed })
+      if (result.failed > 0) {
+        const firstFailed = result.results.find((r) => !r.success)
+        if (firstFailed) {
+          setError(`Failed to import ${result.failed} order(s). First: #${firstFailed.receiptId} — ${firstFailed.error}`)
+        }
       }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to import orders')
     } finally {
       setImportingSelected(false)
     }
@@ -316,6 +321,27 @@ export default function EtsyOrdersSyncPanel({ isOpen, onClose, onImportComplete 
                     {importingSelected ? 'Importing...' : `Import Selected (${selectedOrders.size})`}
                   </button>
                 </div>
+              </div>
+
+              {/* Historical Mode Toggle */}
+              <div className="bg-gray-50 p-3 rounded-lg">
+                <label className="flex items-center gap-3 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={isHistorical}
+                    onChange={(e) => setIsHistorical(e.target.checked)}
+                    className="w-4 h-4 rounded border-gray-300 text-amber-600 focus:ring-amber-500"
+                  />
+                  <div>
+                    <span className="font-medium text-sm">Skip Inventory Checks</span>
+                    <p className="text-xs text-gray-500">Import without checking/consuming stock (for historical orders)</p>
+                  </div>
+                </label>
+                {isHistorical && (
+                  <div className="mt-2 bg-amber-50 border border-amber-200 rounded p-2 text-sm text-amber-800">
+                    ⚠️ Orders will be imported without consuming stock or checking availability.
+                  </div>
+                )}
               </div>
 
               {/* Orders */}

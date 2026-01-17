@@ -185,12 +185,15 @@ router.get('/callback', async (req, res) => {
 
         // Get shop info
         const apiKey = process.env.ETSY_API_KEY!;
+        const sharedSecret = process.env.ETSY_SHARED_SECRET || '';
+        const xApiKey = sharedSecret ? `${apiKey}:${sharedSecret}` : apiKey;
         const shopResponse = await fetch(
             `https://api.etsy.com/v3/application/users/${userId}/shops`,
             {
                 headers: {
+                    // access_token already includes userId prefix (format: userId.token)
                     'Authorization': `Bearer ${tokens.access_token}`,
-                    'x-api-key': apiKey,
+                    'x-api-key': xApiKey,
                 },
             }
         );
@@ -210,16 +213,39 @@ router.get('/callback', async (req, res) => {
             return res.redirect('/?etsy_error=No+shop+found+for+this+account');
         }
 
-        // Clear any existing credentials and store new ones
-        await prisma.etsyCredentials.deleteMany();
-        await prisma.etsyCredentials.create({
-            data: {
+        // Check if this should be the app owner and/or default
+        const [existingCount, hasAppOwner, hasDefault] = await Promise.all([
+            prisma.etsyCredentials.count(),
+            prisma.etsyCredentials.findFirst({ where: { isAppOwner: true } }),
+            prisma.etsyCredentials.findFirst({ where: { isDefault: true } }),
+        ]);
+        const isFirstAccount = existingCount === 0;
+        const shouldBeAppOwner = isFirstAccount || !hasAppOwner;
+        const shouldBeDefault = isFirstAccount || !hasDefault;
+
+        // Upsert credentials - allows reconnecting same user or adding new users
+        await prisma.etsyCredentials.upsert({
+            where: { userId },
+            create: {
                 accessToken: tokens.access_token,
                 refreshToken: tokens.refresh_token,
                 expiresAt: new Date(Date.now() + tokens.expires_in * 1000),
                 shopId: String(shop.shop_id),
                 shopName: shop.shop_name,
                 userId: userId,
+                loginName: shop.login_name || null,
+                isDefault: shouldBeDefault,
+                isAppOwner: shouldBeAppOwner,
+            },
+            update: {
+                accessToken: tokens.access_token,
+                refreshToken: tokens.refresh_token,
+                expiresAt: new Date(Date.now() + tokens.expires_in * 1000),
+                shopName: shop.shop_name,
+                loginName: shop.login_name || null,
+                // If no app owner exists, make this one the app owner
+                ...(shouldBeAppOwner && { isAppOwner: true }),
+                ...(shouldBeDefault && { isDefault: true }),
             },
         });
 
@@ -247,6 +273,254 @@ router.post('/disconnect', async (req, res) => {
     } catch (error) {
         console.error('Error disconnecting from Etsy:', error);
         res.status(500).json({ error: 'Failed to disconnect from Etsy' });
+    }
+});
+
+// =============================================================================
+// Account Management Routes
+// =============================================================================
+
+/**
+ * GET /api/etsy/accounts
+ * List all connected Etsy accounts
+ */
+router.get('/accounts', async (req, res) => {
+    try {
+        const accounts = await prisma.etsyCredentials.findMany({
+            select: {
+                userId: true,
+                shopId: true,
+                shopName: true,
+                loginName: true,
+                isDefault: true,
+                isAppOwner: true,
+                expiresAt: true,
+            },
+            orderBy: [
+                { isDefault: 'desc' },
+                { createdAt: 'asc' },
+            ],
+        });
+        res.json({ accounts });
+    } catch (error) {
+        console.error('Error fetching Etsy accounts:', error);
+        res.status(500).json({ error: 'Failed to fetch accounts' });
+    }
+});
+
+/**
+ * POST /api/etsy/accounts/:userId/set-default
+ * Set an account as the default for API calls
+ */
+router.post('/accounts/:userId/set-default', async (req, res) => {
+    try {
+        const { userId } = req.params;
+
+        // Verify account exists
+        const account = await prisma.etsyCredentials.findUnique({ where: { userId } });
+        if (!account) {
+            return res.status(404).json({ error: 'Account not found' });
+        }
+
+        // Use transaction to ensure only one default
+        await prisma.$transaction([
+            prisma.etsyCredentials.updateMany({
+                where: { isDefault: true },
+                data: { isDefault: false },
+            }),
+            prisma.etsyCredentials.update({
+                where: { userId },
+                data: { isDefault: true },
+            }),
+        ]);
+
+        res.json({ success: true });
+    } catch (error) {
+        console.error('Error setting default account:', error);
+        res.status(500).json({ error: 'Failed to set default account' });
+    }
+});
+
+/**
+ * DELETE /api/etsy/accounts/:userId
+ * Remove an Etsy account
+ */
+router.delete('/accounts/:userId', async (req, res) => {
+    try {
+        const { userId } = req.params;
+
+        const account = await prisma.etsyCredentials.findUnique({ where: { userId } });
+        if (!account) {
+            return res.status(404).json({ error: 'Account not found' });
+        }
+
+        await prisma.etsyCredentials.delete({ where: { userId } });
+
+        // If we deleted the default, make another account default
+        if (account.isDefault) {
+            const nextAccount = await prisma.etsyCredentials.findFirst();
+            if (nextAccount) {
+                await prisma.etsyCredentials.update({
+                    where: { id: nextAccount.id },
+                    data: { isDefault: true },
+                });
+            }
+        }
+
+        res.json({ success: true });
+    } catch (error) {
+        console.error('Error removing Etsy account:', error);
+        res.status(500).json({ error: 'Failed to remove account' });
+    }
+});
+
+// =============================================================================
+// Provisional Users Routes (Etsy API management)
+// =============================================================================
+
+/**
+ * GET /api/etsy/provisional-users
+ * List registered provisional users from Etsy
+ */
+router.get('/provisional-users', async (req, res) => {
+    try {
+        // Use app owner's credentials to call Etsy API
+        const appOwner = await prisma.etsyCredentials.findFirst({
+            where: { isAppOwner: true },
+        });
+
+        if (!appOwner) {
+            return res.status(400).json({ error: 'App owner account not connected' });
+        }
+
+        const apiKey = process.env.ETSY_API_KEY!;
+        const sharedSecret = process.env.ETSY_SHARED_SECRET || '';
+        const xApiKey = sharedSecret ? `${apiKey}:${sharedSecret}` : apiKey;
+
+        // Try openapi.etsy.com (per Etsy documentation)
+        const url = 'https://openapi.etsy.com/v3/application/provisional-users';
+        console.log('Fetching provisional users from:', url);
+        console.log('Using userId:', appOwner.userId);
+
+        const response = await fetch(url, {
+            headers: {
+                'x-api-key': xApiKey,
+                'Authorization': `Bearer ${appOwner.accessToken}`,
+            },
+        });
+
+        if (!response.ok) {
+            const errorText = await response.text();
+            console.error('Failed to fetch provisional users:', response.status, errorText);
+            console.error('Request headers:', { 'x-api-key': xApiKey.substring(0, 10) + '...', userId: appOwner.userId });
+            return res.status(response.status).json({
+                error: 'Failed to fetch provisional users from Etsy',
+                status: response.status,
+                details: errorText,
+            });
+        }
+
+        const data = await response.json();
+        res.json({ provisionalUsers: data.results || [] });
+    } catch (error) {
+        console.error('Error fetching provisional users:', error);
+        res.status(500).json({ error: 'Failed to fetch provisional users' });
+    }
+});
+
+/**
+ * POST /api/etsy/provisional-users
+ * Register a user as a provisional user with Etsy
+ * Body: { loginName: string }
+ */
+router.post('/provisional-users', async (req, res) => {
+    try {
+        const { loginName } = req.body;
+
+        if (!loginName || typeof loginName !== 'string') {
+            return res.status(400).json({ error: 'loginName is required' });
+        }
+
+        const appOwner = await prisma.etsyCredentials.findFirst({
+            where: { isAppOwner: true },
+        });
+
+        if (!appOwner) {
+            return res.status(400).json({ error: 'App owner account not connected' });
+        }
+
+        const apiKey = process.env.ETSY_API_KEY!;
+        const sharedSecret = process.env.ETSY_SHARED_SECRET || '';
+        const xApiKey = sharedSecret ? `${apiKey}:${sharedSecret}` : apiKey;
+
+        const response = await fetch(
+            `https://openapi.etsy.com/v3/application/provisional-users?login_name=${encodeURIComponent(loginName)}`,
+            {
+                method: 'POST',
+                headers: {
+                    'x-api-key': xApiKey,
+                    'Authorization': `Bearer ${appOwner.accessToken}`,
+                },
+            }
+        );
+
+        if (!response.ok) {
+            const errorText = await response.text();
+            console.error('Failed to add provisional user:', response.status, errorText);
+            return res.status(response.status).json({
+                error: 'Failed to add provisional user',
+                details: errorText,
+            });
+        }
+
+        res.json({ success: true });
+    } catch (error) {
+        console.error('Error adding provisional user:', error);
+        res.status(500).json({ error: 'Failed to add provisional user' });
+    }
+});
+
+/**
+ * DELETE /api/etsy/provisional-users/:userId
+ * Remove a provisional user from Etsy
+ */
+router.delete('/provisional-users/:userId', async (req, res) => {
+    try {
+        const { userId } = req.params;
+
+        const appOwner = await prisma.etsyCredentials.findFirst({
+            where: { isAppOwner: true },
+        });
+
+        if (!appOwner) {
+            return res.status(400).json({ error: 'App owner account not connected' });
+        }
+
+        const apiKey = process.env.ETSY_API_KEY!;
+        const sharedSecret = process.env.ETSY_SHARED_SECRET || '';
+        const xApiKey = sharedSecret ? `${apiKey}:${sharedSecret}` : apiKey;
+
+        const response = await fetch(
+            `https://openapi.etsy.com/v3/application/provisional-users/${userId}`,
+            {
+                method: 'DELETE',
+                headers: {
+                    'x-api-key': xApiKey,
+                    'Authorization': `Bearer ${appOwner.accessToken}`,
+                },
+            }
+        );
+
+        if (!response.ok) {
+            const errorText = await response.text();
+            console.error('Failed to remove provisional user:', response.status, errorText);
+            return res.status(response.status).json({ error: 'Failed to remove provisional user' });
+        }
+
+        res.json({ success: true });
+    } catch (error) {
+        console.error('Error removing provisional user:', error);
+        res.status(500).json({ error: 'Failed to remove provisional user' });
     }
 });
 

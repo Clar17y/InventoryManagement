@@ -264,7 +264,12 @@ model EtsyCredentials {
   expiresAt    DateTime
   shopId       String
   shopName     String
-  userId       String   // Etsy user ID
+  userId       String   @unique // Etsy user ID - unique per account
+  loginName    String?          // Etsy username for display
+  isDefault    Boolean  @default(false) // Which account to use for API calls
+  isAppOwner   Boolean  @default(false) // True for the app owner account
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
+
+  @@index([isDefault])
 }

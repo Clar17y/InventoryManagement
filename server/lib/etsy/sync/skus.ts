@@ -14,6 +14,10 @@ import {
   findItemByVariantName,
   getEtsyVariantName,
 } from '../matching';
+import {
+  getListingInventoryCached,
+  invalidateListingInventory,
+} from '../inventoryCache';
 
 export async function generateSkus() {
   try {
@@ -134,13 +138,21 @@ export async function generateSkus() {
   }
 }
 
-export async function getPendingSkus() {
+export async function getPendingSkus(listingIds?: string[]) {
   try {
+    const whereClause: {
+      etsyListingId: { not: null; in?: string[] };
+      isActive: true;
+    } = {
+      etsyListingId: { not: null },
+      isActive: true,
+    };
+    if (listingIds && listingIds.length > 0) {
+      whereClause.etsyListingId = { not: null, in: listingIds };
+    }
+
     const hampers = await prisma.hamper.findMany({
-      where: {
-        etsyListingId: { not: null },
-        isActive: true,
-      },
+      where: whereClause,
       include: {
         variants: {
           where: { isActive: true },
@@ -163,7 +175,7 @@ export async function getPendingSkus() {
     for (const hamper of hampers) {
       let etsyInventory = null;
       try {
-        etsyInventory = await etsyClient.getListingInventory(
+        etsyInventory = await getListingInventoryCached(
           parseInt(hamper.etsyListingId!)
         );
       } catch (err) {
@@ -288,7 +300,7 @@ export async function pushSkus(listingIds?: string[]) {
 
         const listingId = parseInt(hamper.etsyListingId);
 
-        const currentInventory = await etsyClient.getListingInventory(listingId);
+        const currentInventory = await getListingInventoryCached(listingId);
 
         logWorkflow('SKU_PUSH', `Processing listing ${listingId}`, {
           hamperName: hamper.name,
@@ -354,6 +366,9 @@ export async function pushSkus(listingIds?: string[]) {
             'SKU_PUSH',
             `Successfully updated ${updated} SKUs for listing ${listingId}`
           );
+
+          // Invalidate cache so next read gets fresh data
+          invalidateListingInventory(listingId);
         }
 
         results.push({

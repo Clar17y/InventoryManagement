@@ -73,23 +73,53 @@ export default function EtsySyncPanel({ isOpen, onClose, onImportComplete }: Ets
         }
     }
 
-    const loadPendingSkus = async () => {
+    const loadPendingSkus = async (listingIds?: string[]) => {
         try {
-            const data = await etsy.getPendingSkus()
-            setPendingSkus(data.skus)
+            const data = await etsy.getPendingSkus(listingIds)
+            if (listingIds && listingIds.length > 0) {
+                // Partial refresh: merge updated listings into existing state
+                setPendingSkus(prev => {
+                    const updated = new Map(prev.map(s => [s.variantId, s]))
+                    for (const sku of data.skus) {
+                        updated.set(sku.variantId, sku)
+                    }
+                    // Remove entries from refreshed listings that no longer need sync
+                    const refreshedListingSet = new Set(listingIds)
+                    return [...updated.values()].filter(
+                        s => !refreshedListingSet.has(s.etsyListingId) || data.skus.some(d => d.variantId === s.variantId)
+                    )
+                })
+            } else {
+                setPendingSkus(data.skus)
+            }
         } catch (err) {
             console.warn('Failed to load pending SKUs:', err)
-            setPendingSkus([])
+            if (!listingIds) setPendingSkus([])
         }
     }
 
-    const loadPendingPrices = async () => {
+    const loadPendingPrices = async (listingIds?: string[]) => {
         try {
-            const data = await etsy.getPendingPriceUpdates()
-            setPendingPrices(data.updates)
+            const data = await etsy.getPendingPriceUpdates(listingIds)
+            if (listingIds && listingIds.length > 0) {
+                // Partial refresh: merge updated listings into existing state
+                setPendingPrices(prev => {
+                    const updated = new Map(prev.map(p => [p.variantId, p]))
+                    for (const price of data.updates) {
+                        updated.set(price.variantId, price)
+                    }
+                    // Remove entries from refreshed listings that no longer exist in response
+                    const refreshedListingSet = new Set(listingIds)
+                    return [...updated.values()].filter(
+                        p => !refreshedListingSet.has(p.etsyListingId) || data.updates.some(d => d.variantId === p.variantId)
+                    )
+                })
+            } else {
+                setPendingPrices(data.updates)
+            }
         } catch (err) {
             console.warn('Failed to load pending prices:', err)
-            setPendingPrices([])
+            if (!listingIds) setPendingPrices([])
         }
     }
 
@@ -137,7 +167,7 @@ export default function EtsySyncPanel({ isOpen, onClose, onImportComplete }: Ets
             setSkuPushResult({ updated: result.totalUpdated, errors: result.errors })
             if (result.success) {
                 setSelectedSkuItems(new Set())
-                await loadPendingSkus() // Refresh the list
+                await loadPendingSkus(listingIds) // Partial refresh - only refetch updated listings
             } else {
                 setError(`Some SKUs failed to sync: ${result.errors} error(s)`)
             }
@@ -202,6 +232,9 @@ export default function EtsySyncPanel({ isOpen, onClose, onImportComplete }: Ets
 
         if (pricesToPush.length === 0) return
 
+        // Extract unique listing IDs for partial refresh
+        const listingIds = [...new Set(pricesToPush.map(p => p.etsyListingId))]
+
         if (!confirm(`Update ${pricesToPush.length} variant price(s) on Etsy?`)) {
             return
         }
@@ -215,7 +248,7 @@ export default function EtsySyncPanel({ isOpen, onClose, onImportComplete }: Ets
             setPricePushResult({ updated: result.updated, errors: result.errors })
             if (result.success) {
                 setSelectedPriceItems(new Set())
-                await loadPendingPrices() // Refresh the list
+                await loadPendingPrices(listingIds) // Partial refresh - only refetch updated listings
             } else {
                 setError(`Some prices failed to sync: ${result.errors} error(s)`)
             }

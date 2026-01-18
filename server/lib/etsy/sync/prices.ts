@@ -15,6 +15,10 @@ import {
     findItemByEtsyProduct,
 } from '../matching';
 import { EtsyInventory, EtsyInventoryUpdateProduct } from '../types';
+import {
+    getListingInventoryCached,
+    invalidateListingInventory,
+} from '../inventoryCache';
 
 export interface PriceUpdate {
     etsyListingId: string;
@@ -29,13 +33,21 @@ export interface PriceUpdate {
  * - Only sync if Local price is set (cannot push null)
  * - Difference > tolerance
  */
-export async function getPendingPriceUpdates() {
+export async function getPendingPriceUpdates(listingIds?: string[]) {
     try {
+        const whereClause: {
+            etsyListingId: { not: null; in?: string[] };
+            isActive: true;
+        } = {
+            etsyListingId: { not: null },
+            isActive: true,
+        };
+        if (listingIds && listingIds.length > 0) {
+            whereClause.etsyListingId = { not: null, in: listingIds };
+        }
+
         const hampers = await prisma.hamper.findMany({
-            where: {
-                etsyListingId: { not: null },
-                isActive: true,
-            },
+            where: whereClause,
             include: {
                 variants: {
                     where: { isActive: true },
@@ -59,7 +71,7 @@ export async function getPendingPriceUpdates() {
         for (const hamper of hampers) {
             let etsyInventory = null;
             try {
-                etsyInventory = await etsyClient.getListingInventory(
+                etsyInventory = await getListingInventoryCached(
                     parseInt(hamper.etsyListingId!)
                 );
             } catch (err) {
@@ -186,7 +198,7 @@ export async function pushPriceUpdates(
                     await throttle.waitForSlot();
                 }
 
-                const currentInventory = await etsyClient.getListingInventory(
+                const currentInventory = await getListingInventoryCached(
                     parseInt(listingId)
                 );
 
@@ -206,6 +218,9 @@ export async function pushPriceUpdates(
                         currentInventory
                     );
                     results.push({ listingId, success: true });
+
+                    // Invalidate cache so next read gets fresh data
+                    invalidateListingInventory(parseInt(listingId));
                 }
 
             } catch (err) {

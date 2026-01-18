@@ -37,6 +37,7 @@ export default function AddStockForm({ onSuccess, onClose }: AddStockFormProps) 
     const [newProductName, setNewProductName] = useState('')
     const [newProductUnit, setNewProductUnit] = useState('units')
     const [newProductCategoryId, setNewProductCategoryId] = useState('')
+    const [newProductLowStockThreshold, setNewProductLowStockThreshold] = useState(5)
     const [allCategories, setAllCategories] = useState<Category[]>([])
 
     // Inline category creation state
@@ -552,6 +553,7 @@ export default function AddStockForm({ onSuccess, onClose }: AddStockFormProps) 
                                                 unit: newProductUnit,
                                                 barcode: scannedBarcode,
                                                 categoryId: newProductCategoryId,
+                                                lowStockThreshold: newProductLowStockThreshold,
                                             })
                                             setSelectedProduct(newProduct)
                                             setMode('form')
@@ -669,6 +671,23 @@ export default function AddStockForm({ onSuccess, onClose }: AddStockFormProps) 
                                             <option value="packs">Packs</option>
                                             <option value="boxes">Boxes</option>
                                         </select>
+                                    </div>
+
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-700 mb-1">
+                                            Low Stock Alert Threshold
+                                        </label>
+                                        <input
+                                            type="number"
+                                            min="0"
+                                            value={newProductLowStockThreshold}
+                                            onChange={(e) => setNewProductLowStockThreshold(Math.max(0, parseInt(e.target.value) || 0))}
+                                            className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                                            placeholder="e.g., 5"
+                                        />
+                                        <p className="text-xs text-gray-500 mt-1">
+                                            Get alerted when stock falls below this quantity
+                                        </p>
                                     </div>
 
                                     <div className="flex gap-3">

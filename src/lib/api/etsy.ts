@@ -279,10 +279,13 @@ export const etsy = {
 
     /**
      * Get pending SKU syncs (local SKUs that differ from Etsy)
+     * @param listingIds Optional - only fetch for these listing IDs (for partial refresh)
      */
-    getPendingSkus: () =>
+    getPendingSkus: (listingIds?: string[]) =>
         request<{ skus: EtsyPendingSku[]; needsSyncCount: number; totalVariants: number }>(
-            '/etsy/sync/skus/pending'
+            listingIds && listingIds.length > 0
+                ? `/etsy/sync/skus/pending?listingIds=${listingIds.join(',')}`
+                : '/etsy/sync/skus/pending'
         ),
 
     /**
@@ -296,9 +299,14 @@ export const etsy = {
 
     /**
      * Get price comparisons for Etsy-linked hampers/variants (includes in-sync rows; use `needsSync` to filter)
+     * @param listingIds Optional - only fetch for these listing IDs (for partial refresh)
      */
-    getPendingPriceUpdates: () =>
-        request<{ updates: EtsyPendingPriceUpdate[]; count: number; needsSyncCount?: number }>('/etsy/sync/prices/pending'),
+    getPendingPriceUpdates: (listingIds?: string[]) =>
+        request<{ updates: EtsyPendingPriceUpdate[]; count: number; needsSyncCount?: number }>(
+            listingIds && listingIds.length > 0
+                ? `/etsy/sync/prices/pending?listingIds=${listingIds.join(',')}`
+                : '/etsy/sync/prices/pending'
+        ),
 
     /**
      * Push local prices to Etsy for specified variants

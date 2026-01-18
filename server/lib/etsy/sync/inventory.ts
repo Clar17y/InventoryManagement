@@ -9,6 +9,10 @@ import {
   groupUpdatesByListing,
 } from '../safety';
 import { findEtsyProductByIdentifiers, findEtsyProductByVariantName } from '../matching';
+import {
+  getListingInventoryCached,
+  invalidateListingInventory,
+} from '../inventoryCache';
 
 export type InventoryUpdate = {
   etsyListingId: string;
@@ -64,7 +68,7 @@ export async function getSyncComparison() {
   for (const hamper of hampers) {
     let etsyInventory = null;
     try {
-      etsyInventory = await etsyClient.getListingInventory(
+      etsyInventory = await getListingInventoryCached(
         parseInt(hamper.etsyListingId!)
       );
     } catch (err) {
@@ -231,7 +235,7 @@ export async function pushSyncUpdates(
         await throttle.waitForSlot();
       }
 
-      const currentInventory = await etsyClient.getListingInventory(
+      const currentInventory = await getListingInventoryCached(
         parseInt(listingId)
       );
 
@@ -274,6 +278,9 @@ export async function pushSyncUpdates(
           dryRun: false,
           changes: diff.changes,
         });
+
+        // Invalidate cache so next read gets fresh data
+        invalidateListingInventory(parseInt(listingId));
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);

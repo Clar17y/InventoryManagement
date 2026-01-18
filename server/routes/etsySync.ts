@@ -170,10 +170,13 @@ router.post('/skus/generate', async (req, res) => {
 /**
  * GET /api/etsy/sync/skus/pending
  * Get variants that have local SKUs but Etsy has empty/different SKUs
+ * Query: ?listingIds=id1,id2 - optional filter to specific listings
  */
 router.get('/skus/pending', async (req, res) => {
     try {
-        const result = await getPendingSkus();
+        const listingIdsParam = req.query.listingIds as string | undefined;
+        const listingIds = listingIdsParam ? listingIdsParam.split(',') : undefined;
+        const result = await getPendingSkus(listingIds);
         res.json(result);
     } catch {
         res.status(500).json({ error: 'Failed to get pending SKUs' });
@@ -199,10 +202,13 @@ router.post('/skus/push', async (req, res) => {
 /**
  * GET /api/etsy/sync/prices/pending
  * Get local vs Etsy price comparisons (includes in-sync rows; use `needsSync` to filter)
+ * Query: ?listingIds=id1,id2 - optional filter to specific listings
  */
 router.get('/prices/pending', async (req, res) => {
     try {
-        const result = await getPendingPriceUpdates();
+        const listingIdsParam = req.query.listingIds as string | undefined;
+        const listingIds = listingIdsParam ? listingIdsParam.split(',') : undefined;
+        const result = await getPendingPriceUpdates(listingIds);
         res.json(result);
     } catch {
         res.status(500).json({ error: 'Failed to get pending price updates' });

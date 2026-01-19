@@ -754,49 +754,15 @@ export default function Hampers() {
         <div className="space-y-3">
           {sortedHampers.map((hamper) => (
             <div key={hamper.id} className="card">
-              <div className="flex justify-between items-start">
+              {/* Row 1: Full-width name with edit/delete buttons */}
+              <div className="flex items-start justify-between gap-2">
                 <button
                   onClick={() => handleExpand(hamper.id)}
-                  className="flex-1 text-left"
+                  className="flex-1 text-left min-w-0"
                 >
-                  {/* Title and Expand Icon Row */}
-                  <div className="flex items-center justify-between gap-2">
-                    <div className="flex-1 min-w-0">
-                      <div className="font-medium">{hamper.name}</div>
-                      <div className="text-sm text-gray-500">
-                        {formatCurrency(hamper.sellingPrice)} • {hamper.requirements.length} requirements
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      {/* Show simple badge for non-variant hampers */}
-                      {!hamper.hasVariants && (
-                        <span className={`px-2.5 py-1 rounded-full text-sm font-medium ${getAvailabilityColor(hamper.canMake)}`}>
-                          Can make: {hamper.canMake}
-                        </span>
-                      )}
-                      {expandedId === hamper.id ? (
-                        <ChevronUpIcon className="h-5 w-5 text-gray-400 flex-shrink-0" />
-                      ) : (
-                        <ChevronDownIcon className="h-5 w-5 text-gray-400 flex-shrink-0" />
-                      )}
-                    </div>
-                  </div>
-                  {/* Variant Badges Row - below title */}
-                  {hamper.hasVariants && hamper.variantAvailability && hamper.variantAvailability.length > 0 && (
-                    <div className="flex flex-wrap gap-1 mt-2">
-                      {hamper.variantAvailability.map((v: HamperVariantAvailability) => (
-                        <span
-                          key={v.variantId}
-                          className={`px-2 py-0.5 rounded-full text-xs font-medium ${getAvailabilityColor(v.canMake)}`}
-                          title={v.etsySku ? `SKU: ${v.etsySku}` : undefined}
-                        >
-                          {v.name}: {v.canMake}
-                        </span>
-                      ))}
-                    </div>
-                  )}
+                  <div className="font-medium">{hamper.name}</div>
                 </button>
-                <div className="flex gap-1 ml-2 flex-shrink-0">
+                <div className="flex gap-1 flex-shrink-0">
                   <button
                     type="button"
                     onClick={() => handleEdit(hamper)}
@@ -815,6 +781,50 @@ export default function Hampers() {
                   </button>
                 </div>
               </div>
+
+              {/* Row 2: Details and expand button */}
+              <button
+                onClick={() => handleExpand(hamper.id)}
+                className="w-full text-left mt-1"
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <div className="text-sm text-gray-500">
+                    {formatCurrency(hamper.sellingPrice)} • {hamper.requirements.length} requirements
+                  </div>
+                  <div className="flex items-center gap-2">
+                    {!hamper.hasVariants && (
+                      <span className={`px-2.5 py-1 rounded-full text-sm font-medium ${getAvailabilityColor(hamper.canMake)}`}>
+                        Can make: {hamper.canMake}
+                      </span>
+                    )}
+                    {expandedId === hamper.id ? (
+                      <ChevronUpIcon className="h-5 w-5 text-gray-400 flex-shrink-0" />
+                    ) : (
+                      <ChevronDownIcon className="h-5 w-5 text-gray-400 flex-shrink-0" />
+                    )}
+                  </div>
+                </div>
+
+                {/* Variant Badges (show max 3, then "+X more") */}
+                {hamper.hasVariants && hamper.variantAvailability && hamper.variantAvailability.length > 0 && (
+                  <div className="flex flex-wrap gap-1 mt-2">
+                    {hamper.variantAvailability.slice(0, 3).map((v: HamperVariantAvailability) => (
+                      <span
+                        key={v.variantId}
+                        className={`px-2 py-0.5 rounded-full text-xs font-medium ${getAvailabilityColor(v.canMake)}`}
+                        title={v.etsySku ? `SKU: ${v.etsySku}` : undefined}
+                      >
+                        {v.name}: {v.canMake}
+                      </span>
+                    ))}
+                    {hamper.variantAvailability.length > 3 && (
+                      <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-600">
+                        +{hamper.variantAvailability.length - 3} more
+                      </span>
+                    )}
+                  </div>
+                )}
+              </button>
 
               {expandedId === hamper.id && expandedDetail && (
                 <div className="mt-4 pt-4 border-t border-gray-100">

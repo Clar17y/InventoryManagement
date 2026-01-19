@@ -3,6 +3,7 @@ import {
   EtsyApiError,
   EtsyShop,
   EtsyListing,
+  EtsyListingWithInventory,
   EtsyInventory,
   EtsyReceipt,
   EtsyInventoryUpdateProduct,
@@ -156,6 +157,48 @@ export class MockEtsyClient implements IEtsyClient {
         })),
       })),
     };
+  }
+
+  async getListingsByListingIds(
+    listingIds: number[],
+    includes?: ('Inventory' | 'Images' | 'Shop')[]
+  ): Promise<EtsyListingWithInventory[]> {
+    this.checkConnected();
+    this.maybeThrowError();
+
+    const results: EtsyListingWithInventory[] = [];
+    for (const listingId of listingIds) {
+      const listing = this.listings.find((l) => l.listing_id === listingId);
+      if (!listing) continue;
+
+      const result: EtsyListingWithInventory = { ...listing, price: { ...listing.price } };
+
+      // Include inventory if requested
+      if (includes?.includes('Inventory')) {
+        const inventory = this.inventoryByListingId.get(listingId);
+        if (inventory) {
+          result.inventory = {
+            listing_id: inventory.listing_id,
+            price_on_property: [...(inventory.price_on_property || [])],
+            quantity_on_property: [...(inventory.quantity_on_property || [])],
+            sku_on_property: [...(inventory.sku_on_property || [])],
+            products: inventory.products.map((p) => ({
+              ...p,
+              offerings: p.offerings.map((o) => ({ ...o, price: { ...o.price } })),
+              property_values: p.property_values.map((pv) => ({
+                ...pv,
+                value_ids: [...(pv.value_ids || [])],
+                values: [...pv.values],
+              })),
+            })),
+          };
+        }
+      }
+
+      results.push(result);
+    }
+
+    return results;
   }
 
   async updateListingInventory(

@@ -19,7 +19,7 @@ import { decodeHtmlEntities } from './utils';
 // =============================================================================
 
 /**
- * Fetch inventory for multiple listings, handling errors gracefully.
+ * Fetch inventory for multiple listings using batch API.
  */
 async function fetchInventoryForListings(
   client: IEtsyClient,
@@ -27,13 +27,15 @@ async function fetchInventoryForListings(
 ): Promise<Map<number, EtsyInventory>> {
   const inventoryMap = new Map<number, EtsyInventory>();
 
-  for (const listingId of listingIds) {
-    try {
-      const inventory = await client.getListingInventory(listingId);
-      inventoryMap.set(listingId, inventory);
-    } catch (error) {
-      console.warn(`Failed to fetch inventory for listing ${listingId}:`, error);
+  try {
+    const listings = await client.getListingsByListingIds(listingIds, ['Inventory']);
+    for (const listing of listings) {
+      if (listing.inventory) {
+        inventoryMap.set(listing.listing_id, listing.inventory);
+      }
     }
+  } catch (error) {
+    console.warn('Failed to fetch inventories in batch:', error);
   }
 
   return inventoryMap;

@@ -17,6 +17,7 @@ import {
 import { EtsyInventory, EtsyInventoryUpdateProduct } from '../types';
 import {
     getListingInventoryCached,
+    getListingInventoriesBatched,
     invalidateListingInventory,
 } from '../inventoryCache';
 
@@ -55,6 +56,12 @@ export async function getPendingPriceUpdates(listingIds?: string[]) {
             },
         });
 
+        // Collect all listing IDs and fetch inventories in batch
+        const allListingIds = hampers
+            .filter(h => h.etsyListingId)
+            .map(h => parseInt(h.etsyListingId!));
+        const inventoryMap = await getListingInventoriesBatched(allListingIds);
+
         const updates: Array<{
             hamperId: string;
             hamperName: string;
@@ -69,19 +76,7 @@ export async function getPendingPriceUpdates(listingIds?: string[]) {
         }> = [];
 
         for (const hamper of hampers) {
-            let etsyInventory = null;
-            try {
-                etsyInventory = await getListingInventoryCached(
-                    parseInt(hamper.etsyListingId!)
-                );
-            } catch (err) {
-                console.warn(
-                    `Failed to fetch Etsy inventory for ${hamper.etsyListingId}:`,
-                    err
-                );
-                continue;
-            }
-
+            const etsyInventory = inventoryMap.get(parseInt(hamper.etsyListingId!));
             const products = etsyInventory?.products ?? [];
             if (products.length === 0) continue;
 

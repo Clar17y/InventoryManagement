@@ -1,5 +1,5 @@
 import { etsyClient } from '../etsyClient';
-import { EtsyInventory } from './types';
+import { EtsyInventory, EtsyListingWithInventory } from './types';
 
 // =============================================================================
 // Configuration
@@ -114,4 +114,59 @@ async function fetchAndCache(listingId: number): Promise<EtsyInventory> {
     });
 
     return inventory;
+}
+
+/**
+ * Populate cache from batch results.
+ * Call this after using getListingsByListingIds with Inventory include.
+ */
+export function populateCacheFromBatchResults(
+    listings: Array<{ listing_id: number; inventory?: EtsyInventory }>
+): void {
+    const now = Date.now();
+    const ttlMs = getCacheTtlMs();
+    for (const listing of listings) {
+        if (listing.inventory) {
+            cache.set(listing.listing_id, {
+                expiresAt: now + ttlMs,
+                value: listing.inventory,
+            });
+        }
+    }
+}
+
+/**
+ * Get listing inventories with cache awareness using batch API.
+ * Returns a Map of listingId -> EtsyInventory.
+ * Uses cache for already-cached listings and batches uncached ones.
+ */
+export async function getListingInventoriesBatched(
+    listingIds: number[]
+): Promise<Map<number, EtsyInventory>> {
+    const result = new Map<number, EtsyInventory>();
+    const uncachedIds: number[] = [];
+    const now = Date.now();
+
+    // Check cache first
+    for (const id of listingIds) {
+        const cached = cache.get(id);
+        if (cached && cached.expiresAt > now) {
+            result.set(id, cached.value);
+        } else {
+            uncachedIds.push(id);
+        }
+    }
+
+    // Batch fetch uncached
+    if (uncachedIds.length > 0) {
+        const listings = await etsyClient.getListingsByListingIds(uncachedIds, ['Inventory']);
+        populateCacheFromBatchResults(listings);
+        for (const listing of listings) {
+            if (listing.inventory) {
+                result.set(listing.listing_id, listing.inventory);
+            }
+        }
+    }
+
+    return result;
 }

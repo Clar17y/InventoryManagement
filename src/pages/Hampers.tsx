@@ -7,9 +7,11 @@ import {
   ChevronUpIcon,
   XMarkIcon,
   ArrowPathRoundedSquareIcon,
+  MagnifyingGlassIcon,
 } from '@heroicons/react/24/outline'
 import { hampers, categories, products, hamperVariants, Hamper, HamperDetail, Category, HamperVariantAvailability, Product, HamperVariant, HamperVariantCreateData } from '../lib/api'
 import { formatCurrency } from '../lib/formatting'
+import { useDebounce } from '../hooks/useDebounce'
 import EtsySyncPanel from '../components/EtsySyncPanel'
 
 type HamperSortOption =
@@ -82,6 +84,8 @@ export default function Hampers() {
     () => (localStorage.getItem('hampers-sort') as HamperSortOption) || 'canmake-desc'
   )
   const [showEtsyPanel, setShowEtsyPanel] = useState(false)
+  const [searchQuery, setSearchQuery] = useState('')
+  const debouncedSearch = useDebounce(searchQuery, 300)
 
   const loadData = async () => {
     try {
@@ -115,9 +119,17 @@ export default function Hampers() {
     formRef.current?.scrollIntoView?.({ behavior: 'smooth', block: 'start' })
   }, [showForm, editingId])
 
-  // Sort hampers based on selected option
+  // Filter and sort hampers
   const sortedHampers = useMemo(() => {
-    const sorted = [...hamperList]
+    // Filter by search query
+    let filtered = hamperList
+    if (debouncedSearch.trim()) {
+      const query = debouncedSearch.toLowerCase()
+      filtered = hamperList.filter((h) => h.name.toLowerCase().includes(query))
+    }
+
+    // Sort
+    const sorted = [...filtered]
     switch (sortBy) {
       case 'canmake-desc':
         sorted.sort((a, b) => b.canMake - a.canMake)
@@ -151,7 +163,7 @@ export default function Hampers() {
         break
     }
     return sorted
-  }, [hamperList, sortBy])
+  }, [hamperList, sortBy, debouncedSearch])
 
   const handleExpand = async (id: string) => {
     if (expandedId === id) {
@@ -375,21 +387,43 @@ export default function Hampers() {
         onImportComplete={loadData}
       />
 
-      {/* Sort Controls */}
+      {/* Search and Sort Controls */}
       {!showForm && (
-        <div className="flex items-center gap-2">
-          <span className="text-sm text-gray-500">Sort:</span>
-          <select
-            value={sortBy}
-            onChange={(e) => setSortBy(e.target.value as HamperSortOption)}
-            className="px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 flex-1 max-w-xs"
-          >
-            {HAMPER_SORT_OPTIONS.map((opt) => (
-              <option key={opt.value} value={opt.value}>
-                {opt.label}
-              </option>
-            ))}
-          </select>
+        <div className="flex flex-col sm:flex-row gap-2">
+          {/* Search */}
+          <div className="relative flex-1">
+            <MagnifyingGlassIcon className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Search hampers..."
+              className="w-full pl-9 pr-8 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+            />
+            {searchQuery && (
+              <button
+                onClick={() => setSearchQuery('')}
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+              >
+                <XMarkIcon className="h-4 w-4" />
+              </button>
+            )}
+          </div>
+          {/* Sort */}
+          <div className="flex items-center gap-2">
+            <span className="text-sm text-gray-500">Sort:</span>
+            <select
+              value={sortBy}
+              onChange={(e) => setSortBy(e.target.value as HamperSortOption)}
+              className="px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+            >
+              {HAMPER_SORT_OPTIONS.map((opt) => (
+                <option key={opt.value} value={opt.value}>
+                  {opt.label}
+                </option>
+              ))}
+            </select>
+          </div>
         </div>
       )}
 
@@ -747,8 +781,17 @@ export default function Hampers() {
 
       {sortedHampers.length === 0 ? (
         <div className="card text-gray-500 text-center py-12">
-          <p className="mb-4">No hampers defined yet</p>
-          <p className="text-sm">Create your first hamper to start tracking availability</p>
+          {debouncedSearch ? (
+            <>
+              <p className="mb-4">No hampers match "{debouncedSearch}"</p>
+              <p className="text-sm">Try a different search term</p>
+            </>
+          ) : (
+            <>
+              <p className="mb-4">No hampers defined yet</p>
+              <p className="text-sm">Create your first hamper to start tracking availability</p>
+            </>
+          )}
         </div>
       ) : (
         <div className="space-y-3">
@@ -760,7 +803,7 @@ export default function Hampers() {
                   onClick={() => handleExpand(hamper.id)}
                   className="flex-1 text-left min-w-0"
                 >
-                  <div className="font-medium">{hamper.name}</div>
+                  <div className="text-sm font-medium">{hamper.name}</div>
                 </button>
                 <div className="flex gap-1 flex-shrink-0">
                   <button
@@ -788,12 +831,12 @@ export default function Hampers() {
                 className="w-full text-left mt-1"
               >
                 <div className="flex items-center justify-between gap-2">
-                  <div className="text-sm text-gray-500">
+                  <div className="text-xs text-gray-500">
                     {formatCurrency(hamper.sellingPrice)} • {hamper.requirements.length} requirements
                   </div>
                   <div className="flex items-center gap-2">
                     {!hamper.hasVariants && (
-                      <span className={`px-2.5 py-1 rounded-full text-sm font-medium ${getAvailabilityColor(hamper.canMake)}`}>
+                      <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${getAvailabilityColor(hamper.canMake)}`}>
                         Can make: {hamper.canMake}
                       </span>
                     )}

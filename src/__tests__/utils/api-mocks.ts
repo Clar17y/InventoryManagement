@@ -1,7 +1,7 @@
 import { vi } from 'vitest';
 import type { Category } from '../../lib/api/categories';
 import type { Product } from '../../lib/api/products';
-import type { InventoryLot, CategoryLot } from '../../lib/api/inventory';
+import type { InventoryLot, CategoryLot, LowStockProduct } from '../../lib/api/inventory';
 import type { Hamper, HamperDetail } from '../../lib/api/hampers';
 
 type InventoryCategorySummary = { id: string; name: string; productCount: number; totalStock: number };
@@ -38,7 +38,7 @@ export const mockInventory = {
   addLot: vi.fn(),
   updateLot: vi.fn(),
   deleteLot: vi.fn<(id: string) => Promise<void>>(),
-  lowStock: vi.fn<() => Promise<Product[]>>(),
+  lowStock: vi.fn<() => Promise<LowStockProduct[]>>(),
   expiring: vi.fn<(days?: number) => Promise<InventoryLot[]>>(),
 };
 

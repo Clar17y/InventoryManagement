@@ -1,0 +1,826 @@
+import { useState, useEffect, useRef } from 'react'
+import { products, inventory, categories, type Product, type Category } from '../../../lib/api'
+import { formatPrice, formatCurrency } from '../../../lib/formatting'
+import BarcodeScanner from '../../../components/scanner/BarcodeScanner'
+import { useDebounce } from '../../../hooks/useDebounce'
+
+interface AddStockFormProps {
+    onSuccess?: () => void
+    onClose?: () => void
+}
+
+type FormMode = 'select' | 'scan' | 'form' | 'newProduct' | 'linkBarcode'
+
+export default function AddStockForm({ onSuccess, onClose }: AddStockFormProps) {
+    const [mode, setMode] = useState<FormMode>('select')
+    const [allProducts, setAllProducts] = useState<Product[]>([])
+    const [searchQuery, setSearchQuery] = useState('')
+    const debouncedSearchQuery = useDebounce(searchQuery, 300)
+    const [selectedProduct, setSelectedProduct] = useState<Product | null>(null)
+    const [quantity, setQuantity] = useState('')
+    const [costValue, setCostValue] = useState('')
+    const [costMode, setCostMode] = useState<'total' | 'unit'>('total')
+    const [excludesVAT, setExcludesVAT] = useState(false)
+    const [expiresAt, setExpiresAt] = useState('')
+    const [isLoading, setIsLoading] = useState(false)
+    const [isSubmitting, setIsSubmitting] = useState(false)
+    const [error, setError] = useState<string | null>(null)
+    const [scanError, setScanError] = useState<string | null>(null)
+
+    // Handheld scanner input
+    const [handheldBarcode, setHandheldBarcode] = useState('')
+    const [isProcessingHandheld, setIsProcessingHandheld] = useState(false)
+    const handheldInputRef = useRef<HTMLInputElement>(null)
+
+    // New product creation state
+    const [scannedBarcode, setScannedBarcode] = useState<string | null>(null)
+    const [newProductName, setNewProductName] = useState('')
+    const [newProductUnit, setNewProductUnit] = useState('units')
+    const [newProductCategoryId, setNewProductCategoryId] = useState('')
+    const [newProductLowStockThreshold, setNewProductLowStockThreshold] = useState(5)
+    const [allCategories, setAllCategories] = useState<Category[]>([])
+
+    // Inline category creation state
+    const [isCreatingCategory, setIsCreatingCategory] = useState(false)
+    const [newCategoryName, setNewCategoryName] = useState('')
+    const [isCreatingCategoryLoading, setIsCreatingCategoryLoading] = useState(false)
+
+    useEffect(() => {
+        loadData()
+    }, [])
+
+    // Auto-focus handheld scanner input when in select mode
+    useEffect(() => {
+        if (mode === 'select') {
+            // Small delay to ensure DOM is ready
+            const timer = setTimeout(() => {
+                const activeElement = document.activeElement
+                if (
+                    activeElement instanceof HTMLInputElement ||
+                    activeElement instanceof HTMLTextAreaElement ||
+                    (activeElement instanceof HTMLElement && activeElement.isContentEditable)
+                ) {
+                    return
+                }
+                handheldInputRef.current?.focus()
+            }, 100)
+            return () => clearTimeout(timer)
+        }
+    }, [mode])
+
+    const handleHandheldSubmit = async () => {
+        const trimmed = handheldBarcode.trim()
+        if (!trimmed || isProcessingHandheld) return
+
+        setIsProcessingHandheld(true)
+
+        // Vibrate feedback (if supported)
+        if (navigator.vibrate) {
+            navigator.vibrate(200)
+        }
+
+        try {
+            await handleBarcodeScan(trimmed)
+        } finally {
+            setIsProcessingHandheld(false)
+            setHandheldBarcode('')
+        }
+    }
+
+    const loadData = async () => {
+        setIsLoading(true)
+        try {
+            const [productsData, categoriesData] = await Promise.all([
+                products.list(),
+                categories.list()
+            ])
+            setAllProducts(productsData)
+            setAllCategories(categoriesData)
+        } catch (err) {
+            setError(err instanceof Error ? err.message : 'Failed to load data')
+        } finally {
+            setIsLoading(false)
+        }
+    }
+
+    const handleBarcodeScan = async (barcode: string) => {
+        setScanError(null)
+        setScannedBarcode(barcode)
+        try {
+            const product = await products.getByBarcode(barcode)
+            setSelectedProduct(product)
+            // Don't auto-fill total cost from current cost - user should enter the actual purchase price
+            setMode('form')
+        } catch {
+            // Product not found - allow user to create a new one
+            setSelectedProduct(null)
+            setNewProductName('')
+            setNewProductUnit('units')
+            setMode('newProduct')
+        }
+    }
+
+    const handleProductSelect = (product: Product) => {
+        setSelectedProduct(product)
+        // Don't auto-fill total cost from current cost - user should enter the actual purchase price
+        setMode('form')
+        setSearchQuery('')
+    }
+
+    const handleSubmit = async (e: React.FormEvent) => {
+        e.preventDefault()
+        if (!selectedProduct) return
+
+        setIsSubmitting(true)
+        setError(null)
+
+        try {
+            // Convert date to ISO datetime format if provided
+            let expiresAtISO: string | undefined
+            if (expiresAt) {
+                // Add time to make it a valid ISO datetime string
+                expiresAtISO = new Date(expiresAt + 'T23:59:59.999Z').toISOString()
+            }
+
+            const qty = parseFloat(quantity)
+            const cost = parseFloat(costValue)
+
+            // Calculate unit cost based on mode
+            let calculatedUnitCost = costMode === 'total' ? cost / qty : cost
+
+            // Add VAT if price excludes it (UK VAT = 20%)
+            if (excludesVAT) {
+                calculatedUnitCost = calculatedUnitCost * 1.2
+            }
+
+            await inventory.addLot({
+                productId: selectedProduct.id,
+                quantity: qty,
+                unitCost: calculatedUnitCost,
+                expiresAt: expiresAtISO,
+            })
+            onSuccess?.()
+            onClose?.()
+        } catch (err) {
+            setError(err instanceof Error ? err.message : 'Failed to add stock')
+        } finally {
+            setIsSubmitting(false)
+        }
+    }
+
+    const filteredProducts = allProducts.filter(
+        (p) =>
+            p.name.toLowerCase().includes(debouncedSearchQuery.toLowerCase()) ||
+            p.barcode?.toLowerCase().includes(debouncedSearchQuery.toLowerCase())
+    )
+
+    // Scanner mode
+    if (mode === 'scan') {
+        return (
+            <BarcodeScanner
+                onScan={handleBarcodeScan}
+                onError={(err) => setScanError(err)}
+                onClose={() => setMode('select')}
+            />
+        )
+    }
+
+    return (
+        <div className="fixed inset-0 bg-black/50 z-40 flex items-center justify-center p-4">
+            <div className="bg-white rounded-2xl w-full max-w-md max-h-[90vh] overflow-hidden flex flex-col shadow-2xl">
+                {/* Header */}
+                <div className="flex items-center justify-between p-4 border-b border-gray-200">
+                    <h2 className="text-xl font-semibold text-gray-900">
+                        {mode === 'select' ? 'Add Stock' : mode === 'form' ? 'Enter Details' : mode === 'newProduct' ? 'New Product' : 'Add Stock'}
+                    </h2>
+                    <button
+                        type="button"
+                        onClick={onClose}
+                        className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
+                        aria-label="Close"
+                    >
+                        <svg className="w-5 h-5 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                        </svg>
+                    </button>
+                </div>
+
+                {/* Content */}
+                <div className="flex-1 overflow-y-auto p-4">
+                    {error && (
+                        <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">
+                            {error}
+                        </div>
+                    )}
+
+                    {/* Selection Mode */}
+                    {mode === 'select' && (
+                        <div className="space-y-4">
+                            {/* Handheld Scanner Input */}
+                            <div className="p-4 bg-gradient-to-r from-primary-50 to-accent-50 rounded-xl border-2 border-primary-200">
+                                <div className="flex items-center gap-2 mb-2">
+                                    <svg className="w-5 h-5 text-primary-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v1m6 11h2m-6 0h-2m0-8v8" />
+                                        <rect x="3" y="3" width="18" height="18" rx="2" strokeWidth={2} />
+                                    </svg>
+                                    <span className="text-sm font-medium text-primary-700">Barcode Scanner</span>
+                                </div>
+                                <div className="flex gap-2">
+                                    <input
+                                        ref={handheldInputRef}
+                                        type="text"
+                                        value={handheldBarcode}
+                                        onChange={(e) => setHandheldBarcode(e.target.value)}
+                                        onKeyDown={(e) => {
+                                            if (e.key === 'Enter') {
+                                                e.preventDefault()
+                                                handleHandheldSubmit()
+                                            }
+                                        }}
+                                        placeholder="Scan with handheld or type barcode..."
+                                        disabled={isProcessingHandheld}
+                                        className="flex-1 px-4 py-3 border border-primary-300 rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-primary-500 bg-white disabled:opacity-50"
+                                        aria-label="Barcode input for handheld scanner"
+                                    />
+                                    <button
+                                        type="button"
+                                        onClick={handleHandheldSubmit}
+                                        disabled={!handheldBarcode.trim() || isProcessingHandheld}
+                                        className="px-4 py-3 bg-primary-600 text-white rounded-xl font-medium hover:bg-primary-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                                    >
+                                        {isProcessingHandheld ? '...' : 'Go'}
+                                    </button>
+                                </div>
+                                <p className="text-xs text-primary-600 mt-2">
+                                    Ready for handheld scanner - auto-submits on scan
+                                </p>
+                            </div>
+
+                            {/* Camera Scanner Button */}
+                            <button
+                                onClick={() => setMode('scan')}
+                                className="w-full flex items-center justify-center gap-3 p-4 bg-white border-2 border-gray-200 text-gray-700 rounded-xl font-medium hover:border-primary-300 hover:bg-primary-50 transition-all"
+                            >
+                                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" />
+                                </svg>
+                                Use Camera
+                            </button>
+
+                            <div className="relative">
+                                <div className="absolute inset-0 flex items-center">
+                                    <div className="w-full border-t border-gray-200" />
+                                </div>
+                                <div className="relative flex justify-center text-sm">
+                                    <span className="px-2 bg-white text-gray-500">or search manually</span>
+                                </div>
+                            </div>
+
+                            {/* Search input */}
+                            <div className="relative">
+                                <svg
+                                    className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400"
+                                    fill="none"
+                                    stroke="currentColor"
+                                    viewBox="0 0 24 24"
+                                >
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                                </svg>
+                                <input
+                                    type="text"
+                                    placeholder="Search products..."
+                                    value={searchQuery}
+                                    onChange={(e) => setSearchQuery(e.target.value)}
+                                    className="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
+                                />
+                            </div>
+
+                            {/* Product list */}
+                            {isLoading ? (
+                                <div className="text-center py-8 text-gray-500">Loading products...</div>
+                            ) : searchQuery && filteredProducts.length === 0 ? (
+                                <div className="text-center py-8 text-gray-500">No products found</div>
+                            ) : searchQuery ? (
+                                <div className="space-y-2 max-h-64 overflow-y-auto">
+                                    {filteredProducts.map((product) => (
+                                        <button
+                                            key={product.id}
+                                            onClick={() => handleProductSelect(product)}
+                                            className="w-full flex items-center justify-between p-3 bg-gray-50 hover:bg-gray-100 rounded-lg transition-colors text-left"
+                                        >
+                                            <div>
+                                                <p className="font-medium text-gray-900">{product.name}</p>
+                                                <p className="text-sm text-gray-500">
+                                                    {product.category?.name} • {product.unit}
+                                                    {product.barcode && ` • ${product.barcode}`}
+                                                </p>
+                                            </div>
+                                            <div className="text-right">
+                                                <p className="text-sm font-medium text-gray-700">
+                                                    Stock: {product.totalStock ?? 0}
+                                                </p>
+                                                {product.currentCost && (
+                                                    <p className="text-xs text-gray-500">
+                                                        {formatPrice(product.currentCost)}
+                                                    </p>
+                                                )}
+                                            </div>
+                                        </button>
+                                    ))}
+                                </div>
+                            ) : (
+                                <p className="text-center text-gray-500 text-sm py-4">
+                                    Start typing to search for a product
+                                </p>
+                            )}
+                        </div>
+                    )}
+
+                    {/* Form Mode */}
+                    {mode === 'form' && (
+                        <form onSubmit={handleSubmit} className="space-y-4">
+                            {scanError && (
+                                <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg text-amber-700 text-sm">
+                                    {scanError}
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            setScanError(null)
+                                            setMode('select')
+                                        }}
+                                        className="block mt-2 text-amber-800 font-medium underline"
+                                    >
+                                        Search for product manually
+                                    </button>
+                                </div>
+                            )}
+
+                            {selectedProduct ? (
+                                <div className="p-4 bg-primary-50 rounded-xl">
+                                    <div className="flex items-center justify-between">
+                                        <div>
+                                            <p className="font-semibold text-primary-900">{selectedProduct.name}</p>
+                                            <p className="text-sm text-primary-700">
+                                                {selectedProduct.category?.name} • {selectedProduct.unit}
+                                            </p>
+                                        </div>
+                                        <button
+                                            type="button"
+                                            onClick={() => {
+                                                setSelectedProduct(null)
+                                                setMode('select')
+                                            }}
+                                            className="text-primary-600 hover:text-primary-800 text-sm font-medium"
+                                        >
+                                            Change
+                                        </button>
+                                    </div>
+                                </div>
+                            ) : (
+                                <div className="p-4 bg-gray-50 rounded-xl text-center">
+                                    <p className="text-gray-500">No product selected</p>
+                                    <button
+                                        type="button"
+                                        onClick={() => setMode('select')}
+                                        className="mt-2 text-primary-600 font-medium"
+                                    >
+                                        Select product
+                                    </button>
+                                </div>
+                            )}
+
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-1">
+                                    Quantity ({selectedProduct?.unit || 'units'})
+                                </label>
+                                <input
+                                    type="number"
+                                    step="any"
+                                    min="0.001"
+                                    value={quantity}
+                                    onChange={(e) => setQuantity(e.target.value)}
+                                    required
+                                    className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
+                                    placeholder="e.g., 10"
+                                />
+                            </div>
+
+                            <div>
+                                {/* Cost Mode Toggle */}
+                                <div className="flex rounded-lg bg-gray-100 p-1 mb-3">
+                                    <button
+                                        type="button"
+                                        onClick={() => setCostMode('total')}
+                                        className={`flex-1 py-2 px-3 text-sm font-medium rounded-md transition-colors ${costMode === 'total'
+                                            ? 'bg-white text-primary-700 shadow-sm'
+                                            : 'text-gray-600 hover:text-gray-900'
+                                            }`}
+                                    >
+                                        Total Cost
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => setCostMode('unit')}
+                                        className={`flex-1 py-2 px-3 text-sm font-medium rounded-md transition-colors ${costMode === 'unit'
+                                            ? 'bg-white text-primary-700 shadow-sm'
+                                            : 'text-gray-600 hover:text-gray-900'
+                                            }`}
+                                    >
+                                        Unit Cost
+                                    </button>
+                                </div>
+
+                                <label className="block text-sm font-medium text-gray-700 mb-1">
+                                    {costMode === 'total' ? 'Total Cost (£)' : `Cost per ${selectedProduct?.unit || 'unit'} (£)`}
+                                </label>
+                                <input
+                                    type="number"
+                                    step="0.0001"
+                                    min="0"
+                                    value={costValue}
+                                    onChange={(e) => setCostValue(e.target.value)}
+                                    required
+                                    className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
+                                    placeholder={costMode === 'total' ? 'e.g., 25.00' : 'e.g., 0.125'}
+                                />
+
+                                {/* VAT Checkbox */}
+                                <label className="flex items-center gap-2 mt-3 cursor-pointer">
+                                    <input
+                                        type="checkbox"
+                                        checked={excludesVAT}
+                                        onChange={(e) => setExcludesVAT(e.target.checked)}
+                                        className="w-4 h-4 text-primary-600 border-gray-300 rounded focus:ring-primary-500"
+                                    />
+                                    <span className="text-sm text-gray-600">
+                                        Price excludes VAT <span className="text-gray-400">(+20%)</span>
+                                    </span>
+                                </label>
+
+                                {/* Calculated Cost Display */}
+                                {quantity && costValue && parseFloat(quantity) > 0 && (
+                                    <div className="mt-3 p-3 bg-primary-50 rounded-lg">
+                                        <p className="text-sm text-primary-700">
+                                            <span className="font-medium">Per {selectedProduct?.unit || 'unit'}:</span>{' '}
+                                            £{(() => {
+                                                const qty = parseFloat(quantity)
+                                                const cost = parseFloat(costValue)
+                                                let unitCost = costMode === 'total' ? cost / qty : cost
+                                                if (excludesVAT) unitCost *= 1.2
+                                                return unitCost.toFixed(4)
+                                            })()}
+                                            {excludesVAT && <span className="text-primary-500"> (inc. VAT)</span>}
+                                        </p>
+                                        {costMode === 'unit' && (
+                                            <p className="text-sm text-primary-600 mt-1">
+                                                <span className="font-medium">Total:</span>{' '}
+                                                {formatCurrency((() => {
+                                                    const qty = parseFloat(quantity)
+                                                    const cost = parseFloat(costValue)
+                                                    let total = cost * qty
+                                                    if (excludesVAT) total *= 1.2
+                                                    return total
+                                                })())}
+                                            </p>
+                                        )}
+                                    </div>
+                                )}
+                            </div>
+
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-1">
+                                    Expiry Date (optional)
+                                </label>
+                                <input
+                                    type="date"
+                                    value={expiresAt}
+                                    onChange={(e) => setExpiresAt(e.target.value)}
+                                    className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
+                                />
+                            </div>
+
+                            <button
+                                type="submit"
+                                disabled={!selectedProduct || !quantity || !costValue || isSubmitting}
+                                className="w-full py-3 bg-gradient-to-r from-green-500 to-emerald-600 text-white rounded-xl font-medium hover:from-green-600 hover:to-emerald-700 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                            >
+                                {isSubmitting ? 'Adding...' : 'Add Stock'}
+                            </button>
+                        </form>
+                    )}
+
+                    {/* New Product Mode - when barcode not found */}
+                    {mode === 'newProduct' && (
+                        <div className="space-y-4">
+                            <div className="p-4 bg-amber-50 border border-amber-200 rounded-xl">
+                                <p className="text-amber-800 font-medium mb-1">New Barcode Detected</p>
+                                <p className="text-amber-700 text-sm">
+                                    No product found for barcode: <span className="font-mono font-bold">{scannedBarcode}</span>
+                                </p>
+                            </div>
+
+                            {/* Two options: Create new or Link to existing */}
+                            <div className="space-y-3">
+                                <button
+                                    onClick={() => setMode('linkBarcode')}
+                                    className="w-full flex items-center gap-3 p-4 bg-white border-2 border-primary-200 rounded-xl hover:border-primary-400 hover:bg-primary-50 transition-colors text-left"
+                                >
+                                    <div className="w-10 h-10 rounded-full bg-primary-100 flex items-center justify-center flex-shrink-0">
+                                        <svg className="w-5 h-5 text-primary-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
+                                        </svg>
+                                    </div>
+                                    <div>
+                                        <p className="font-medium text-gray-900">Link to Existing Product</p>
+                                        <p className="text-sm text-gray-500">This barcode is for a product already in your inventory</p>
+                                    </div>
+                                </button>
+
+                                <div className="relative">
+                                    <div className="absolute inset-0 flex items-center">
+                                        <div className="w-full border-t border-gray-200" />
+                                    </div>
+                                    <div className="relative flex justify-center text-sm">
+                                        <span className="px-2 bg-white text-gray-500">or</span>
+                                    </div>
+                                </div>
+
+                                <p className="text-sm text-gray-600 font-medium">Create a New Product</p>
+
+                                <form
+                                    onSubmit={async (e) => {
+                                        e.preventDefault()
+                                        if (!newProductName.trim() || !scannedBarcode || !newProductCategoryId) return
+
+                                        setIsSubmitting(true)
+                                        setError(null)
+                                        try {
+                                            const newProduct = await products.create({
+                                                name: newProductName.trim(),
+                                                unit: newProductUnit,
+                                                barcode: scannedBarcode,
+                                                categoryId: newProductCategoryId,
+                                                lowStockThreshold: newProductLowStockThreshold,
+                                            })
+                                            setSelectedProduct(newProduct)
+                                            setMode('form')
+                                        } catch (err) {
+                                            setError(err instanceof Error ? err.message : 'Failed to create product')
+                                        } finally {
+                                            setIsSubmitting(false)
+                                        }
+                                    }}
+                                    className="space-y-4"
+                                >
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-700 mb-1">
+                                            Product Name *
+                                        </label>
+                                        <input
+                                            type="text"
+                                            value={newProductName}
+                                            onChange={(e) => setNewProductName(e.target.value)}
+                                            required
+                                            className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
+                                            placeholder="e.g., Organic Milk 1L"
+                                        />
+                                    </div>
+
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-700 mb-1">
+                                            Category *
+                                        </label>
+                                        {isCreatingCategory ? (
+                                            <div className="space-y-2">
+                                                <div className="flex gap-2">
+                                                    <input
+                                                        type="text"
+                                                        value={newCategoryName}
+                                                        onChange={(e) => setNewCategoryName(e.target.value)}
+                                                        placeholder="New category name..."
+                                                        autoFocus
+                                                        className="flex-1 px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
+                                                    />
+                                                    <button
+                                                        type="button"
+                                                        disabled={!newCategoryName.trim() || isCreatingCategoryLoading}
+                                                        onClick={async () => {
+                                                            if (!newCategoryName.trim()) return
+                                                            setIsCreatingCategoryLoading(true)
+                                                            try {
+                                                                const newCat = await categories.create({ name: newCategoryName.trim() })
+                                                                setAllCategories(prev => [...prev, newCat])
+                                                                setNewProductCategoryId(newCat.id)
+                                                                setIsCreatingCategory(false)
+                                                                setNewCategoryName('')
+                                                            } catch (err) {
+                                                                setError(err instanceof Error ? err.message : 'Failed to create category')
+                                                            } finally {
+                                                                setIsCreatingCategoryLoading(false)
+                                                            }
+                                                        }}
+                                                        className="px-4 py-3 bg-primary-600 text-white rounded-xl font-medium hover:bg-primary-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                                                    >
+                                                        {isCreatingCategoryLoading ? '...' : 'Add'}
+                                                    </button>
+                                                </div>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => {
+                                                        setIsCreatingCategory(false)
+                                                        setNewCategoryName('')
+                                                    }}
+                                                    className="text-sm text-gray-500 hover:text-gray-700"
+                                                >
+                                                    ← Back to category list
+                                                </button>
+                                            </div>
+                                        ) : (
+                                            <>
+                                                <select
+                                                    value={newProductCategoryId}
+                                                    onChange={(e) => setNewProductCategoryId(e.target.value)}
+                                                    required
+                                                    className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
+                                                >
+                                                    <option value="">Select a category...</option>
+                                                    {allCategories.map((cat) => (
+                                                        <option key={cat.id} value={cat.id}>
+                                                            {cat.name}
+                                                        </option>
+                                                    ))}
+                                                </select>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => setIsCreatingCategory(true)}
+                                                    className="mt-2 text-sm text-primary-600 hover:text-primary-800 font-medium"
+                                                >
+                                                    + Create new category
+                                                </button>
+                                            </>
+                                        )}
+                                    </div>
+
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-700 mb-1">
+                                            Unit of Measure
+                                        </label>
+                                        <select
+                                            value={newProductUnit}
+                                            onChange={(e) => setNewProductUnit(e.target.value)}
+                                            className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
+                                        >
+                                            <option value="units">Units</option>
+                                            <option value="kg">Kilograms (kg)</option>
+                                            <option value="g">Grams (g)</option>
+                                            <option value="L">Litres (L)</option>
+                                            <option value="ml">Millilitres (ml)</option>
+                                            <option value="packs">Packs</option>
+                                            <option value="boxes">Boxes</option>
+                                        </select>
+                                    </div>
+
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-700 mb-1">
+                                            Low Stock Alert Threshold
+                                        </label>
+                                        <input
+                                            type="number"
+                                            min="0"
+                                            value={newProductLowStockThreshold}
+                                            onChange={(e) => setNewProductLowStockThreshold(Math.max(0, parseInt(e.target.value) || 0))}
+                                            className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
+                                            placeholder="e.g., 5"
+                                        />
+                                        <p className="text-xs text-gray-500 mt-1">
+                                            Get alerted when stock falls below this quantity
+                                        </p>
+                                    </div>
+
+                                    <div className="flex gap-3">
+                                        <button
+                                            type="button"
+                                            onClick={() => setMode('select')}
+                                            className="flex-1 py-3 border border-gray-300 text-gray-700 rounded-xl font-medium hover:bg-gray-50 transition-colors"
+                                        >
+                                            Cancel
+                                        </button>
+                                        <button
+                                            type="submit"
+                                            disabled={!newProductName.trim() || !newProductCategoryId || isSubmitting}
+                                            className="flex-1 py-3 bg-gradient-to-r from-primary-500 to-accent-600 text-white rounded-xl font-medium hover:from-primary-600 hover:to-accent-700 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                                        >
+                                            {isSubmitting ? 'Creating...' : 'Create & Continue'}
+                                        </button>
+                                    </div>
+                                </form>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Link Barcode Mode - link scanned barcode to existing product */}
+                    {mode === 'linkBarcode' && (
+                        <div className="space-y-4">
+                            <div className="p-4 bg-primary-50 border border-primary-200 rounded-xl">
+                                <p className="text-primary-800 font-medium mb-1">Link Barcode to Product</p>
+                                <p className="text-primary-700 text-sm">
+                                    Barcode: <span className="font-mono font-bold">{scannedBarcode}</span>
+                                </p>
+                                <p className="text-primary-600 text-xs mt-1">
+                                    Search for a product to link this barcode to.
+                                </p>
+                            </div>
+
+                            {/* Search input */}
+                            <div className="relative">
+                                <svg
+                                    className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400"
+                                    fill="none"
+                                    stroke="currentColor"
+                                    viewBox="0 0 24 24"
+                                >
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                                </svg>
+                                <input
+                                    type="text"
+                                    placeholder="Search for a product..."
+                                    value={searchQuery}
+                                    onChange={(e) => setSearchQuery(e.target.value)}
+                                    autoFocus
+                                    className="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
+                                />
+                            </div>
+
+                            {/* Product list */}
+                            {isLoading ? (
+                                <div className="text-center py-8 text-gray-500">Loading products...</div>
+                            ) : searchQuery && filteredProducts.length === 0 ? (
+                                <div className="text-center py-8 text-gray-500">No products found</div>
+                            ) : searchQuery ? (
+                                <div className="space-y-2 max-h-64 overflow-y-auto">
+                                    {filteredProducts.map((product) => (
+                                        <button
+                                            key={product.id}
+                                            onClick={async () => {
+                                                if (!scannedBarcode) return
+                                                setIsSubmitting(true)
+                                                setError(null)
+                                                try {
+                                                    await products.addBarcode(product.id, scannedBarcode)
+                                                    // Refresh products list
+                                                    const updatedProducts = await products.list()
+                                                    setAllProducts(updatedProducts)
+                                                    // Find the updated product
+                                                    const updatedProduct = updatedProducts.find(p => p.id === product.id)
+                                                    if (updatedProduct) {
+                                                        setSelectedProduct(updatedProduct)
+                                                        setMode('form')
+                                                    }
+                                                } catch (err) {
+                                                    setError(err instanceof Error ? err.message : 'Failed to link barcode')
+                                                } finally {
+                                                    setIsSubmitting(false)
+                                                }
+                                            }}
+                                            disabled={isSubmitting}
+                                            className="w-full flex items-center justify-between p-3 bg-gray-50 hover:bg-primary-50 hover:border-primary-200 border border-transparent rounded-lg transition-colors text-left disabled:opacity-50"
+                                        >
+                                            <div>
+                                                <p className="font-medium text-gray-900">{product.name}</p>
+                                                <p className="text-sm text-gray-500">
+                                                    {product.category?.name} • {product.unit}
+                                                    {product.barcode && ` • ${product.barcode}`}
+                                                </p>
+                                            </div>
+                                            <div className="text-right">
+                                                <p className="text-sm font-medium text-gray-700">
+                                                    Stock: {product.totalStock ?? 0}
+                                                </p>
+                                            </div>
+                                        </button>
+                                    ))}
+                                </div>
+                            ) : (
+                                <p className="text-center text-gray-500 text-sm py-4">
+                                    Start typing to search for a product
+                                </p>
+                            )}
+
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    setSearchQuery('')
+                                    setMode('newProduct')
+                                }}
+                                className="w-full py-3 border border-gray-300 text-gray-700 rounded-xl font-medium hover:bg-gray-50 transition-colors"
+                            >
+                                ← Back
+                            </button>
+                        </div>
+                    )}
+                </div>
+            </div >
+        </div >
+    )
+}

@@ -3,16 +3,20 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 // Mock the request function
 vi.mock('../../../lib/api/request', () => ({
   request: vi.fn(),
+  requestWithSchema: vi.fn(),
 }));
 
+import { categoriesListResponseSchema, categoryResponseSchema } from '#contracts/routes/categories';
 import { categories, Category } from '../../../lib/api/categories';
-import { request } from '../../../lib/api/request';
+import { request, requestWithSchema } from '../../../lib/api/request';
 
 const mockRequest = vi.mocked(request);
+const mockRequestWithSchema = vi.mocked(requestWithSchema);
 
 describe('categories API', () => {
   beforeEach(() => {
     mockRequest.mockReset();
+    mockRequestWithSchema.mockReset();
   });
 
   const sampleCategory: Category = {
@@ -28,15 +32,15 @@ describe('categories API', () => {
 
   describe('list', () => {
     it('calls request with correct endpoint', async () => {
-      mockRequest.mockResolvedValue([sampleCategory]);
+      mockRequestWithSchema.mockResolvedValue([sampleCategory]);
 
       await categories.list();
 
-      expect(mockRequest).toHaveBeenCalledWith('/categories');
+      expect(mockRequestWithSchema).toHaveBeenCalledWith('/categories', categoriesListResponseSchema);
     });
 
     it('returns array of categories', async () => {
-      mockRequest.mockResolvedValue([sampleCategory]);
+      mockRequestWithSchema.mockResolvedValue([sampleCategory]);
 
       const result = await categories.list();
 
@@ -46,15 +50,15 @@ describe('categories API', () => {
 
   describe('get', () => {
     it('calls request with correct endpoint and id', async () => {
-      mockRequest.mockResolvedValue(sampleCategory);
+      mockRequestWithSchema.mockResolvedValue(sampleCategory);
 
       await categories.get('cat-1');
 
-      expect(mockRequest).toHaveBeenCalledWith('/categories/cat-1');
+      expect(mockRequestWithSchema).toHaveBeenCalledWith('/categories/cat-1', categoryResponseSchema);
     });
 
     it('returns single category', async () => {
-      mockRequest.mockResolvedValue(sampleCategory);
+      mockRequestWithSchema.mockResolvedValue(sampleCategory);
 
       const result = await categories.get('cat-1');
 
@@ -64,29 +68,29 @@ describe('categories API', () => {
 
   describe('create', () => {
     it('calls request with POST method and data', async () => {
-      mockRequest.mockResolvedValue(sampleCategory);
+      mockRequestWithSchema.mockResolvedValue(sampleCategory);
 
       await categories.create({ name: 'Chocolates', description: 'Chocolate items' });
 
-      expect(mockRequest).toHaveBeenCalledWith('/categories', {
+      expect(mockRequestWithSchema).toHaveBeenCalledWith('/categories', categoryResponseSchema, {
         method: 'POST',
         body: JSON.stringify({ name: 'Chocolates', description: 'Chocolate items' }),
       });
     });
 
     it('includes pickRule when provided', async () => {
-      mockRequest.mockResolvedValue(sampleCategory);
+      mockRequestWithSchema.mockResolvedValue(sampleCategory);
 
       await categories.create({ name: 'Drinks', pickRule: 'FEFO' });
 
-      expect(mockRequest).toHaveBeenCalledWith('/categories', {
+      expect(mockRequestWithSchema).toHaveBeenCalledWith('/categories', categoryResponseSchema, {
         method: 'POST',
         body: JSON.stringify({ name: 'Drinks', pickRule: 'FEFO' }),
       });
     });
 
     it('returns created category', async () => {
-      mockRequest.mockResolvedValue(sampleCategory);
+      mockRequestWithSchema.mockResolvedValue(sampleCategory);
 
       const result = await categories.create({ name: 'Chocolates' });
 
@@ -96,18 +100,18 @@ describe('categories API', () => {
 
   describe('update', () => {
     it('calls request with PUT method and partial data', async () => {
-      mockRequest.mockResolvedValue({ ...sampleCategory, name: 'Updated' });
+      mockRequestWithSchema.mockResolvedValue({ ...sampleCategory, name: 'Updated' });
 
       await categories.update('cat-1', { name: 'Updated' });
 
-      expect(mockRequest).toHaveBeenCalledWith('/categories/cat-1', {
+      expect(mockRequestWithSchema).toHaveBeenCalledWith('/categories/cat-1', categoryResponseSchema, {
         method: 'PUT',
         body: JSON.stringify({ name: 'Updated' }),
       });
     });
 
     it('can update multiple fields', async () => {
-      mockRequest.mockResolvedValue(sampleCategory);
+      mockRequestWithSchema.mockResolvedValue(sampleCategory);
 
       await categories.update('cat-1', {
         name: 'New Name',
@@ -115,7 +119,7 @@ describe('categories API', () => {
         pickRule: 'CHEAPEST',
       });
 
-      expect(mockRequest).toHaveBeenCalledWith('/categories/cat-1', {
+      expect(mockRequestWithSchema).toHaveBeenCalledWith('/categories/cat-1', categoryResponseSchema, {
         method: 'PUT',
         body: JSON.stringify({
           name: 'New Name',
@@ -127,7 +131,7 @@ describe('categories API', () => {
 
     it('returns updated category', async () => {
       const updated = { ...sampleCategory, name: 'Updated' };
-      mockRequest.mockResolvedValue(updated);
+      mockRequestWithSchema.mockResolvedValue(updated);
 
       const result = await categories.update('cat-1', { name: 'Updated' });
 

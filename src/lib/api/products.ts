@@ -1,49 +1,40 @@
-import { request } from './request'
-import type { Category } from './categories'
+import { request, requestWithSchema } from './request'
+import {
+  productBarcodeResponseSchema,
+  productResponseSchema,
+  productsListResponseSchema,
+  type ProductBarcodeResponse,
+  type ProductResponse,
+  type ProductsCreateBody,
+  type ProductsUpdateBody,
+} from '#contracts/routes/products'
 
-export interface ProductBarcode {
-  id: string
-  barcode: string
-}
-
-export interface Product {
-  id: string
-  name: string
-  barcode: string | null // Primary barcode (first one) for backward compatibility
-  barcodes?: ProductBarcode[] // All barcodes for this product
-  categoryId: string
-  category?: Category
-  unit: string
-  lowStockThreshold: number
-  isActive: boolean
-  totalStock?: number // For units: sum of remaining, for others: lot count
-  totalRemaining?: number // Actual sum of remaining quantities
-  lotCount?: number // Number of lots with remaining stock
-  currentCost?: number | null
-  createdAt: string
-  updatedAt: string
-}
+export type ProductBarcode = ProductBarcodeResponse
+export type Product = ProductResponse
 
 export const products = {
   list: (categoryId?: string) =>
-    request<Product[]>(`/products${categoryId ? `?categoryId=${categoryId}` : ''}`),
-  get: (id: string) => request<Product>(`/products/${id}`),
-  getByBarcode: (barcode: string) => request<Product>(`/products/barcode/${barcode}`),
-  create: (data: {
-    name: string
-    barcode?: string
-    categoryId: string
-    unit?: string
-    lowStockThreshold?: number
-  }) => request<Product>('/products', { method: 'POST', body: JSON.stringify(data) }),
-  update: (
-    id: string,
-    data: Partial<{ name: string; categoryId: string; unit: string; lowStockThreshold: number }>
-  ) => request<Product>(`/products/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+    requestWithSchema(
+      `/products${categoryId ? `?categoryId=${categoryId}` : ''}`,
+      productsListResponseSchema
+    ),
+  get: (id: string) => requestWithSchema(`/products/${id}`, productResponseSchema),
+  getByBarcode: (barcode: string) =>
+    requestWithSchema(`/products/barcode/${barcode}`, productResponseSchema),
+  create: (data: ProductsCreateBody) =>
+    requestWithSchema('/products', productResponseSchema, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+  update: (id: string, data: ProductsUpdateBody) =>
+    requestWithSchema(`/products/${id}`, productResponseSchema, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    }),
   delete: (id: string) => request<void>(`/products/${id}`, { method: 'DELETE' }),
   // Barcode management
   addBarcode: (productId: string, barcode: string) =>
-    request<ProductBarcode>(`/products/${productId}/barcodes`, {
+    requestWithSchema(`/products/${productId}/barcodes`, productBarcodeResponseSchema, {
       method: 'POST',
       body: JSON.stringify({ barcode }),
     }),

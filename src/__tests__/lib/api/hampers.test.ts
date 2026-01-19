@@ -2,16 +2,26 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 vi.mock('../../../lib/api/request', () => ({
   request: vi.fn(),
+  requestWithSchema: vi.fn(),
 }));
 
+import {
+  hamperDetailResponseSchema,
+  hamperResponseSchema,
+  hamperVariantResponseSchema,
+  hamperVariantsListResponseSchema,
+  hampersListResponseSchema,
+} from '#contracts/routes/hampers';
 import { hampers, hamperVariants, Hamper, HamperDetail, HamperVariant } from '../../../lib/api/hampers';
-import { request } from '../../../lib/api/request';
+import { request, requestWithSchema } from '../../../lib/api/request';
 
 const mockRequest = vi.mocked(request);
+const mockRequestWithSchema = vi.mocked(requestWithSchema);
 
 describe('hampers API', () => {
   beforeEach(() => {
     mockRequest.mockReset();
+    mockRequestWithSchema.mockReset();
   });
 
   const sampleHamper: Hamper = {
@@ -34,9 +44,7 @@ describe('hampers API', () => {
     requirements: [
       {
         id: 'req-1',
-        categoryId: 'cat-1',
         category: { id: 'cat-1', name: 'Chocolates' },
-        quantity: 3,
         isOptional: false,
         quantityRequired: 3,
         availableStock: 15,
@@ -46,29 +54,30 @@ describe('hampers API', () => {
     ],
     estimatedCost: 7.5,
     estimatedMargin: 27.5,
+    variants: [],
   };
 
   describe('list', () => {
     it('calls request with correct endpoint', async () => {
-      mockRequest.mockResolvedValue([sampleHamper]);
+      mockRequestWithSchema.mockResolvedValue([sampleHamper]);
 
       await hampers.list();
 
-      expect(mockRequest).toHaveBeenCalledWith('/hampers');
+      expect(mockRequestWithSchema).toHaveBeenCalledWith('/hampers', hampersListResponseSchema);
     });
   });
 
   describe('get', () => {
     it('calls request with hamper id', async () => {
-      mockRequest.mockResolvedValue(sampleHamperDetail);
+      mockRequestWithSchema.mockResolvedValue(sampleHamperDetail);
 
       await hampers.get('ham-1');
 
-      expect(mockRequest).toHaveBeenCalledWith('/hampers/ham-1');
+      expect(mockRequestWithSchema).toHaveBeenCalledWith('/hampers/ham-1', hamperDetailResponseSchema);
     });
 
     it('returns hamper detail with requirements', async () => {
-      mockRequest.mockResolvedValue(sampleHamperDetail);
+      mockRequestWithSchema.mockResolvedValue(sampleHamperDetail);
 
       const result = await hampers.get('ham-1');
 
@@ -79,7 +88,7 @@ describe('hampers API', () => {
 
   describe('create', () => {
     it('calls request with POST and hamper data', async () => {
-      mockRequest.mockResolvedValue(sampleHamper);
+      mockRequestWithSchema.mockResolvedValue(sampleHamper as any);
 
       const data = {
         name: 'Chocolate Lovers',
@@ -90,14 +99,14 @@ describe('hampers API', () => {
 
       await hampers.create(data);
 
-      expect(mockRequest).toHaveBeenCalledWith('/hampers', {
+      expect(mockRequestWithSchema).toHaveBeenCalledWith('/hampers', hamperResponseSchema, {
         method: 'POST',
         body: JSON.stringify(data),
       });
     });
 
     it('includes hasVariants when provided', async () => {
-      mockRequest.mockResolvedValue(sampleHamper);
+      mockRequestWithSchema.mockResolvedValue(sampleHamper as any);
 
       const data = {
         name: 'Multi Variant Hamper',
@@ -108,7 +117,7 @@ describe('hampers API', () => {
 
       await hampers.create(data);
 
-      expect(mockRequest).toHaveBeenCalledWith('/hampers', {
+      expect(mockRequestWithSchema).toHaveBeenCalledWith('/hampers', hamperResponseSchema, {
         method: 'POST',
         body: JSON.stringify(data),
       });
@@ -117,11 +126,11 @@ describe('hampers API', () => {
 
   describe('update', () => {
     it('calls request with PUT and partial data', async () => {
-      mockRequest.mockResolvedValue(sampleHamper);
+      mockRequestWithSchema.mockResolvedValue(sampleHamper as any);
 
       await hampers.update('ham-1', { name: 'Updated Hamper', sellingPrice: 40 });
 
-      expect(mockRequest).toHaveBeenCalledWith('/hampers/ham-1', {
+      expect(mockRequestWithSchema).toHaveBeenCalledWith('/hampers/ham-1', hamperResponseSchema, {
         method: 'PUT',
         body: JSON.stringify({ name: 'Updated Hamper', sellingPrice: 40 }),
       });
@@ -144,6 +153,7 @@ describe('hampers API', () => {
 describe('hamperVariants API', () => {
   beforeEach(() => {
     mockRequest.mockReset();
+    mockRequestWithSchema.mockReset();
   });
 
   const sampleVariant: HamperVariant = {
@@ -156,23 +166,31 @@ describe('hamperVariants API', () => {
     updatedAt: '2024-01-01T00:00:00Z',
     canMake: 3,
     mappings: [
-      { categoryId: 'cat-1', productId: 'prod-1', category: { id: 'cat-1', name: 'Chocolates' } },
+      {
+        categoryId: 'cat-1',
+        productId: 'prod-1',
+        category: { id: 'cat-1', name: 'Chocolates' },
+        product: { id: 'prod-1', name: 'Dark Chocolate Bar' },
+      },
     ],
   };
 
   describe('list', () => {
     it('calls request with hamper id', async () => {
-      mockRequest.mockResolvedValue([sampleVariant]);
+      mockRequestWithSchema.mockResolvedValue([sampleVariant]);
 
       await hamperVariants.list('ham-1');
 
-      expect(mockRequest).toHaveBeenCalledWith('/hampers/ham-1/variants');
+      expect(mockRequestWithSchema).toHaveBeenCalledWith(
+        '/hampers/ham-1/variants',
+        hamperVariantsListResponseSchema
+      );
     });
   });
 
   describe('create', () => {
     it('calls request with POST and variant data', async () => {
-      mockRequest.mockResolvedValue(sampleVariant);
+      mockRequestWithSchema.mockResolvedValue(sampleVariant);
 
       const data = {
         name: 'Dark Chocolate Selection',
@@ -182,7 +200,7 @@ describe('hamperVariants API', () => {
 
       await hamperVariants.create('ham-1', data);
 
-      expect(mockRequest).toHaveBeenCalledWith('/hampers/ham-1/variants', {
+      expect(mockRequestWithSchema).toHaveBeenCalledWith('/hampers/ham-1/variants', hamperVariantResponseSchema, {
         method: 'POST',
         body: JSON.stringify(data),
       });
@@ -191,14 +209,18 @@ describe('hamperVariants API', () => {
 
   describe('update', () => {
     it('calls request with PUT and partial data', async () => {
-      mockRequest.mockResolvedValue(sampleVariant);
+      mockRequestWithSchema.mockResolvedValue(sampleVariant);
 
       await hamperVariants.update('ham-1', 'var-1', { name: 'Updated Variant' });
 
-      expect(mockRequest).toHaveBeenCalledWith('/hampers/ham-1/variants/var-1', {
-        method: 'PUT',
-        body: JSON.stringify({ name: 'Updated Variant' }),
-      });
+      expect(mockRequestWithSchema).toHaveBeenCalledWith(
+        '/hampers/ham-1/variants/var-1',
+        hamperVariantResponseSchema,
+        {
+          method: 'PUT',
+          body: JSON.stringify({ name: 'Updated Variant' }),
+        }
+      );
     });
   });
 

@@ -1,4 +1,5 @@
 import { supabase } from '../supabase'
+import { z } from 'zod'
 
 const API_BASE = '/api'
 
@@ -28,5 +29,30 @@ export async function request<T>(endpoint: string, options?: RequestInit): Promi
   }
 
   return response.json()
+}
+
+const shouldValidateApiResponse = () => import.meta.env.VITE_VALIDATE_API !== 'false'
+
+export async function requestWithSchema<TSchema extends z.ZodTypeAny>(
+  endpoint: string,
+  schema: TSchema,
+  options?: RequestInit,
+): Promise<z.infer<TSchema>> {
+  const data = await request<unknown>(endpoint, options)
+
+  if (!shouldValidateApiResponse() || data === undefined) {
+    return data as z.infer<TSchema>
+  }
+
+  const result = schema.safeParse(data)
+  if (!result.success) {
+    console.error('API response validation failed', {
+      endpoint,
+      issues: result.error.issues,
+    })
+    throw new Error('Unexpected server response')
+  }
+
+  return result.data
 }
 

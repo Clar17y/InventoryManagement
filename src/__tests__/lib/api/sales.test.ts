@@ -2,16 +2,24 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 vi.mock('../../../lib/api/request', () => ({
   request: vi.fn(),
+  requestWithSchema: vi.fn(),
 }));
 
+import {
+  salePreviewResponseSchema,
+  saleResponseSchema,
+  salesListResponseSchema,
+  salesMarginAnalyticsResponseSchema,
+  salesSummaryResponseSchema,
+} from '#contracts/routes/sales';
 import { sales, Sale, SalePreview, SalesSummary, MarginAnalytics } from '../../../lib/api/sales';
-import { request } from '../../../lib/api/request';
+import { requestWithSchema } from '../../../lib/api/request';
 
-const mockRequest = vi.mocked(request);
+const mockRequestWithSchema = vi.mocked(requestWithSchema);
 
 describe('sales API', () => {
   beforeEach(() => {
-    mockRequest.mockReset();
+    mockRequestWithSchema.mockReset();
   });
 
   const sampleSale: Sale = {
@@ -36,6 +44,7 @@ describe('sales API', () => {
     notes: null,
     isHistorical: false,
     createdAt: '2024-01-15T10:00:00Z',
+    updatedAt: '2024-01-15T10:00:00Z',
     lines: [],
   };
 
@@ -49,6 +58,7 @@ describe('sales API', () => {
         requirements: [],
         totalCost: 15,
         canFulfill: true,
+        isBespoke: false,
       },
     ],
     summary: {
@@ -63,15 +73,15 @@ describe('sales API', () => {
 
   describe('list', () => {
     it('calls request with empty params', async () => {
-      mockRequest.mockResolvedValue({ sales: [sampleSale], total: 1 });
+      mockRequestWithSchema.mockResolvedValue({ sales: [sampleSale], total: 1 });
 
       await sales.list();
 
-      expect(mockRequest).toHaveBeenCalledWith('/sales?');
+      expect(mockRequestWithSchema).toHaveBeenCalledWith('/sales?', salesListResponseSchema);
     });
 
     it('calls request with all params', async () => {
-      mockRequest.mockResolvedValue({ sales: [sampleSale], total: 1 });
+      mockRequestWithSchema.mockResolvedValue({ sales: [sampleSale], total: 1 });
 
       await sales.list({
         limit: 20,
@@ -81,33 +91,34 @@ describe('sales API', () => {
         search: 'chocolate',
       });
 
-      expect(mockRequest).toHaveBeenCalledWith(
-        '/sales?limit=20&offset=10&startDate=2024-01-01&endDate=2024-01-31&search=chocolate'
+      expect(mockRequestWithSchema).toHaveBeenCalledWith(
+        '/sales?limit=20&offset=10&startDate=2024-01-01&endDate=2024-01-31&search=chocolate',
+        salesListResponseSchema
       );
     });
 
     it('builds query string with partial params', async () => {
-      mockRequest.mockResolvedValue({ sales: [], total: 0 });
+      mockRequestWithSchema.mockResolvedValue({ sales: [], total: 0 });
 
       await sales.list({ limit: 10, search: 'test' });
 
-      expect(mockRequest).toHaveBeenCalledWith('/sales?limit=10&search=test');
+      expect(mockRequestWithSchema).toHaveBeenCalledWith('/sales?limit=10&search=test', salesListResponseSchema);
     });
   });
 
   describe('get', () => {
     it('calls request with sale id', async () => {
-      mockRequest.mockResolvedValue(sampleSale);
+      mockRequestWithSchema.mockResolvedValue(sampleSale);
 
       await sales.get('sale-1');
 
-      expect(mockRequest).toHaveBeenCalledWith('/sales/sale-1');
+      expect(mockRequestWithSchema).toHaveBeenCalledWith('/sales/sale-1', saleResponseSchema);
     });
   });
 
   describe('preview', () => {
     it('calls request with POST and preview data', async () => {
-      mockRequest.mockResolvedValue(samplePreview);
+      mockRequestWithSchema.mockResolvedValue(samplePreview);
 
       const data = {
         lines: [{ hamperId: 'ham-1', quantity: 1 }],
@@ -117,16 +128,20 @@ describe('sales API', () => {
 
       await sales.preview(data);
 
-      expect(mockRequest).toHaveBeenCalledWith('/sales/preview', {
-        method: 'POST',
-        body: JSON.stringify(data),
-      });
+      expect(mockRequestWithSchema).toHaveBeenCalledWith(
+        '/sales/preview',
+        salePreviewResponseSchema,
+        {
+          method: 'POST',
+          body: JSON.stringify(data),
+        }
+      );
     });
   });
 
   describe('create', () => {
     it('calls request with POST and sale data', async () => {
-      mockRequest.mockResolvedValue(sampleSale);
+      mockRequestWithSchema.mockResolvedValue(sampleSale);
 
       const data = {
         grossRevenue: 35,
@@ -139,14 +154,18 @@ describe('sales API', () => {
 
       await sales.create(data);
 
-      expect(mockRequest).toHaveBeenCalledWith('/sales', {
-        method: 'POST',
-        body: JSON.stringify(data),
-      });
+      expect(mockRequestWithSchema).toHaveBeenCalledWith(
+        '/sales',
+        saleResponseSchema,
+        {
+          method: 'POST',
+          body: JSON.stringify(data),
+        }
+      );
     });
 
     it('includes allocation overrides when provided', async () => {
-      mockRequest.mockResolvedValue(sampleSale);
+      mockRequestWithSchema.mockResolvedValue(sampleSale);
 
       const data = {
         grossRevenue: 35,
@@ -158,10 +177,14 @@ describe('sales API', () => {
 
       await sales.create(data);
 
-      expect(mockRequest).toHaveBeenCalledWith('/sales', {
-        method: 'POST',
-        body: JSON.stringify(data),
-      });
+      expect(mockRequestWithSchema).toHaveBeenCalledWith(
+        '/sales',
+        saleResponseSchema,
+        {
+          method: 'POST',
+          body: JSON.stringify(data),
+        }
+      );
     });
   });
 
@@ -181,15 +204,15 @@ describe('sales API', () => {
     };
 
     it('calls request with empty params', async () => {
-      mockRequest.mockResolvedValue(sampleSummary);
+      mockRequestWithSchema.mockResolvedValue(sampleSummary);
 
       await sales.summary();
 
-      expect(mockRequest).toHaveBeenCalledWith('/sales/summary?');
+      expect(mockRequestWithSchema).toHaveBeenCalledWith('/sales/summary?', salesSummaryResponseSchema);
     });
 
     it('calls request with date filter params', async () => {
-      mockRequest.mockResolvedValue(sampleSummary);
+      mockRequestWithSchema.mockResolvedValue(sampleSummary);
 
       await sales.summary({
         startDate: '2024-01-01',
@@ -197,8 +220,9 @@ describe('sales API', () => {
         search: 'chocolate',
       });
 
-      expect(mockRequest).toHaveBeenCalledWith(
-        '/sales/summary?startDate=2024-01-01&endDate=2024-01-31&search=chocolate'
+      expect(mockRequestWithSchema).toHaveBeenCalledWith(
+        '/sales/summary?startDate=2024-01-01&endDate=2024-01-31&search=chocolate',
+        salesSummaryResponseSchema
       );
     });
   });
@@ -223,19 +247,25 @@ describe('sales API', () => {
     };
 
     it('calls request with default 30 days', async () => {
-      mockRequest.mockResolvedValue(sampleAnalytics);
+      mockRequestWithSchema.mockResolvedValue(sampleAnalytics);
 
       await sales.analytics();
 
-      expect(mockRequest).toHaveBeenCalledWith('/sales/analytics/margins?days=30');
+      expect(mockRequestWithSchema).toHaveBeenCalledWith(
+        '/sales/analytics/margins?days=30',
+        salesMarginAnalyticsResponseSchema
+      );
     });
 
     it('calls request with custom days', async () => {
-      mockRequest.mockResolvedValue(sampleAnalytics);
+      mockRequestWithSchema.mockResolvedValue(sampleAnalytics);
 
       await sales.analytics(7);
 
-      expect(mockRequest).toHaveBeenCalledWith('/sales/analytics/margins?days=7');
+      expect(mockRequestWithSchema).toHaveBeenCalledWith(
+        '/sales/analytics/margins?days=7',
+        salesMarginAnalyticsResponseSchema
+      );
     });
   });
 });

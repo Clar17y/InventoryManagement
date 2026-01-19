@@ -24,7 +24,7 @@
 | 4A: Automated Testing | Complete | 34 files / 480 tests |
 | 5A: Ops - DB Backups | Complete | Daily GitHub Action |
 
-**Current Focus:** Implement Etsy listing-inventory caching (see `docs/ETSY_INVENTORY_CACHING_PLAN.md`) and keep Etsy sync UX consistent across pages.
+**Current Focus:** Architecture refactor v2 (`contracts/` + feature structure) and keep Etsy sync UX consistent across pages.
 
 
 ---
@@ -284,6 +284,7 @@ npm run test:server:run   # Single run (server only)
 | 2026-01-08 | Clar17y | Etsy order import stock validation | Done | feature/etsy-integration |
 | 2026-01-12 | Clar17y | Real Etsy API updates (SKU + price + product IDs) | Done | feature/real-etsy-integration |
 | 2026-01-12 | Codex CLI | Sync UX polish + caching plan doc + string normalization | Done | feature/real-etsy-integration |
+| 2026-01-19 | Codex CLI | Architecture refactor v2 (contracts + feature structure) | In Progress | refactor/arch-v2 |
 
 
 ---
@@ -292,16 +293,17 @@ npm run test:server:run   # Single run (server only)
 
 > Leave notes here when ending a session so the next agent knows where you left off
 
-**Last Updated:** 2026-01-12
+**Last Updated:** 2026-01-19
 
 **Current State:**
 - **v1.0.0 Released**: Project marked as stable and ready for use.
 - **Automated test suite complete**: 34 files / 480 tests passing (`npm run test:run`).
+- **Architecture refactor v2 started** (branch: `refactor/arch-v2`): shared `contracts/` scaffold + `#contracts/*` alias wiring + client API response validation (`VITE_VALIDATE_API`).
 - Phase 2A-2C: Full finance tracking with historical import.
 - Phase 1E: Polished and ready.
 - Etsy integration supports mock + real API: OAuth, listing import, reconciliation, inventory/SKU/price sync, and pending orders -> sales import.
 - Automated DB backups run daily via GitHub Actions.
-- Current branch: `feature/real-etsy-integration`
+- Current branch: `refactor/arch-v2`
 
 **Testing (2026-01-12):**
 - `vitest.config.ts` - Workspace config with client/server projects
@@ -334,12 +336,12 @@ npm run test:server:run   # Single run (server only)
 - `prisma/migrations/20260106121712_add_stock_category_and_historical_flag/` - DB migration
 
 **Next Steps:**
-1. Implement server-side Etsy listing-inventory caching (`docs/ETSY_INVENTORY_CACHING_PLAN.md`)
+1. Continue contracts adoption (move route schemas into `contracts/` and consume from `server/` + `src/`)
 2. Decide whether PKCE verifier storage should be persisted (if multi-instance deployment is planned)
 3. Merge `feature/real-etsy-integration` to main when ready
 
 **Known Issues:**
-- Etsy listing inventory is fetched repeatedly across sync endpoints; caching is planned but not yet implemented.
+- Etsy listing inventory caching is in-memory per-process; multi-instance deployments will have separate caches.
 - OAuth PKCE verifier/state is stored in-memory (fine for single-instance dev).
 
 ---
@@ -347,6 +349,6 @@ npm run test:server:run   # Single run (server only)
 ## File References
 
 - [Implementation Plan](./IMPLEMENTATION_PLAN.md) - Full technical design
-- [Etsy Inventory Caching Plan](./ETSY_INVENTORY_CACHING_PLAN.md) - Planned server-side cache for Etsy listing inventory
+- [Etsy Inventory Caching](./ETSY_INVENTORY_CACHING_PLAN.md) - Implemented server-side cache for Etsy listing inventory
 - [Prisma Schema](../prisma/schema.prisma) - Database models
 - [API Routes](../server/routes/) - Backend endpoints

@@ -30,7 +30,7 @@ describe('AlertCard', () => {
 
       expect(screen.getByText('Info Alert')).toBeInTheDocument();
       const header = screen.getByText('Info Alert').closest('div');
-      expect(header).toHaveClass('bg-blue-50');
+      expect(header).toHaveClass('bg-info-50');
     });
   });
 

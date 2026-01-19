@@ -2,16 +2,26 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 vi.mock('../../../lib/api/request', () => ({
   request: vi.fn(),
+  requestWithSchema: vi.fn(),
 }));
 
+import {
+  dashboardStatsResponseSchema,
+  etsyFeeConfigResponseSchema,
+  etsyFeeConfigsResponseSchema,
+  packagingOverheadItemResponseSchema,
+  packagingOverheadResponseSchema,
+} from '#contracts/routes/settings';
 import { settings, DashboardStats, EtsyFeeConfig, PackagingOverhead } from '../../../lib/api/settings';
-import { request } from '../../../lib/api/request';
+import { request, requestWithSchema } from '../../../lib/api/request';
 
 const mockRequest = vi.mocked(request);
+const mockRequestWithSchema = vi.mocked(requestWithSchema);
 
 describe('settings API', () => {
   beforeEach(() => {
     mockRequest.mockReset();
+    mockRequestWithSchema.mockReset();
   });
 
   describe('dashboardStats', () => {
@@ -25,15 +35,18 @@ describe('settings API', () => {
     };
 
     it('calls request with correct endpoint', async () => {
-      mockRequest.mockResolvedValue(sampleStats);
+      mockRequestWithSchema.mockResolvedValue(sampleStats);
 
       await settings.dashboardStats();
 
-      expect(mockRequest).toHaveBeenCalledWith('/settings/dashboard-stats');
+      expect(mockRequestWithSchema).toHaveBeenCalledWith(
+        '/settings/dashboard-stats',
+        dashboardStatsResponseSchema
+      );
     });
 
     it('returns dashboard stats', async () => {
-      mockRequest.mockResolvedValue(sampleStats);
+      mockRequestWithSchema.mockResolvedValue(sampleStats);
 
       const result = await settings.dashboardStats();
 
@@ -61,15 +74,18 @@ describe('settings API', () => {
 
     describe('getEtsyFees', () => {
       it('calls request with correct endpoint', async () => {
-        mockRequest.mockResolvedValue([sampleFee]);
+        mockRequestWithSchema.mockResolvedValue([sampleFee]);
 
         await settings.getEtsyFees();
 
-        expect(mockRequest).toHaveBeenCalledWith('/settings/etsy-fees');
+        expect(mockRequestWithSchema).toHaveBeenCalledWith(
+          '/settings/etsy-fees',
+          etsyFeeConfigsResponseSchema
+        );
       });
 
       it('returns array of fee configs', async () => {
-        mockRequest.mockResolvedValue([sampleFee]);
+        mockRequestWithSchema.mockResolvedValue([sampleFee]);
 
         const result = await settings.getEtsyFees();
 
@@ -80,7 +96,7 @@ describe('settings API', () => {
 
     describe('createEtsyFees', () => {
       it('calls request with POST and fee data', async () => {
-        mockRequest.mockResolvedValue(sampleFee);
+        mockRequestWithSchema.mockResolvedValue(sampleFee);
 
         const data = {
           name: 'Standard Etsy Fees 2024',
@@ -94,10 +110,14 @@ describe('settings API', () => {
 
         await settings.createEtsyFees(data);
 
-        expect(mockRequest).toHaveBeenCalledWith('/settings/etsy-fees', {
-          method: 'POST',
-          body: JSON.stringify(data),
-        });
+        expect(mockRequestWithSchema).toHaveBeenCalledWith(
+          '/settings/etsy-fees',
+          etsyFeeConfigResponseSchema,
+          {
+            method: 'POST',
+            body: JSON.stringify(data),
+          }
+        );
       });
     });
   });
@@ -115,18 +135,21 @@ describe('settings API', () => {
 
     describe('getPackagingOverhead', () => {
       it('calls request with correct endpoint', async () => {
-        mockRequest.mockResolvedValue({
+        mockRequestWithSchema.mockResolvedValue({
           overheads: [sampleOverhead],
           totalPerOrder: 1.5,
         });
 
         await settings.getPackagingOverhead();
 
-        expect(mockRequest).toHaveBeenCalledWith('/settings/packaging-overhead');
+        expect(mockRequestWithSchema).toHaveBeenCalledWith(
+          '/settings/packaging-overhead',
+          packagingOverheadResponseSchema
+        );
       });
 
       it('returns overheads and total', async () => {
-        mockRequest.mockResolvedValue({
+        mockRequestWithSchema.mockResolvedValue({
           overheads: [sampleOverhead],
           totalPerOrder: 1.5,
         });
@@ -140,38 +163,50 @@ describe('settings API', () => {
 
     describe('createPackagingOverhead', () => {
       it('calls request with POST and overhead data', async () => {
-        mockRequest.mockResolvedValue(sampleOverhead);
+        mockRequestWithSchema.mockResolvedValue(sampleOverhead);
 
         await settings.createPackagingOverhead({ name: 'Gift Box', costPerOrder: 1.5 });
 
-        expect(mockRequest).toHaveBeenCalledWith('/settings/packaging-overhead', {
-          method: 'POST',
-          body: JSON.stringify({ name: 'Gift Box', costPerOrder: 1.5 }),
-        });
+        expect(mockRequestWithSchema).toHaveBeenCalledWith(
+          '/settings/packaging-overhead',
+          packagingOverheadItemResponseSchema,
+          {
+            method: 'POST',
+            body: JSON.stringify({ name: 'Gift Box', costPerOrder: 1.5 }),
+          }
+        );
       });
     });
 
     describe('updatePackagingOverhead', () => {
       it('calls request with PUT and partial data', async () => {
-        mockRequest.mockResolvedValue(sampleOverhead);
+        mockRequestWithSchema.mockResolvedValue(sampleOverhead);
 
         await settings.updatePackagingOverhead('pkg-1', { costPerOrder: 2.0 });
 
-        expect(mockRequest).toHaveBeenCalledWith('/settings/packaging-overhead/pkg-1', {
-          method: 'PUT',
-          body: JSON.stringify({ costPerOrder: 2.0 }),
-        });
+        expect(mockRequestWithSchema).toHaveBeenCalledWith(
+          '/settings/packaging-overhead/pkg-1',
+          packagingOverheadItemResponseSchema,
+          {
+            method: 'PUT',
+            body: JSON.stringify({ costPerOrder: 2.0 }),
+          }
+        );
       });
 
       it('can update name', async () => {
-        mockRequest.mockResolvedValue(sampleOverhead);
+        mockRequestWithSchema.mockResolvedValue(sampleOverhead);
 
         await settings.updatePackagingOverhead('pkg-1', { name: 'Premium Gift Box' });
 
-        expect(mockRequest).toHaveBeenCalledWith('/settings/packaging-overhead/pkg-1', {
-          method: 'PUT',
-          body: JSON.stringify({ name: 'Premium Gift Box' }),
-        });
+        expect(mockRequestWithSchema).toHaveBeenCalledWith(
+          '/settings/packaging-overhead/pkg-1',
+          packagingOverheadItemResponseSchema,
+          {
+            method: 'PUT',
+            body: JSON.stringify({ name: 'Premium Gift Box' }),
+          }
+        );
       });
     });
 

@@ -25,32 +25,6 @@ function generatePKCE() {
     return { verifier, challenge };
 }
 
-async function mapWithConcurrency<T, R>(
-    items: T[],
-    concurrency: number,
-    mapper: (item: T, index: number) => Promise<R>
-): Promise<R[]> {
-    const results: R[] = new Array(items.length);
-    const maxConcurrency = Math.max(1, Math.floor(concurrency));
-
-    let nextIndex = 0;
-    const workers = Array.from(
-        { length: Math.min(maxConcurrency, items.length) },
-        async () => {
-            while (true) {
-                const currentIndex = nextIndex;
-                nextIndex += 1;
-                if (currentIndex >= items.length) return;
-
-                results[currentIndex] = await mapper(items[currentIndex]!, currentIndex);
-            }
-        }
-    );
-
-    await Promise.all(workers);
-    return results;
-}
-
 /**
  * GET /api/etsy/status
  * Check Etsy connection status
@@ -533,26 +507,9 @@ router.get('/listings', async (req, res) => {
         const listings = await fetchAllActiveListings(etsyClient);
         const count = listings.length;
 
-        // Fetch inventory for each listing to get variant info
-        const listingsWithInventory = await mapWithConcurrency(
-            listings,
-            10,
-            async (listing) => {
-                try {
-                    const inventory = await etsyClient.getListingInventory(listing.listing_id);
-                    return {
-                        ...listing,
-                        inventory,
-                    };
-                } catch (err) {
-                    console.warn(`Failed to get inventory for listing ${listing.listing_id}:`, err);
-                    return {
-                        ...listing,
-                        inventory: null,
-                    };
-                }
-            }
-        );
+        // Fetch inventory for all listings in a single batch call
+        const listingIds = listings.map(l => l.listing_id);
+        const listingsWithInventory = await etsyClient.getListingsByListingIds(listingIds, ['Inventory']);
 
         res.json({ listings: listingsWithInventory, count });
     } catch (error) {
@@ -568,6 +525,15 @@ router.get('/listings', async (req, res) => {
 router.post('/import', async (req, res) => {
     try {
         const listings = await fetchAllActiveListings(etsyClient);
+
+        // Pre-fetch all inventories in a single batch call
+        const listingIds = listings.map(l => l.listing_id);
+        const listingsWithInventory = await etsyClient.getListingsByListingIds(listingIds, ['Inventory']);
+        const inventoryMap = new Map(
+            listingsWithInventory
+                .filter(l => l.inventory)
+                .map(l => [l.listing_id, l.inventory!])
+        );
 
         const results = {
             created: 0,
@@ -603,15 +569,13 @@ router.post('/import', async (req, res) => {
                 // Convert Etsy price (divisor format) to decimal
                 const price = listing.price.amount / listing.price.divisor;
 
-                // Get inventory to check for variants
+                // Get inventory from pre-fetched map
                 let variants: Array<{ name: string; sku: string | null; productId: string; sellingPrice: number | null }> = [];
                 let hasVariants = false;
-                let inventoryLoaded = false;
+                const inventory = inventoryMap.get(listing.listing_id);
+                const inventoryLoaded = !!inventory;
 
-                try {
-                    const inventory = await etsyClient.getListingInventory(listing.listing_id);
-                    inventoryLoaded = true;
-
+                if (inventory) {
                     const products = (inventory.products ?? []).filter(p => !p.is_deleted);
                     hasVariants = products.length > 1;
 
@@ -636,8 +600,6 @@ router.post('/import', async (req, res) => {
                             sellingPrice,
                         };
                     });
-                } catch (invErr) {
-                    console.warn(`Failed to get inventory for listing ${listing.listing_id}:`, invErr);
                 }
 
                 let hamperId: string;

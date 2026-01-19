@@ -37,6 +37,11 @@ export interface EtsyListing {
   has_variations: boolean;
 }
 
+// Listing with embedded inventory from batch endpoint
+export interface EtsyListingWithInventory extends EtsyListing {
+  inventory?: EtsyInventory;
+}
+
 export interface EtsyProductOffering {
   offering_id: number;
   quantity: number;
@@ -158,6 +163,10 @@ export interface IEtsyClient {
     offset?: number
   ): Promise<{ listings: EtsyListing[]; count: number }>;
   getListingInventory(listingId: number): Promise<EtsyInventory>;
+  getListingsByListingIds(
+    listingIds: number[],
+    includes?: ('Inventory' | 'Images' | 'Shop')[]
+  ): Promise<EtsyListingWithInventory[]>;
   updateListingInventory(
     listingId: number,
     products: EtsyInventoryUpdateProduct[],

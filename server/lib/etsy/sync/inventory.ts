@@ -11,6 +11,7 @@ import {
 import { findEtsyProductByIdentifiers, findEtsyProductByVariantName } from '../matching';
 import {
   getListingInventoryCached,
+  getListingInventoriesBatched,
   invalidateListingInventory,
 } from '../inventoryCache';
 
@@ -63,17 +64,16 @@ export async function getSyncComparison() {
     },
   });
 
+  // Collect all listing IDs and fetch inventories in batch
+  const listingIds = hampers
+    .filter(h => h.etsyListingId)
+    .map(h => parseInt(h.etsyListingId!));
+  const inventoryMap = await getListingInventoriesBatched(listingIds);
+
   const comparisons = [];
 
   for (const hamper of hampers) {
-    let etsyInventory = null;
-    try {
-      etsyInventory = await getListingInventoryCached(
-        parseInt(hamper.etsyListingId!)
-      );
-    } catch (err) {
-      console.warn(`Failed to fetch Etsy inventory for ${hamper.etsyListingId}:`, err);
-    }
+    const etsyInventory = inventoryMap.get(parseInt(hamper.etsyListingId!)) ?? null;
 
     const variantComparisons = [];
 

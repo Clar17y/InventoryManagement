@@ -4,6 +4,7 @@ import {
   EtsyApiError,
   EtsyShop,
   EtsyListing,
+  EtsyListingWithInventory,
   EtsyInventory,
   EtsyReceipt,
   EtsyInventoryUpdateProduct,
@@ -243,6 +244,29 @@ export class RealEtsyClient implements IEtsyClient {
     return response;
   }
 
+  async getListingsByListingIds(
+    listingIds: number[],
+    includes?: ('Inventory' | 'Images' | 'Shop')[]
+  ): Promise<EtsyListingWithInventory[]> {
+    if (listingIds.length === 0) return [];
+
+    const BATCH_SIZE = 100; // Etsy API limit
+    const allResults: EtsyListingWithInventory[] = [];
+
+    for (let i = 0; i < listingIds.length; i += BATCH_SIZE) {
+      const chunk = listingIds.slice(i, i + BATCH_SIZE);
+      const idsParam = chunk.join(',');
+      const includesParam = includes?.length ? `&includes=${includes.join(',')}` : '';
+
+      const response = await this.request<{ results: EtsyListingWithInventory[] }>(
+        `/application/listings/batch?listing_ids=${idsParam}${includesParam}`
+      );
+      allResults.push(...(response.results || []));
+    }
+
+    return allResults;
+  }
+
   async updateListingInventory(
     listingId: number,
     products: EtsyInventoryUpdateProduct[],
@@ -259,8 +283,11 @@ export class RealEtsyClient implements IEtsyClient {
       // Check if products have different SKUs
       const uniqueSkus = new Set(products.map(p => p.sku).filter(Boolean));
       if (uniqueSkus.size > 1 && skuOnProperty.length === 0) {
-        // SKUs differ but sku_on_property is empty - use same properties as quantity/price
-        skuOnProperty = currentInventory?.quantity_on_property ?? currentInventory?.price_on_property ?? [];
+        // SKUs differ but sku_on_property is empty - inherit from quantity or price property
+        // Use array length check since empty array [] is truthy with nullish coalescing
+        const qtyProps = currentInventory?.quantity_on_property ?? [];
+        const priceProps = currentInventory?.price_on_property ?? [];
+        skuOnProperty = qtyProps.length > 0 ? qtyProps : priceProps;
       }
     }
 

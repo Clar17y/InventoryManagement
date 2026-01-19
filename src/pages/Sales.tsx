@@ -1052,34 +1052,42 @@ export default function Sales() {
         <div className="space-y-3">
           {saleList.map((sale) => (
             <div key={sale.id} className="card">
+              {/* Row 1: Full-width item names */}
               <button
                 onClick={() => handleExpand(sale.id)}
-                className="w-full text-left flex justify-between items-start"
+                className="w-full text-left"
               >
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2">
-                    <span className={`text-xs px-1.5 py-0.5 rounded ${channelColors[sale.saleChannel]}`}>
+                <div className="text-sm font-medium">
+                  {sale.lines.map((l) => `${l.hamper?.name || l.description || 'Bespoke Item'} ×${l.quantity}`).join(', ')}
+                </div>
+              </button>
+
+              {/* Row 2: Channel, date, price, margin, chevron */}
+              <button
+                onClick={() => handleExpand(sale.id)}
+                className="w-full text-left mt-1"
+              >
+                <div className="flex justify-between items-center">
+                  <div className="flex items-center gap-2 text-xs text-gray-500">
+                    <span className={`px-1.5 py-0.5 rounded ${channelColors[sale.saleChannel]}`}>
                       {channelLabels[sale.saleChannel]}
                     </span>
-                    <span className="font-medium">
-                      {sale.lines.map((l) => `${l.hamper?.name || l.description || 'Bespoke Item'} ×${l.quantity}`).join(', ')}
+                    <span>
+                      {formatDate(sale.saleDate)}
+                      {sale.etsyOrderId && ` • #${sale.etsyOrderId}`}
                     </span>
                   </div>
-                  <div className="text-sm text-gray-500">
-                    {formatDate(sale.saleDate)}
-                    {sale.etsyOrderId && ` • Order #${sale.etsyOrderId}`}
+                  <div className="flex items-center gap-2">
+                    <div className="text-right">
+                      <span className="text-sm font-medium">{formatCurrency(Number(sale.grossRevenue))}</span>
+                      <MarginBadge margin={Number(sale.margin)} revenue={Number(sale.grossRevenue)} />
+                    </div>
+                    {expandedId === sale.id ? (
+                      <ChevronUpIcon className="h-5 w-5 text-gray-400" />
+                    ) : (
+                      <ChevronDownIcon className="h-5 w-5 text-gray-400" />
+                    )}
                   </div>
-                </div>
-                <div className="flex items-center gap-3">
-                  <div className="text-right">
-                    <div className="font-medium">{formatCurrency(Number(sale.grossRevenue))}</div>
-                    <MarginBadge margin={Number(sale.margin)} revenue={Number(sale.grossRevenue)} />
-                  </div>
-                  {expandedId === sale.id ? (
-                    <ChevronUpIcon className="h-5 w-5 text-gray-400" />
-                  ) : (
-                    <ChevronDownIcon className="h-5 w-5 text-gray-400" />
-                  )}
                 </div>
               </button>
 

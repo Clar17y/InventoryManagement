@@ -103,7 +103,7 @@ export default function Categories() {
       </div>
 
       {error && (
-        <div className="bg-red-50 text-red-700 p-3 rounded-lg text-sm">{error}</div>
+        <div className="alert-danger">{error}</div>
       )}
 
       {showForm && (

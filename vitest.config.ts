@@ -10,6 +10,10 @@ export default defineConfig({
   resolve: {
     alias: [
       {
+        find: /^@\/(.*)$/,
+        replacement: path.resolve(__dirname, 'src/$1'),
+      },
+      {
         find: /^#contracts\/(.*)$/,
         replacement: path.resolve(__dirname, 'contracts/$1'),
       },

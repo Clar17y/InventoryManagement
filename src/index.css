@@ -73,6 +73,39 @@
   @apply w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-primary-500 focus:border-transparent;
 }
 
+@utility alert {
+  @apply p-3 rounded-lg text-sm;
+}
+
+@utility alert-danger {
+  @apply alert bg-red-50 text-red-700;
+}
+
+@utility alert-warning {
+  @apply alert bg-amber-50 text-amber-800;
+}
+
+@utility alert-info {
+  @apply alert bg-info-50 text-info-700;
+}
+
+@utility alert-success {
+  @apply alert bg-green-50 text-green-800;
+}
+
+@keyframes slide-in-right {
+  from {
+    transform: translateX(100%);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+
+@utility animate-slide-in-right {
+  animation: slide-in-right 0.2s ease-out;
+}
+
 @layer base {
   html {
     font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;

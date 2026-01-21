@@ -541,6 +541,12 @@ router.post('/import', async (req, res) => {
             updated: 0,
             skipped: 0,
             errors: [] as string[],
+            details: [] as Array<{
+                hamper: string;
+                action: 'created_hamper' | 'created_variant' | 'linked_product_id' | 'set_sku' | 'set_price' | 'renamed_variant' | 'toggled_has_variants' | 'relinked_variant';
+                variant?: string;
+                info?: string;
+            }>,
         };
 
         const normalizeSku = (sku: unknown): string | null => {
@@ -618,6 +624,7 @@ router.post('/import', async (req, res) => {
                     });
                     hamperId = hamper.id;
                     results.created++;
+                    results.details.push({ hamper: listing.title, action: 'created_hamper' });
                 } else {
                     hamperId = existing.id;
 
@@ -631,6 +638,11 @@ router.post('/import', async (req, res) => {
                             data: { hasVariants },
                         });
                         didUpdate = true;
+                        results.details.push({
+                            hamper: existing.name,
+                            action: 'toggled_has_variants',
+                            info: `${existing.hasVariants} → ${hasVariants}`,
+                        });
                     }
 
                     if (inventoryLoaded && variants.length > 0) {
@@ -667,14 +679,25 @@ router.post('/import', async (req, res) => {
 
                             if (candidate) {
                                 const updateData: Prisma.HamperVariantUpdateInput = {};
+                                const changes: string[] = [];
 
-                                if (candidate.etsyProductId !== productId) updateData.etsyProductId = productId;
-                                if (!candidate.etsySku && sku) updateData.etsySku = sku;
-                                if (candidate.sellingPrice === null && v.sellingPrice !== null) updateData.sellingPrice = v.sellingPrice;
+                                if (candidate.etsyProductId !== productId) {
+                                    updateData.etsyProductId = productId;
+                                    changes.push('linked_product_id');
+                                }
+                                if (!candidate.etsySku && sku) {
+                                    updateData.etsySku = sku;
+                                    changes.push('set_sku');
+                                }
+                                if (candidate.sellingPrice === null && v.sellingPrice !== null) {
+                                    updateData.sellingPrice = v.sellingPrice;
+                                    changes.push('set_price');
+                                }
 
                                 // If this looks like an auto placeholder name, update it to Etsy's name.
                                 if (/^Variant\s+\d+$/i.test(candidate.name) && candidate.name !== v.name) {
                                     updateData.name = v.name;
+                                    changes.push('renamed_variant');
                                 }
 
                                 if (Object.keys(updateData).length > 0) {
@@ -684,6 +707,13 @@ router.post('/import', async (req, res) => {
                                             data: updateData,
                                         });
                                         didUpdate = true;
+                                        for (const change of changes) {
+                                            results.details.push({
+                                                hamper: existing.name,
+                                                action: change as 'linked_product_id' | 'set_sku' | 'set_price' | 'renamed_variant',
+                                                variant: candidate.name,
+                                            });
+                                        }
                                     } catch (variantErr) {
                                         // If we hit a unique constraint (e.g., productId already linked elsewhere), fall back to re-linking that variant.
                                         const existingByProductId = await prisma.hamperVariant.findFirst({
@@ -697,6 +727,11 @@ router.post('/import', async (req, res) => {
                                                 data: { hamperId: existing.id, isActive: true },
                                             });
                                             didUpdate = true;
+                                            results.details.push({
+                                                hamper: existing.name,
+                                                action: 'relinked_variant',
+                                                variant: v.name,
+                                            });
                                         } else {
                                             console.warn(`Failed to update variant "${v.name}" for listing ${listingIdStr}:`, variantErr);
                                         }
@@ -715,6 +750,11 @@ router.post('/import', async (req, res) => {
                                         },
                                     });
                                     didUpdate = true;
+                                    results.details.push({
+                                        hamper: existing.name,
+                                        action: 'created_variant',
+                                        variant: v.name,
+                                    });
                                 } catch (variantErr) {
                                     const existingBySku = v.sku
                                         ? await prisma.hamperVariant.findFirst({
@@ -735,7 +775,11 @@ router.post('/import', async (req, res) => {
                                             data: { hamperId: existing.id, isActive: true },
                                         });
                                         didUpdate = true;
-                                        console.warn(`Re-linked orphaned variant ${v.name} to hamper ${existing.id}`);
+                                        results.details.push({
+                                            hamper: existing.name,
+                                            action: 'relinked_variant',
+                                            variant: v.name,
+                                        });
                                     } else {
                                         console.warn(`Skipping variant ${v.name}: ${variantErr instanceof Error ? variantErr.message : variantErr}`);
                                     }
@@ -767,6 +811,11 @@ router.post('/import', async (req, res) => {
                                     isActive: true,
                                 },
                             });
+                            results.details.push({
+                                hamper: listing.title,
+                                action: 'created_variant',
+                                variant: v.name,
+                            });
                         } catch (variantErr) {
                             // If unique constraint fails, try to find and update existing variant
                             const existingBySku = v.sku
@@ -787,7 +836,11 @@ router.post('/import', async (req, res) => {
                                     where: { id: existingVariant.id },
                                     data: { hamperId },
                                 });
-                                console.warn(`Re-linked orphaned variant ${v.name} to hamper ${hamperId}`);
+                                results.details.push({
+                                    hamper: listing.title,
+                                    action: 'relinked_variant',
+                                    variant: v.name,
+                                });
                             } else {
                                 console.warn(`Skipping variant ${v.name}: ${variantErr instanceof Error ? variantErr.message : variantErr}`);
                             }

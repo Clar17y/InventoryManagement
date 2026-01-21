@@ -17,7 +17,7 @@ import HamperForm from '../components/HamperForm'
 import HampersHeader from '../components/HampersHeader'
 import HampersListView from '../components/HampersListView'
 import { DEFAULT_HAMPERS_SORT, emptyHamperForm } from '../constants'
-import type { HamperFormData, HamperSortOption, RequirementInput } from '../types'
+import type { HamperFormData, HamperSortOption } from '../types'
 
 export default function Hampers() {
   const formRef = useRef<HTMLFormElement | null>(null)
@@ -141,18 +141,28 @@ export default function Hampers() {
     setError(null)
 
     try {
+      const requirements = Array.from(
+        new Map(
+          formData.requirements
+            .filter((r) => r.categoryId)
+            .map((r) => [
+              r.categoryId,
+              { categoryId: r.categoryId, quantity: r.quantity, isOptional: r.isOptional },
+            ])
+        ).values()
+      )
+
+      if (requirements.length === 0) {
+        setError('Please select at least one requirement')
+        return
+      }
+
       const data = {
         name: formData.name,
         sellingPrice: parseFloat(formData.sellingPrice),
         etsyListingId: formData.etsyListingId || undefined,
         hasVariants: formData.hasVariants,
-        requirements: formData.requirements
-          .filter((r) => r.categoryId)
-          .map((r) => ({
-            categoryId: r.categoryId,
-            quantity: r.quantity,
-            isOptional: r.isOptional,
-          })),
+        requirements,
       }
 
       if (editingId) {
@@ -185,7 +195,7 @@ export default function Hampers() {
               quantity: Number(r.quantity),
               isOptional: r.isOptional,
             }))
-          : emptyHamperForm.requirements,
+          : [],
     })
     setEditingId(hamper.id)
     setShowForm(true)
@@ -281,28 +291,6 @@ export default function Hampers() {
     }
   }
 
-  const addRequirement = () => {
-    setFormData({
-      ...formData,
-      requirements: [...formData.requirements, { categoryId: '', quantity: 1, isOptional: false }],
-    })
-  }
-
-  const removeRequirement = (index: number) => {
-    if (formData.requirements.length <= 1) return
-    setFormData({
-      ...formData,
-      requirements: formData.requirements.filter((_, i) => i !== index),
-    })
-  }
-
-  const updateRequirement = (index: number, updates: Partial<RequirementInput>) => {
-    setFormData({
-      ...formData,
-      requirements: formData.requirements.map((r, i) => (i === index ? { ...r, ...updates } : r)),
-    })
-  }
-
   if (loading && hamperList.length === 0) {
     return <div className="text-center py-8 text-gray-500">Loading...</div>
   }
@@ -328,9 +316,6 @@ export default function Hampers() {
           setFormData={setFormData}
           categoryList={categoryList}
           productList={productList}
-          addRequirement={addRequirement}
-          removeRequirement={removeRequirement}
-          updateRequirement={updateRequirement}
           showVariantForm={showVariantForm}
           setShowVariantForm={setShowVariantForm}
           editingVariantId={editingVariantId}

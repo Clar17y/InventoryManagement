@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react'
 import {
   ChevronDownIcon,
   ChevronUpIcon,
@@ -37,6 +38,13 @@ export default function HampersListView({
   handleEdit: (hamper: Hamper) => void
   handleDelete: (id: string) => void
 }) {
+  const [selectedVariantId, setSelectedVariantId] = useState<string | null>(null)
+
+  // Clear selected variant when expanded hamper changes
+  useEffect(() => {
+    setSelectedVariantId(null)
+  }, [expandedId])
+
   return (
     <>
       <div className="flex flex-col sm:flex-row gap-2">
@@ -213,18 +221,52 @@ export default function HampersListView({
                     <h4 className="text-sm font-medium text-gray-700 mb-2">Variant Availability</h4>
                     <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
                       {expandedDetail.variantAvailability.map((v: HamperVariantAvailability) => (
-                        <div
+                        <button
+                          type="button"
                           key={v.variantId}
-                          className={`p-2 rounded-lg text-center ${getAvailabilityColor(v.canMake)}`}
+                          onClick={() => setSelectedVariantId(selectedVariantId === v.variantId ? null : v.variantId)}
+                          className={`p-2 rounded-lg text-center transition-all ${getAvailabilityColor(v.canMake)} ${
+                            selectedVariantId === v.variantId ? 'ring-2 ring-primary-500 ring-offset-1' : 'hover:opacity-80'
+                          }`}
                         >
                           <div className="font-medium text-sm">{v.name}</div>
                           <div className="text-lg font-bold">{v.canMake}</div>
                           {v.etsySku && (
                             <div className="text-xs opacity-75 font-mono">{v.etsySku}</div>
                           )}
-                        </div>
+                        </button>
                       ))}
                     </div>
+
+                    {/* Selected Variant Mappings */}
+                    {selectedVariantId && (() => {
+                      const selectedVariant = expandedDetail.variantAvailability?.find(v => v.variantId === selectedVariantId)
+                      if (!selectedVariant?.mappings?.length) return null
+
+                      return (
+                        <div className="mt-3 p-3 bg-gray-50 rounded-lg border border-gray-200">
+                          <div className="text-xs font-medium text-gray-600 mb-2">
+                            {selectedVariant.name} Requirements
+                          </div>
+                          <div className="space-y-1">
+                            {selectedVariant.mappings.map((m, idx) => {
+                              const stock = (m as { stock?: number }).stock ?? 0
+                              return (
+                                <div key={idx} className="flex justify-between items-center text-sm">
+                                  <span className="text-gray-500">{m.category?.name || 'Category'}:</span>
+                                  <div className="flex items-center gap-2">
+                                    <span className="font-medium text-primary-700">{m.product?.name || 'Product'}</span>
+                                    <span className={`text-xs px-1.5 py-0.5 rounded ${stock > 0 ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
+                                      {stock}
+                                    </span>
+                                  </div>
+                                </div>
+                              )
+                            })}
+                          </div>
+                        </div>
+                      )
+                    })()}
                   </div>
                 )}
               </div>

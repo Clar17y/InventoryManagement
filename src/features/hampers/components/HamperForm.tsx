@@ -1,7 +1,9 @@
+import { useEffect, useRef } from 'react'
 import { PencilIcon, TrashIcon, XMarkIcon } from '@heroicons/react/24/outline'
 import type { FormEvent, RefObject } from 'react'
 import type { Category, HamperVariant, HamperVariantCreateData, Product } from '../../../lib/api'
-import type { HamperFormData, RequirementInput } from '../types'
+import type { HamperFormData } from '../types'
+import RequirementsChecklist from './RequirementsChecklist'
 
 export default function HamperForm({
   formRef,
@@ -11,9 +13,6 @@ export default function HamperForm({
   setFormData,
   categoryList,
   productList,
-  addRequirement,
-  removeRequirement,
-  updateRequirement,
   showVariantForm,
   setShowVariantForm,
   editingVariantId,
@@ -35,9 +34,6 @@ export default function HamperForm({
   setFormData: (data: HamperFormData) => void
   categoryList: Category[]
   productList: Product[]
-  addRequirement: () => void
-  removeRequirement: (index: number) => void
-  updateRequirement: (index: number, updates: Partial<RequirementInput>) => void
   showVariantForm: boolean
   setShowVariantForm: (value: boolean) => void
   editingVariantId: string | null
@@ -52,6 +48,16 @@ export default function HamperForm({
   saving: boolean
   handleCancel: () => void
 }) {
+  const variantFormRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (showVariantForm && editingVariantId) {
+      setTimeout(() => {
+        variantFormRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+      }, 0)
+    }
+  }, [showVariantForm, editingVariantId])
+
   return (
     <form ref={formRef} onSubmit={handleSubmit} className="card space-y-4">
       <h3 className="font-medium">{editingId ? 'Edit Hamper' : 'New Hamper'}</h3>
@@ -114,60 +120,20 @@ export default function HamperForm({
       <div>
         <div className="flex justify-between items-center mb-2">
           <label className="block text-sm font-medium text-gray-700">Requirements *</label>
-          <button type="button" onClick={addRequirement} className="text-sm text-primary-600 hover:text-primary-700">
-            + Add Requirement
-          </button>
         </div>
 
         {categoryList.length === 0 ? (
           <p className="text-sm text-amber-600">Create categories first before adding hampers</p>
         ) : (
           <div className="space-y-2">
-            {formData.requirements.map((req, index) => (
-              <div key={index} className="flex gap-2 items-center bg-gray-50 p-2 rounded-lg">
-                <select
-                  required
-                  value={req.categoryId}
-                  onChange={(e) => updateRequirement(index, { categoryId: e.target.value })}
-                  className="input flex-1"
-                >
-                  <option value="">Select category...</option>
-                  {categoryList.map((cat) => (
-                    <option key={cat.id} value={cat.id}>
-                      {cat.name}
-                    </option>
-                  ))}
-                </select>
-                <input
-                  type="number"
-                  required
-                  min="0.001"
-                  step="0.001"
-                  value={req.quantity}
-                  onChange={(e) => updateRequirement(index, { quantity: parseFloat(e.target.value) || 0 })}
-                  className="input w-20"
-                  placeholder="Qty"
-                />
-                <label className="flex items-center gap-1 text-sm whitespace-nowrap">
-                  <input
-                    type="checkbox"
-                    checked={req.isOptional}
-                    onChange={(e) => updateRequirement(index, { isOptional: e.target.checked })}
-                    className="rounded border-gray-300"
-                  />
-                  Optional
-                </label>
-                {formData.requirements.length > 1 && (
-                  <button
-                    type="button"
-                    onClick={() => removeRequirement(index)}
-                    className="p-1 text-gray-400 hover:text-red-600"
-                  >
-                    <XMarkIcon className="h-5 w-5" />
-                  </button>
-                )}
-              </div>
-            ))}
+            {formData.requirements.length === 0 && (
+              <p className="text-sm text-amber-600">Select at least one requirement</p>
+            )}
+            <RequirementsChecklist
+              categoryList={categoryList}
+              requirements={formData.requirements}
+              onChange={(requirements) => setFormData({ ...formData, requirements })}
+            />
           </div>
         )}
       </div>
@@ -194,7 +160,7 @@ export default function HamperForm({
 
           {/* Add Variant Form */}
           {showVariantForm && (
-            <div className="bg-primary-50 p-4 rounded-lg mb-4 space-y-4">
+            <div ref={variantFormRef} className="bg-primary-50 p-4 rounded-lg mb-4 space-y-4">
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div>
                   <label className="block text-xs font-medium text-gray-700 mb-1">Variant Name *</label>
@@ -243,24 +209,31 @@ export default function HamperForm({
                     value=""
                     onChange={(e) => {
                       if (e.target.value) {
-                        // Add a new mapping for this category
-                        const alreadyMapped = variantFormData.mappings.some(m => m.categoryId === e.target.value)
-                        if (!alreadyMapped) {
-                          setVariantFormData({
-                            ...variantFormData,
-                            mappings: [...variantFormData.mappings, { categoryId: e.target.value, productId: '' }]
-                          })
-                        }
+                        setVariantFormData({
+                          ...variantFormData,
+                          mappings: [...variantFormData.mappings, { categoryId: e.target.value, productId: '' }]
+                        })
                       }
                     }}
                     className="input text-xs py-1 w-auto"
                   >
                     <option value="">+ Add category mapping...</option>
                     {formData.requirements
-                      .filter(r => r.categoryId && !variantFormData.mappings.some(m => m.categoryId === r.categoryId))
-                      .map(r => {
+                      .flatMap(r => {
+                        if (!r.categoryId) return []
                         const cat = categoryList.find(c => c.id === r.categoryId)
-                        return <option key={r.categoryId} value={r.categoryId}>{cat?.name || 'Category'}</option>
+                        const maxQty = Math.floor(r.quantity) || 1
+                        const currentMappings = variantFormData.mappings.filter(m => m.categoryId === r.categoryId).length
+                        // Show option for each remaining slot up to qty
+                        const remainingSlots = maxQty - currentMappings
+                        if (remainingSlots <= 0) return []
+                        // If qty=1, just show category name; if qty>1, show slot number
+                        if (maxQty === 1) {
+                          return [<option key={r.categoryId} value={r.categoryId}>{cat?.name || 'Category'}</option>]
+                        }
+                        return [<option key={`${r.categoryId}-${currentMappings + 1}`} value={r.categoryId}>
+                          {cat?.name || 'Category'} ({currentMappings + 1} of {maxQty})
+                        </option>]
                       })}
                   </select>
                 </div>
@@ -274,11 +247,19 @@ export default function HamperForm({
                     {variantFormData.mappings.map((mapping, idx) => {
                       const category = categoryList.find(c => c.id === mapping.categoryId)
                       const categoryProds = productList.filter(p => p.categoryId === mapping.categoryId)
+                      // Calculate slot number for this mapping within its category
+                      const requirement = formData.requirements.find(r => r.categoryId === mapping.categoryId)
+                      const maxQty = requirement ? Math.floor(requirement.quantity) || 1 : 1
+                      const slotIndex = variantFormData.mappings
+                        .slice(0, idx)
+                        .filter(m => m.categoryId === mapping.categoryId).length + 1
+                      const showSlotNumber = maxQty > 1
 
                       return (
                         <div key={idx} className="flex items-center gap-2 bg-white p-2 rounded border border-gray-200">
-                          <div className="text-xs font-medium text-gray-600 w-28 truncate" title={category?.name}>
+                          <div className="text-xs font-medium text-gray-600 w-32 truncate" title={category?.name}>
                             {category?.name || 'Category'}
+                            {showSlotNumber && <span className="text-gray-400 ml-1">({slotIndex}/{maxQty})</span>}
                           </div>
                           <select
                             value={mapping.productId}
@@ -392,7 +373,11 @@ export default function HamperForm({
       )}
 
       <div className="flex gap-2 mt-8 py-4 border-t border-gray-100">
-        <button type="submit" disabled={saving || categoryList.length === 0} className="btn-primary">
+        <button
+          type="submit"
+          disabled={saving || categoryList.length === 0 || formData.requirements.length === 0}
+          className="btn-primary"
+        >
           {saving ? 'Saving...' : editingId ? 'Update Basic Info' : 'Create Hamper'}
         </button>
         <button type="button" onClick={handleCancel} className="btn-secondary">

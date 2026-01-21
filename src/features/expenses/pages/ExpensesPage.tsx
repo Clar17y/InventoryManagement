@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { expenses, BusinessExpense, ExpenseCategory, ExpenseSummary } from '../../../lib/api'
+import { useScrollToForm } from '../../../hooks/useScrollToForm'
 import DateSearchFilter, { useDateSearchFilter } from '../../../components/filters/DateSearchFilter'
 import ExpenseForm from '../components/ExpenseForm'
 import ExpensesHeader from '../components/ExpensesHeader'
@@ -34,6 +35,7 @@ export default function Expenses() {
   } = useDateSearchFilter()
 
   const isFirstRender = useRef(true)
+  const { formRef, scrollToForm } = useScrollToForm()
 
   const buildParams = (offset: number) => {
     const params: { category?: ExpenseCategory; startDate?: string; endDate?: string; search?: string; limit?: number; offset?: number } = {
@@ -143,6 +145,7 @@ export default function Expenses() {
     })
     setEditingId(expense.id)
     setShowForm(true)
+    scrollToForm()
   }
 
   const handleDelete = async (id: string) => {
@@ -197,15 +200,18 @@ export default function Expenses() {
       )}
 
       {showForm && (
-        <ExpenseForm
-          editingId={editingId}
-          formData={formData}
-          saving={saving}
-          onSubmit={handleSubmit}
-          onCancel={handleCancel}
-          setFormData={setFormData}
-          onIncVatChange={handleIncVatChange}
-        />
+        <div ref={formRef}>
+          <ExpenseForm
+            key={editingId ?? 'new'}
+            editingId={editingId}
+            formData={formData}
+            saving={saving}
+            onSubmit={handleSubmit}
+            onCancel={handleCancel}
+            setFormData={setFormData}
+            onIncVatChange={handleIncVatChange}
+          />
+        </div>
       )}
 
       {/* Filter */}

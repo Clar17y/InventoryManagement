@@ -56,8 +56,10 @@ async function calculateAvailability(hamperId: string): Promise<number> {
   return Math.min(...availabilityPerRequirement)
 }
 
-// Calculate availability for a specific variant (uses mapped products for mapped categories,
-// falls back to category-wide aggregation for unmapped requirements)
+// Calculate availability for a specific variant
+// - For optional requirements: only check if variant has mappings for that category
+// - Multiple mappings per category are supported (e.g., L Plate + P Plate)
+// - Each mapping represents 1 unit needed from that specific product
 async function calculateVariantAvailability(variantId: string): Promise<number> {
   const variant = await prisma.hamperVariant.findUnique({
     where: { id: variantId },
@@ -65,7 +67,7 @@ async function calculateVariantAvailability(variantId: string): Promise<number> 
       hamper: {
         include: {
           requirements: {
-            where: { isOptional: false },
+            // Include ALL requirements (including optional) - we filter by mappings below
             include: {
               category: {
                 include: {
@@ -105,21 +107,39 @@ async function calculateVariantAvailability(variantId: string): Promise<number> 
   const requirements = variant.hamper.requirements
   if (requirements.length === 0) return 0
 
-  // Create a map of categoryId -> mapped product
-  const mappedProducts = new Map(variant.mappings.map((m) => [m.categoryId, m]))
+  // Group mappings by categoryId (allows multiple mappings per category)
+  const mappingsByCategory = new Map<string, typeof variant.mappings>()
+  for (const mapping of variant.mappings) {
+    const existing = mappingsByCategory.get(mapping.categoryId) || []
+    mappingsByCategory.set(mapping.categoryId, [...existing, mapping])
+  }
 
-  const availabilityPerRequirement = requirements.map((req) => {
-    const mapping = mappedProducts.get(req.categoryId)
+  const availabilityPerRequirement: number[] = []
 
-    if (mapping) {
-      // Use mapped product's stock only
-      const productStock = mapping.product.lots.reduce(
-        (sum: number, lot: { remaining: unknown }) => sum + Number(lot.remaining),
-        0
-      )
-      return Math.floor(productStock / Number(req.quantity))
+  for (const req of requirements) {
+    const categoryMappings = mappingsByCategory.get(req.categoryId) || []
+    const hasMappings = categoryMappings.length > 0
+
+    // Optional requirements: skip if no mappings for this variant
+    if (req.isOptional && !hasMappings) {
+      continue
+    }
+
+    if (hasMappings) {
+      // Use mapped products only - each mapping = 1 unit needed
+      // Calculate how many complete sets we can make
+      const availabilityPerMapping = categoryMappings.map((mapping) => {
+        const productStock = mapping.product.lots.reduce(
+          (sum: number, lot: { remaining: unknown }) => sum + Number(lot.remaining),
+          0
+        )
+        // Each mapping needs 1 unit of this product
+        return Math.floor(productStock)
+      })
+      // The limiting factor is the mapping with lowest stock
+      availabilityPerRequirement.push(Math.min(...availabilityPerMapping))
     } else {
-      // Fall back to category-wide aggregation for unmapped requirements
+      // Non-optional, no mappings: fall back to category-wide aggregation
       const categoryStock = req.category.products.reduce((sum: number, product) => {
         const productStock = product.lots.reduce(
           (lotSum: number, lot: { remaining: unknown }) => lotSum + Number(lot.remaining),
@@ -127,9 +147,9 @@ async function calculateVariantAvailability(variantId: string): Promise<number> 
         )
         return sum + productStock
       }, 0)
-      return Math.floor(categoryStock / Number(req.quantity))
+      availabilityPerRequirement.push(Math.floor(categoryStock / Number(req.quantity)))
     }
-  })
+  }
 
   if (availabilityPerRequirement.length === 0) return 0
   return Math.min(...availabilityPerRequirement)
@@ -219,7 +239,14 @@ router.get('/:id', async (req, res) => {
               include: {
                 category: true,
                 product: {
-                  select: { id: true, name: true },
+                  select: {
+                    id: true,
+                    name: true,
+                    lots: {
+                      where: { remaining: { gt: 0 } },
+                      select: { remaining: true },
+                    },
+                  },
                 },
               },
             },
@@ -267,11 +294,10 @@ router.get('/:id', async (req, res) => {
       }
     })
 
-    const canMake = Math.min(
-      ...requirementsWithStock
-        .filter((r) => !r.isOptional)
-        .map((r) => r.canFulfill)
-    )
+    const nonOptionalRequirements = requirementsWithStock.filter((r) => !r.isOptional)
+    const canMake = nonOptionalRequirements.length > 0
+      ? Math.min(...nonOptionalRequirements.map((r) => r.canFulfill))
+      : 0
 
     const estimatedCost = requirementsWithStock.reduce(
       (sum, r) => sum + r.estimatedCost,
@@ -287,11 +313,19 @@ router.get('/:id', async (req, res) => {
           etsySku: v.etsySku,
           sellingPrice: v.sellingPrice ? Number(v.sellingPrice) : null,
           canMake: await calculateVariantAvailability(v.id),
-          mappings: v.mappings.map((m) => ({
-            categoryId: m.categoryId,
-            productId: m.productId,
-            product: m.product,
-          })),
+          mappings: v.mappings.map((m) => {
+            const stock = m.product.lots?.reduce(
+              (sum: number, lot: { remaining: unknown }) => sum + Number(lot.remaining),
+              0
+            ) ?? 0
+            return {
+              categoryId: m.categoryId,
+              productId: m.productId,
+              category: m.category,
+              product: { id: m.product.id, name: m.product.name },
+              stock,
+            }
+          }),
         }))
       )
       : undefined
@@ -467,15 +501,30 @@ router.post('/:id/variants', async (req, res) => {
       return res.status(404).json({ error: 'Hamper not found' })
     }
 
-    // Build a map of categoryId -> category for validation
-    const categoryMap = new Map(hamper.requirements.map((r) => [r.categoryId, r.category]))
+    // Build maps for validation
+    const requirementMap = new Map(hamper.requirements.map((r) => [r.categoryId, r]))
 
-    // Validate that all mappings reference valid categories for this hamper
-    // and that the product belongs to that category
+    // Count mappings per category
+    const mappingCounts = new Map<string, number>()
     for (const mapping of data.mappings) {
-      if (!categoryMap.has(mapping.categoryId)) {
+      mappingCounts.set(mapping.categoryId, (mappingCounts.get(mapping.categoryId) || 0) + 1)
+    }
+
+    // Validate mappings
+    for (const mapping of data.mappings) {
+      const requirement = requirementMap.get(mapping.categoryId)
+      if (!requirement) {
         return res.status(400).json({
           error: `Category ${mapping.categoryId} is not a requirement for this hamper`,
+        })
+      }
+
+      // Check mapping count doesn't exceed requirement quantity
+      const count = mappingCounts.get(mapping.categoryId) || 0
+      const maxQty = Math.floor(Number(requirement.quantity))
+      if (count > maxQty) {
+        return res.status(400).json({
+          error: `Too many mappings for "${requirement.category.name}": ${count} mappings but only ${maxQty} allowed`,
         })
       }
 
@@ -489,7 +538,7 @@ router.post('/:id/variants', async (req, res) => {
       }
       if (product.categoryId !== mapping.categoryId) {
         return res.status(400).json({
-          error: `Product "${product.name}" does not belong to category "${categoryMap.get(mapping.categoryId)?.name}"`,
+          error: `Product "${product.name}" does not belong to category "${requirement.category.name}"`,
         })
       }
     }
@@ -545,8 +594,54 @@ router.put('/:id/variants/:variantId', async (req, res) => {
   try {
     const data = hamperVariantUpdateBodySchema.parse(req.body)
 
-    // If mappings are being updated, delete old ones and create new
+    // Validate mappings if being updated
     if (data.mappings) {
+      const hamper = await prisma.hamper.findUnique({
+        where: { id: req.params.id },
+        include: { requirements: { include: { category: true } } },
+      })
+
+      if (!hamper) {
+        return res.status(404).json({ error: 'Hamper not found' })
+      }
+
+      const requirementMap = new Map(hamper.requirements.map((r) => [r.categoryId, r]))
+      const mappingCounts = new Map<string, number>()
+      for (const mapping of data.mappings) {
+        mappingCounts.set(mapping.categoryId, (mappingCounts.get(mapping.categoryId) || 0) + 1)
+      }
+
+      for (const mapping of data.mappings) {
+        const requirement = requirementMap.get(mapping.categoryId)
+        if (!requirement) {
+          return res.status(400).json({
+            error: `Category ${mapping.categoryId} is not a requirement for this hamper`,
+          })
+        }
+
+        const count = mappingCounts.get(mapping.categoryId) || 0
+        const maxQty = Math.floor(Number(requirement.quantity))
+        if (count > maxQty) {
+          return res.status(400).json({
+            error: `Too many mappings for "${requirement.category.name}": ${count} mappings but only ${maxQty} allowed`,
+          })
+        }
+
+        const product = await prisma.product.findUnique({
+          where: { id: mapping.productId },
+          select: { categoryId: true, name: true },
+        })
+        if (!product) {
+          return res.status(400).json({ error: `Product ${mapping.productId} not found` })
+        }
+        if (product.categoryId !== mapping.categoryId) {
+          return res.status(400).json({
+            error: `Product "${product.name}" does not belong to category "${requirement.category.name}"`,
+          })
+        }
+      }
+
+      // Delete old mappings before creating new ones
       await prisma.hamperVariantMapping.deleteMany({
         where: { variantId: req.params.variantId },
       })

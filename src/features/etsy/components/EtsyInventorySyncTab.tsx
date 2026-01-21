@@ -80,7 +80,7 @@ export default function EtsyInventorySyncTab({
           </thead>
           <tbody className="divide-y divide-gray-100">
             {filteredComparisons.map((comparison) =>
-              comparison.variants.map((variant, idx) => {
+              comparison.variants.map((variant) => {
                 const key = `${comparison.etsyListingId}-${variant.etsySku || variant.etsyProductId || 'default'}`
                 const isSelected = selectedItems.has(key)
 
@@ -99,14 +99,12 @@ export default function EtsyInventorySyncTab({
                       )}
                     </td>
                     <td className="px-3 py-2">
-                      {idx === 0 && (
-                        <div
-                          className="font-medium text-gray-900 truncate max-w-[200px]"
-                          title={comparison.hamperName}
-                        >
-                          {comparison.hamperName}
-                        </div>
-                      )}
+                      <div
+                        className="font-medium text-gray-900 truncate max-w-[200px]"
+                        title={comparison.hamperName}
+                      >
+                        {comparison.hamperName}
+                      </div>
                       {comparison.variants.length > 1 && (
                         <div className="text-xs text-gray-500 flex items-center gap-1">
                           <span className="text-primary-600 font-medium">{variant.variantName}</span>

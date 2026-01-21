@@ -1,5 +1,8 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
+import { MagnifyingGlassIcon, XMarkIcon } from '@heroicons/react/24/outline'
 import { products, categories, Product, Category } from '../../../lib/api'
+import { useDebounce } from '../../../hooks/useDebounce'
+import { useScrollToForm } from '../../../hooks/useScrollToForm'
 import ProductCategoryFilter from '../components/ProductCategoryFilter'
 import ProductForm from '../components/ProductForm'
 import ProductsHeader from '../components/ProductsHeader'
@@ -18,10 +21,14 @@ export default function Products() {
   const [formData, setFormData] = useState<ProductFormData>(emptyForm)
   const [saving, setSaving] = useState(false)
   const [filterCategory, setFilterCategory] = useState<string>('')
+  const [searchQuery, setSearchQuery] = useState('')
+  const debouncedSearch = useDebounce(searchQuery, 300)
 
   // Barcode management state
   const [newBarcode, setNewBarcode] = useState('')
   const [addingBarcode, setAddingBarcode] = useState(false)
+
+  const { formRef, scrollToForm } = useScrollToForm()
 
   const loadData = async () => {
     try {
@@ -43,6 +50,15 @@ export default function Products() {
   useEffect(() => {
     loadData()
   }, [filterCategory])
+
+  const filteredProducts = useMemo(() => {
+    if (!debouncedSearch.trim()) return productList
+    const query = debouncedSearch.toLowerCase()
+    return productList.filter((p) =>
+      p.name.toLowerCase().includes(query) ||
+      p.category?.name?.toLowerCase().includes(query)
+    )
+  }, [productList, debouncedSearch])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -84,6 +100,7 @@ export default function Products() {
     setEditingId(product.id)
     setEditingProduct(product)
     setShowForm(true)
+    scrollToForm()
   }
 
   const handleDelete = async (id: string) => {
@@ -158,41 +175,75 @@ export default function Products() {
     <div className="space-y-4">
       <ProductsHeader showForm={showForm} onAdd={handleAddNew} />
 
-      <ProductCategoryFilter
-        showForm={showForm}
-        categoryList={categoryList}
-        filterCategory={filterCategory}
-        onChange={setFilterCategory}
-      />
+      {!showForm && (
+        <div className="flex flex-col sm:flex-row gap-2">
+          <div className="relative flex-1">
+            <MagnifyingGlassIcon className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Search products..."
+              className="w-full pl-9 pr-8 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
+            />
+            {searchQuery && (
+              <button
+                onClick={() => setSearchQuery('')}
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+              >
+                <XMarkIcon className="h-4 w-4" />
+              </button>
+            )}
+          </div>
+          <div className="flex-1">
+            <ProductCategoryFilter
+              showForm={showForm}
+              categoryList={categoryList}
+              filterCategory={filterCategory}
+              onChange={setFilterCategory}
+            />
+          </div>
+        </div>
+      )}
 
       {error && (
         <div className="alert-danger">{error}</div>
       )}
 
       {showForm && (
-        <ProductForm
-          editingId={editingId}
-          editingProduct={editingProduct}
-          formData={formData}
-          setFormData={setFormData}
-          categoryList={categoryList}
-          saving={saving}
-          onSubmit={handleSubmit}
-          onCancel={handleCancel}
-          newBarcode={newBarcode}
-          onNewBarcodeChange={setNewBarcode}
-          addingBarcode={addingBarcode}
-          onAddBarcode={handleAddBarcode}
-          onRemoveBarcode={handleRemoveBarcode}
-        />
+        <div ref={formRef}>
+          <ProductForm
+            key={editingId ?? 'new'}
+            editingId={editingId}
+            editingProduct={editingProduct}
+            formData={formData}
+            setFormData={setFormData}
+            categoryList={categoryList}
+            saving={saving}
+            onSubmit={handleSubmit}
+            onCancel={handleCancel}
+            newBarcode={newBarcode}
+            onNewBarcodeChange={setNewBarcode}
+            addingBarcode={addingBarcode}
+            onAddBarcode={handleAddBarcode}
+            onRemoveBarcode={handleRemoveBarcode}
+          />
+        </div>
       )}
 
-      <ProductsList
-        productList={productList}
-        categoryList={categoryList}
-        onEdit={handleEdit}
-        onDelete={handleDelete}
-      />
+      {productList.length > 0 && filteredProducts.length === 0 ? (
+        <div className="card text-gray-500 text-center py-8">
+          <p className="mb-2">No products match "{debouncedSearch}"</p>
+          <p className="text-sm">Try a different search term</p>
+        </div>
+      ) : (
+        <ProductsList
+          productList={filteredProducts}
+          categoryList={categoryList}
+          onEdit={handleEdit}
+          onDelete={handleDelete}
+        />
+      )}
     </div>
   )
 }

@@ -56,6 +56,7 @@ export const hamperVariantAvailabilitySchema = z.object({
     .array(
       hamperVariantMappingSchema.extend({
         product: productRefSchema,
+        stock: z.number().nonnegative().optional(),
       })
     )
     .optional(),

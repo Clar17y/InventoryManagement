@@ -277,6 +277,27 @@ export default function EtsySyncPanel({ isOpen, onClose, onImportComplete }: Ets
                       <span className="text-red-600"> • Errors: {importResult.errors.length}</span>
                     )}
                   </div>
+                  {importResult.details && importResult.details.length > 0 && (
+                    <details className="mt-2">
+                      <summary className="text-xs text-info-600 cursor-pointer hover:text-info-800">
+                        View {importResult.details.length} change(s)
+                      </summary>
+                      <div className="mt-2 max-h-48 overflow-y-auto text-xs space-y-1 bg-white/50 rounded p-2">
+                        {importResult.details.map((d, i) => (
+                          <div key={i} className="flex gap-2">
+                            <span className="text-info-600 font-medium whitespace-nowrap">
+                              {d.action.replace(/_/g, ' ')}:
+                            </span>
+                            <span className="text-gray-700 truncate" title={d.hamper}>
+                              {d.hamper}
+                              {d.variant && <span className="text-gray-500"> → {d.variant}</span>}
+                              {d.info && <span className="text-gray-400"> ({d.info})</span>}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    </details>
+                  )}
                 </div>
               )}
 

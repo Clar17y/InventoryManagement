@@ -73,11 +73,30 @@ export const etsyListingSchema = z.object({
 
 export type EtsyListing = z.infer<typeof etsyListingSchema>
 
+export const etsyImportDetailSchema = z.object({
+  hamper: z.string(),
+  action: z.enum([
+    'created_hamper',
+    'created_variant',
+    'linked_product_id',
+    'set_sku',
+    'set_price',
+    'renamed_variant',
+    'toggled_has_variants',
+    'relinked_variant',
+  ]),
+  variant: z.string().optional(),
+  info: z.string().optional(),
+})
+
+export type EtsyImportDetail = z.infer<typeof etsyImportDetailSchema>
+
 export const etsyImportResultSchema = z.object({
   created: z.number().int().nonnegative(),
   updated: z.number().int().nonnegative(),
   skipped: z.number().int().nonnegative(),
   errors: z.array(z.string()),
+  details: z.array(etsyImportDetailSchema).optional(),
 })
 
 export type EtsyImportResult = z.infer<typeof etsyImportResultSchema>

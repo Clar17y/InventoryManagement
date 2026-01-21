@@ -19,7 +19,7 @@ export default function ProductCategoryFilter({
     <select
       value={filterCategory}
       onChange={(e) => onChange(e.target.value)}
-      className="input"
+      className="input w-full"
     >
       <option value="">All Categories</option>
       {categoryList.map((cat) => (

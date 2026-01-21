@@ -12,6 +12,7 @@ vi.mock('../../lib/api', () => ({
     disconnect: vi.fn(),
     getPendingOrders: vi.fn(),
     importOrder: vi.fn(),
+    importOrdersBulk: vi.fn(),
   },
 }))
 
@@ -21,6 +22,7 @@ import { etsy } from '../../lib/api'
 const mockGetStatus = vi.mocked(etsy.getStatus)
 const mockGetPendingOrders = vi.mocked(etsy.getPendingOrders)
 const mockImportOrder = vi.mocked(etsy.importOrder)
+const mockImportOrdersBulk = vi.mocked(etsy.importOrdersBulk)
 
 describe('EtsyOrdersSyncPanel', () => {
   const mockOnClose = vi.fn()
@@ -32,7 +34,13 @@ describe('EtsyOrdersSyncPanel', () => {
     mockGetPendingOrders.mockResolvedValue({ orders: [] })
     mockImportOrder.mockResolvedValue({
       success: true,
-      sale: { id: 'sale-1', etsyOrderId: '12345', lines: 1 },
+      sale: { id: 'sale-1', etsyOrderId: '12345', totalCost: 0, margin: 0, lines: 1 },
+    })
+    mockImportOrdersBulk.mockResolvedValue({
+      success: true,
+      imported: 1,
+      failed: 0,
+      results: [{ receiptId: 12345, success: true, saleId: 'sale-1' }],
     })
   })
 
@@ -133,13 +141,16 @@ describe('EtsyOrdersSyncPanel', () => {
       expect(screen.getByText('Order #12345')).toBeInTheDocument()
     })
 
-    const checkbox = screen.getByRole('checkbox')
+    const checkbox = screen.getByRole('checkbox', { name: /select order 12345/i })
     await user.click(checkbox)
 
     await user.click(screen.getByRole('button', { name: /import selected/i }))
 
     await waitFor(() => {
-      expect(mockImportOrder).toHaveBeenCalledWith({ receiptId: 12345, postageCost: 5 })
+      expect(mockImportOrdersBulk).toHaveBeenCalledWith({
+        orders: [{ receiptId: 12345, postageCost: 5 }],
+        isHistorical: false,
+      })
       expect(mockOnImportComplete).toHaveBeenCalled()
     })
   })

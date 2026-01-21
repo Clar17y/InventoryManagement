@@ -82,7 +82,7 @@ describe('Sales', () => {
       totalMargin: 17,
     },
     byChannel: [
-      { channel: 'etsy', count: 1, revenue: 35, fees: 4.5, margin: 17 },
+      { channel: 'etsy' as const, count: 1, revenue: 35, fees: 4.5, margin: 17 },
     ],
     byHamper: [],
   };

@@ -2,16 +2,24 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 vi.mock('../../../lib/api/request', () => ({
   request: vi.fn(),
+  requestWithSchema: vi.fn(),
 }));
 
+import {
+  productBarcodeResponseSchema,
+  productResponseSchema,
+  productsListResponseSchema,
+} from '#contracts/routes/products';
 import { products, Product } from '../../../lib/api/products';
-import { request } from '../../../lib/api/request';
+import { request, requestWithSchema } from '../../../lib/api/request';
 
 const mockRequest = vi.mocked(request);
+const mockRequestWithSchema = vi.mocked(requestWithSchema);
 
 describe('products API', () => {
   beforeEach(() => {
     mockRequest.mockReset();
+    mockRequestWithSchema.mockReset();
   });
 
   const sampleProduct: Product = {
@@ -40,23 +48,26 @@ describe('products API', () => {
 
   describe('list', () => {
     it('calls request without categoryId', async () => {
-      mockRequest.mockResolvedValue([sampleProduct]);
+      mockRequestWithSchema.mockResolvedValue([sampleProduct]);
 
       await products.list();
 
-      expect(mockRequest).toHaveBeenCalledWith('/products');
+      expect(mockRequestWithSchema).toHaveBeenCalledWith('/products', productsListResponseSchema);
     });
 
     it('calls request with categoryId filter', async () => {
-      mockRequest.mockResolvedValue([sampleProduct]);
+      mockRequestWithSchema.mockResolvedValue([sampleProduct]);
 
       await products.list('cat-1');
 
-      expect(mockRequest).toHaveBeenCalledWith('/products?categoryId=cat-1');
+      expect(mockRequestWithSchema).toHaveBeenCalledWith(
+        '/products?categoryId=cat-1',
+        productsListResponseSchema
+      );
     });
 
     it('returns array of products', async () => {
-      mockRequest.mockResolvedValue([sampleProduct]);
+      mockRequestWithSchema.mockResolvedValue([sampleProduct]);
 
       const result = await products.list();
 
@@ -66,35 +77,30 @@ describe('products API', () => {
 
   describe('get', () => {
     it('calls request with product id', async () => {
-      mockRequest.mockResolvedValue(sampleProduct);
+      mockRequestWithSchema.mockResolvedValue(sampleProduct);
 
       await products.get('prod-1');
 
-      expect(mockRequest).toHaveBeenCalledWith('/products/prod-1');
+      expect(mockRequestWithSchema).toHaveBeenCalledWith('/products/prod-1', productResponseSchema);
     });
   });
 
   describe('getByBarcode', () => {
     it('calls request with barcode', async () => {
-      mockRequest.mockResolvedValue(sampleProduct);
+      mockRequestWithSchema.mockResolvedValue(sampleProduct);
 
       await products.getByBarcode('1234567890123');
 
-      expect(mockRequest).toHaveBeenCalledWith('/products/barcode/1234567890123');
-    });
-
-    it('returns product or null', async () => {
-      mockRequest.mockResolvedValue(null);
-
-      const result = await products.getByBarcode('unknown');
-
-      expect(result).toBeNull();
+      expect(mockRequestWithSchema).toHaveBeenCalledWith(
+        '/products/barcode/1234567890123',
+        productResponseSchema
+      );
     });
   });
 
   describe('create', () => {
     it('calls request with POST and product data', async () => {
-      mockRequest.mockResolvedValue(sampleProduct);
+      mockRequestWithSchema.mockResolvedValue(sampleProduct);
 
       const data = {
         name: 'Dark Chocolate Bar',
@@ -104,7 +110,7 @@ describe('products API', () => {
 
       await products.create(data);
 
-      expect(mockRequest).toHaveBeenCalledWith('/products', {
+      expect(mockRequestWithSchema).toHaveBeenCalledWith('/products', productResponseSchema, {
         method: 'POST',
         body: JSON.stringify(data),
       });
@@ -113,11 +119,11 @@ describe('products API', () => {
 
   describe('update', () => {
     it('calls request with PUT and partial data', async () => {
-      mockRequest.mockResolvedValue(sampleProduct);
+      mockRequestWithSchema.mockResolvedValue(sampleProduct);
 
       await products.update('prod-1', { name: 'Updated Name' });
 
-      expect(mockRequest).toHaveBeenCalledWith('/products/prod-1', {
+      expect(mockRequestWithSchema).toHaveBeenCalledWith('/products/prod-1', productResponseSchema, {
         method: 'PUT',
         body: JSON.stringify({ name: 'Updated Name' }),
       });
@@ -139,14 +145,18 @@ describe('products API', () => {
   describe('addBarcode', () => {
     it('calls request with POST to add barcode', async () => {
       const barcode = { id: 'bar-2', barcode: '9876543210987' };
-      mockRequest.mockResolvedValue(barcode);
+      mockRequestWithSchema.mockResolvedValue(barcode);
 
       await products.addBarcode('prod-1', '9876543210987');
 
-      expect(mockRequest).toHaveBeenCalledWith('/products/prod-1/barcodes', {
-        method: 'POST',
-        body: JSON.stringify({ barcode: '9876543210987' }),
-      });
+      expect(mockRequestWithSchema).toHaveBeenCalledWith(
+        '/products/prod-1/barcodes',
+        productBarcodeResponseSchema,
+        {
+          method: 'POST',
+          body: JSON.stringify({ barcode: '9876543210987' }),
+        }
+      );
     });
   });
 

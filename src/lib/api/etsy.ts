@@ -1,368 +1,162 @@
-import { request } from './request'
+import { requestWithSchema } from './request'
+import type {
+  EtsyAccount as ContractEtsyAccount,
+  EtsyImportResult as ContractEtsyImportResult,
+  EtsyInventory as ContractEtsyInventory,
+  EtsyListing as ContractEtsyListing,
+  EtsyListingMoney as ContractEtsyListingMoney,
+  EtsyOrderImportResult as ContractEtsyOrderImportResult,
+  EtsyOrdersBulkImportResult as ContractEtsyOrdersBulkImportResult,
+  EtsyPendingOrder as ContractEtsyPendingOrder,
+  EtsyPendingOrderItem as ContractEtsyPendingOrderItem,
+  EtsyPendingPriceUpdate as ContractEtsyPendingPriceUpdate,
+  EtsyPendingSku as ContractEtsyPendingSku,
+  EtsyProduct as ContractEtsyProduct,
+  EtsyProductOffering as ContractEtsyProductOffering,
+  EtsyProvisionalUser as ContractEtsyProvisionalUser,
+  EtsySkuPushResult as ContractEtsySkuPushResult,
+  EtsyStatus as ContractEtsyStatus,
+  EtsySyncComparison as ContractEtsySyncComparison,
+  EtsySyncPushResult as ContractEtsySyncPushResult,
+} from '#contracts/domain/etsy'
+import {
+  etsyAccountActionResponseSchema,
+  etsyAccountsResponseSchema,
+  etsyAuthResponseSchema,
+  etsyDisconnectResponseSchema,
+  etsyImportResponseSchema,
+  etsyListingsResponseSchema,
+  etsyProvisionalUsersResponseSchema,
+  etsyStatusResponseSchema,
+  type EtsyAuthResponse as ContractEtsyAuthResponse,
+} from '#contracts/routes/etsy'
+import {
+  etsyOrderImportResponseSchema,
+  etsyOrdersBulkImportResponseSchema,
+  etsyPendingOrdersResponseSchema,
+  etsyPricesPendingResponseSchema,
+  etsyPricesPushResponseSchema,
+  etsySkusPendingResponseSchema,
+  etsySkusPushResponseSchema,
+  etsySkuGenerateResponseSchema,
+  etsySyncComparisonResponseSchema,
+  etsySyncPushResponseSchema,
+  type EtsyOrderImportBody,
+  type EtsyOrdersBulkImportBody,
+  type EtsyPricesPushBody,
+  type EtsySyncPushBody,
+} from '#contracts/routes/etsySync'
 
-// Types for Etsy API responses
-export interface EtsyStatus {
-    connected: boolean
-    shopId?: string
-    shopName?: string
-    expiresAt?: string
-}
+export type EtsyStatus = ContractEtsyStatus
+type EtsyAuthSuccessResponse = Extract<ContractEtsyAuthResponse, { authUrl: string }>
+export type EtsyAuthResponse = EtsyAuthSuccessResponse
 
-export interface EtsyAuthResponse {
-    authUrl: string
-    state: string
-}
+export type EtsyListingMoney = ContractEtsyListingMoney
+export type EtsyProductOffering = ContractEtsyProductOffering
+export type EtsyProduct = ContractEtsyProduct
+export type EtsyInventory = ContractEtsyInventory
+export type EtsyListing = ContractEtsyListing
 
-export interface EtsyListingMoney {
-    amount: number
-    divisor: number
-    currency_code: string
-}
+export type EtsyImportResult = ContractEtsyImportResult
 
-export interface EtsyProductOffering {
-    offering_id: number
-    quantity: number
-    price: EtsyListingMoney
-    is_enabled: boolean
-}
+export type EtsySyncComparison = ContractEtsySyncComparison
+export type EtsySyncPushRequest = EtsySyncPushBody
+export type EtsySyncPushResult = ContractEtsySyncPushResult
 
-export interface EtsyProduct {
-    product_id: number
-    sku: string
-    offerings: EtsyProductOffering[]
-    property_values: Array<{
-        property_id: number
-        property_name: string
-        values: string[]
-    }>
-}
+export type EtsyPendingOrderItem = ContractEtsyPendingOrderItem
+export type EtsyPendingOrder = ContractEtsyPendingOrder
+export type EtsyOrderImportRequest = EtsyOrderImportBody
+export type EtsyOrderImportResult = ContractEtsyOrderImportResult
+export type EtsyBulkImportRequest = EtsyOrdersBulkImportBody
+export type EtsyBulkImportResult = ContractEtsyOrdersBulkImportResult
 
-export interface EtsyInventory {
-    products: EtsyProduct[]
-    listing_id: number
-}
+export type EtsyPendingSku = ContractEtsyPendingSku
+export type EtsySkuPushResult = ContractEtsySkuPushResult
 
-export interface EtsyListing {
-    listing_id: number
-    title: string
-    description: string
-    price: EtsyListingMoney
-    quantity: number
-    state: 'active' | 'inactive' | 'draft' | 'expired' | 'sold_out'
-    url: string
-    has_variations: boolean
-    inventory?: EtsyInventory | null
-}
+export type EtsyPendingPriceUpdate = ContractEtsyPendingPriceUpdate
 
-export interface EtsyImportResult {
-    created: number
-    updated: number
-    skipped: number
-    errors: string[]
-}
+export type EtsyAccount = ContractEtsyAccount
+export type EtsyProvisionalUser = ContractEtsyProvisionalUser
 
-export interface EtsySyncComparison {
-    etsyListingId: string
-    title: string
-    hamperName: string
-    hamperId: string
-    variants: Array<{
-        etsySku: string | null
-        etsyProductId: string | null
-        variantId: string | null
-        variantName: string
-        etsyQuantity: number
-        inventoryQuantity: number
-        difference: number
-        needsSync: boolean
-    }>
-}
-
-export interface EtsySyncPushRequest {
-    updates: Array<{
-        etsyListingId: string
-        etsySku: string | null
-        etsyProductId: string | null
-        quantity: number
-    }>
-}
-
-export interface EtsySyncPushResult {
-    success: boolean
-    updated: number
-    error?: string
-}
-
-export interface EtsyPendingOrderItem {
-    transactionId: number
-    listingId: number
-    title: string
-    quantity: number
-    price: number
-    sku: string | null
-    productId: number | null
-    variantName: string | null
-}
-
-export interface EtsyPendingOrder {
-    receiptId: number
-    buyerName: string
-    createdAt: string
-    isPaid: boolean
-    isShipped: boolean
-    grandTotal: number
-    subtotal: number
-    shippingCost: number
-    items: EtsyPendingOrderItem[]
-}
-
-export interface EtsyOrderImportRequest {
-    receiptId: number
-    postageCost: number
-    isHistorical?: boolean
-}
-
-export interface EtsyOrderImportResult {
-    success: boolean
-    sale: {
-        id: string
-        etsyOrderId: string
-        lines: number
-    }
-}
-
-export interface EtsyBulkImportRequest {
-    orders: Array<{ receiptId: number; postageCost: number }>
-    isHistorical?: boolean
-}
-
-export interface EtsyBulkImportResult {
-    success: boolean
-    imported: number
-    failed: number
-    results: Array<{
-        receiptId: number
-        success: boolean
-        saleId?: string
-        error?: string
-    }>
-}
-
-export interface EtsyPendingSku {
-    hamperId: string
-    hamperName: string
-    etsyListingId: string
-    variantId: string
-    variantName: string
-    localSku: string
-    etsySku: string | null
-    etsyProductId: string | null
-    needsSync: boolean
-}
-
-export interface EtsySkuPushResult {
-    success: boolean
-    totalUpdated: number
-    totalListings: number
-    errors: number
-    results: Array<{
-        etsyListingId: string
-        hamperName: string
-        success: boolean
-        updated: number
-        skipped: number
-        error?: string
-    }>
-}
-
-export interface EtsyPendingPriceUpdate {
-    hamperId: string
-    hamperName: string
-    etsyListingId: string
-    variantId: string
-    variantName: string
-    etsySku: string | null
-    etsyProductId: string | null
-    localPrice: number | null
-    etsyPrice: number
-    needsSync: boolean
-}
-
-// Account management types
-export interface EtsyAccount {
-    userId: string
-    shopId: string
-    shopName: string
-    loginName: string | null
-    isDefault: boolean
-    isAppOwner: boolean
-    expiresAt: string
-}
-
-export interface EtsyProvisionalUser {
-    user_id: number
-    login_name: string
-}
-
-// Etsy API client
 export const etsy = {
-    /**
-     * Get Etsy connection status
-     */
-    getStatus: () => request<EtsyStatus>('/etsy/status'),
+  getStatus: () => requestWithSchema('/etsy/status', etsyStatusResponseSchema),
+  initiateAuth: async (): Promise<EtsyAuthResponse> => {
+    const result = await requestWithSchema('/etsy/auth', etsyAuthResponseSchema)
+    if ('authUrl' in result) {
+      return result
+    }
+    throw new Error(result.message)
+  },
+  disconnect: () =>
+    requestWithSchema('/etsy/disconnect', etsyDisconnectResponseSchema, { method: 'POST' }),
+  getListings: () => requestWithSchema('/etsy/listings', etsyListingsResponseSchema),
+  importListings: () => requestWithSchema('/etsy/import', etsyImportResponseSchema, { method: 'POST' }),
 
-    /**
-     * Initiate OAuth flow (returns URL to redirect to)
-     */
-    initiateAuth: () => request<EtsyAuthResponse>('/etsy/auth'),
+  getComparison: () => requestWithSchema('/etsy/sync/comparison', etsySyncComparisonResponseSchema),
+  pushUpdates: (data: EtsySyncPushRequest) =>
+    requestWithSchema('/etsy/sync/push', etsySyncPushResponseSchema, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
 
-    /**
-     * Disconnect from Etsy
-     */
-    disconnect: () => request<{ success: boolean }>('/etsy/disconnect', { method: 'POST' }),
+  getPendingOrders: () => requestWithSchema('/etsy/sync/orders/pending', etsyPendingOrdersResponseSchema),
+  importOrder: (data: EtsyOrderImportRequest) =>
+    requestWithSchema('/etsy/sync/orders/import', etsyOrderImportResponseSchema, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+  importOrdersBulk: (data: EtsyBulkImportRequest) =>
+    requestWithSchema('/etsy/sync/orders/import-bulk', etsyOrdersBulkImportResponseSchema, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
 
-    /**
-     * Get all listings from Etsy
-     */
-    getListings: () => request<{ listings: EtsyListing[]; count: number }>('/etsy/listings'),
+  generateSkus: () =>
+    requestWithSchema('/etsy/sync/skus/generate', etsySkuGenerateResponseSchema, { method: 'POST' }),
+  getPendingSkus: (listingIds?: string[]) =>
+    requestWithSchema(
+      listingIds && listingIds.length > 0
+        ? `/etsy/sync/skus/pending?listingIds=${listingIds.join(',')}`
+        : '/etsy/sync/skus/pending',
+      etsySkusPendingResponseSchema,
+    ),
+  pushSkus: (listingIds?: string[]) =>
+    requestWithSchema('/etsy/sync/skus/push', etsySkusPushResponseSchema, {
+      method: 'POST',
+      body: JSON.stringify({ listingIds }),
+    }),
 
-    /**
-     * Import Etsy listings as hampers
-     */
-    importListings: () => request<EtsyImportResult>('/etsy/import', { method: 'POST' }),
+  getPendingPriceUpdates: (listingIds?: string[]) =>
+    requestWithSchema(
+      listingIds && listingIds.length > 0
+        ? `/etsy/sync/prices/pending?listingIds=${listingIds.join(',')}`
+        : '/etsy/sync/prices/pending',
+      etsyPricesPendingResponseSchema,
+    ),
+  pushPrices: (updates: EtsyPricesPushBody['updates']) =>
+    requestWithSchema('/etsy/sync/prices/push', etsyPricesPushResponseSchema, {
+      method: 'POST',
+      body: JSON.stringify({ updates }),
+    }),
 
-    /**
-     * Get sync comparison data
-     */
-    getComparison: () => request<{ comparisons: EtsySyncComparison[] }>('/etsy/sync/comparison'),
+  getAccounts: () => requestWithSchema('/etsy/accounts', etsyAccountsResponseSchema),
+  setDefaultAccount: (userId: string) =>
+    requestWithSchema(`/etsy/accounts/${userId}/set-default`, etsyAccountActionResponseSchema, {
+      method: 'POST',
+    }),
+  removeAccount: (userId: string) =>
+    requestWithSchema(`/etsy/accounts/${userId}`, etsyAccountActionResponseSchema, {
+      method: 'DELETE',
+    }),
 
-    /**
-     * Push inventory updates to Etsy
-     */
-    pushUpdates: (data: EtsySyncPushRequest) =>
-        request<EtsySyncPushResult>('/etsy/sync/push', {
-            method: 'POST',
-            body: JSON.stringify(data)
-        }),
-
-    /**
-     * Get pending Etsy orders (not yet imported as sales)
-     */
-    getPendingOrders: () => request<{ orders: EtsyPendingOrder[] }>('/etsy/sync/orders/pending'),
-
-    /**
-     * Import an Etsy order as a sale
-     */
-    importOrder: (data: EtsyOrderImportRequest) =>
-        request<EtsyOrderImportResult>('/etsy/sync/orders/import', {
-            method: 'POST',
-            body: JSON.stringify(data)
-        }),
-
-    /**
-     * Bulk import multiple Etsy orders as sales (optimized - single Etsy API call)
-     */
-    importOrdersBulk: (data: EtsyBulkImportRequest) =>
-        request<EtsyBulkImportResult>('/etsy/sync/orders/import-bulk', {
-            method: 'POST',
-            body: JSON.stringify(data)
-        }),
-
-    /**
-     * Generate SKUs for variants that don't have them
-     */
-    generateSkus: () =>
-        request<{ success: boolean; generated: number; results: Array<{ hamperName: string; variantName: string; sku: string }> }>(
-            '/etsy/sync/skus/generate',
-            { method: 'POST' }
-        ),
-
-    /**
-     * Get pending SKU syncs (local SKUs that differ from Etsy)
-     * @param listingIds Optional - only fetch for these listing IDs (for partial refresh)
-     */
-    getPendingSkus: (listingIds?: string[]) =>
-        request<{ skus: EtsyPendingSku[]; needsSyncCount: number; totalVariants: number }>(
-            listingIds && listingIds.length > 0
-                ? `/etsy/sync/skus/pending?listingIds=${listingIds.join(',')}`
-                : '/etsy/sync/skus/pending'
-        ),
-
-    /**
-     * Push local SKUs to Etsy
-     */
-    pushSkus: (listingIds?: string[]) =>
-        request<EtsySkuPushResult>('/etsy/sync/skus/push', {
-            method: 'POST',
-            body: JSON.stringify({ listingIds })
-        }),
-
-    /**
-     * Get price comparisons for Etsy-linked hampers/variants (includes in-sync rows; use `needsSync` to filter)
-     * @param listingIds Optional - only fetch for these listing IDs (for partial refresh)
-     */
-    getPendingPriceUpdates: (listingIds?: string[]) =>
-        request<{ updates: EtsyPendingPriceUpdate[]; count: number; needsSyncCount?: number }>(
-            listingIds && listingIds.length > 0
-                ? `/etsy/sync/prices/pending?listingIds=${listingIds.join(',')}`
-                : '/etsy/sync/prices/pending'
-        ),
-
-    /**
-     * Push local prices to Etsy for specified variants
-     */
-    pushPrices: (updates: Array<{ etsyListingId: string; etsySku: string | null; etsyProductId: string | null; price: number }>) =>
-        request<{ success: boolean; updated: number; errors: number; results: Array<{ listingId: string; success: boolean; error?: string }> }>(
-            '/etsy/sync/prices/push',
-            {
-                method: 'POST',
-                body: JSON.stringify({ updates })
-            }
-        ),
-
-    // =========================================================================
-    // Account Management
-    // =========================================================================
-
-    /**
-     * Get all connected Etsy accounts
-     */
-    getAccounts: () => request<{ accounts: EtsyAccount[] }>('/etsy/accounts'),
-
-    /**
-     * Set an account as the default for API calls
-     */
-    setDefaultAccount: (userId: string) =>
-        request<{ success: boolean }>(`/etsy/accounts/${userId}/set-default`, { method: 'POST' }),
-
-    /**
-     * Remove an Etsy account
-     */
-    removeAccount: (userId: string) =>
-        request<{ success: boolean }>(`/etsy/accounts/${userId}`, { method: 'DELETE' }),
-
-    // =========================================================================
-    // Provisional Users (Etsy API management)
-    // =========================================================================
-
-    /**
-     * Get registered provisional users from Etsy
-     */
-    getProvisionalUsers: () =>
-        request<{ provisionalUsers: EtsyProvisionalUser[] }>('/etsy/provisional-users'),
-
-    /**
-     * Register a user as a provisional user with Etsy (by login name)
-     */
-    addProvisionalUser: (loginName: string) =>
-        request<{ success: boolean }>('/etsy/provisional-users', {
-            method: 'POST',
-            body: JSON.stringify({ loginName }),
-        }),
-
-    /**
-     * Remove a provisional user from Etsy
-     */
-    removeProvisionalUser: (userId: string) =>
-        request<{ success: boolean }>(`/etsy/provisional-users/${userId}`, { method: 'DELETE' }),
+  getProvisionalUsers: () => requestWithSchema('/etsy/provisional-users', etsyProvisionalUsersResponseSchema),
+  addProvisionalUser: (loginName: string) =>
+    requestWithSchema('/etsy/provisional-users', etsyAccountActionResponseSchema, {
+      method: 'POST',
+      body: JSON.stringify({ loginName }),
+    }),
+  removeProvisionalUser: (userId: string) =>
+    requestWithSchema(`/etsy/provisional-users/${userId}`, etsyAccountActionResponseSchema, {
+      method: 'DELETE',
+    }),
 }

@@ -1,4 +1,14 @@
-# Etsy Inventory Caching Plan
+# Etsy Inventory Caching (Implemented)
+
+Status: implemented in `server/lib/etsy/inventoryCache.ts` and used by:
+- `server/lib/etsy/sync/inventory.ts`
+- `server/lib/etsy/sync/skus.ts`
+- `server/lib/etsy/sync/prices.ts`
+
+Includes:
+- TTL-based in-memory cache + inflight dedupe for `getListingInventory`
+- Cache invalidation after writes
+- Batch inventory fetch via `getListingsByListingIds(..., ['Inventory'])` when possible
 
 ## Why
 Several Etsy sync endpoints fetch listing inventory (`etsyClient.getListingInventory(listingId)`) per hamper/listing:
@@ -13,7 +23,7 @@ When the UI refreshes multiple tabs (or multiple users/actions hit these endpoin
 - Keep behaviour safe: never use stale inventory after we push updates.
 - Avoid adding external infrastructure (Redis) unless needed.
 
-## Proposed Approach (In-Memory + TTL + Inflight Dedup)
+## Approach (In-Memory + TTL + Inflight Dedup)
 Add a small in-memory cache in the server process keyed by `listingId`.
 
 **Key design points**
@@ -22,35 +32,10 @@ Add a small in-memory cache in the server process keyed by `listingId`.
 - **Invalidate on write**: after any successful `updateListingInventory(listingId, ...)`, invalidate that listing's cached entry immediately.
 - **Configurable**: env var for TTL (and optionally max entries).
 
-## Implementation Sketch
-1. Create `server/lib/etsy/inventoryCache.ts`
-   - `getListingInventoryCached(listingId: number): Promise<EtsyInventory>`
-   - `invalidateListingInventory(listingId: number): void`
-   - `clearInventoryCache(): void` (optional; useful for tests)
-   - module-level maps:
-     - `cache: Map<number, { expiresAt: number; value: EtsyInventory }>`
-     - `inflight: Map<number, Promise<EtsyInventory>>`
-   - `ETSY_INVENTORY_CACHE_TTL_MS` default `30000`
-
-2. Swap call-sites to use the cached helper
-   - Replace `etsyClient.getListingInventory(...)` with `getListingInventoryCached(...)` in:
-     - `server/lib/etsy/sync/inventory.ts`
-     - `server/lib/etsy/sync/skus.ts`
-     - `server/lib/etsy/sync/prices.ts`
-     - (optional) reconciliation paths if they call inventory repeatedly
-
-3. Invalidate on updates
-   - After successful `etsyClient.updateListingInventory(...)`, call `invalidateListingInventory(listingId)` in:
-     - `pushSyncUpdates` (inventory push)
-     - `pushSkus`
-     - `pushPriceUpdates`
-
-4. Add server tests
-   - New test file (e.g. `server/__tests__/etsy/inventoryCache.test.ts`) that:
-     - verifies repeated calls within TTL only fetch once
-     - verifies concurrent calls share a single fetch
-     - verifies invalidation forces refetch
-   - Use a stub/mocked `etsyClient.getListingInventory` and fake timers.
+## Implementation Notes
+- Environment variable: `ETSY_INVENTORY_CACHE_TTL_MS` (default `30000`)
+- Batch helper: `getListingInventoriesBatched(listingIds: number[])`
+- Invalidation helper: `invalidateListingInventory(listingId: number)`
 
 ## Risks / Notes
 - This is **per-process** caching; if you run multiple server instances, each has its own cache (still helpful).
@@ -58,6 +43,4 @@ Add a small in-memory cache in the server process keyed by `listingId`.
 - Invalidation must happen on *all* code paths that update listing inventory.
 
 ## Rollout
-- Start with `getSyncComparison` + `getPendingSkus` + `getPendingPriceUpdates` (read-heavy paths).
-- Add invalidation to all push endpoints.
 - Monitor Etsy rate-limit errors and response times before/after.

@@ -19,7 +19,7 @@ vi.mock('../../lib/api', () => ({
 }));
 
 import Inventory from '../../pages/Inventory';
-import { inventory, products, type Product, type InventoryLot } from '../../lib/api';
+import { inventory, products, type LowStockProduct, type Product, type InventoryLot } from '../../lib/api';
 
 const mockLots = vi.mocked(inventory.lots);
 const mockLowStock = vi.mocked(inventory.lowStock);
@@ -92,11 +92,26 @@ describe('Inventory', () => {
     },
   ];
 
+  const sampleLowStock: LowStockProduct = {
+    id: 'prod-2',
+    name: 'Orange Juice',
+    categoryId: 'cat-2',
+    category: sampleCategories[1]!,
+    unit: 'units',
+    lowStockThreshold: 5,
+    isActive: true,
+    createdAt: '2024-01-02T00:00:00Z',
+    updatedAt: '2024-01-02T00:00:00Z',
+    totalStock: 3,
+    totalRemaining: 3,
+    lotCount: 1,
+  };
+
   beforeEach(() => {
     vi.clearAllMocks();
     mockProductsList.mockResolvedValue(sampleProducts);
     mockLots.mockResolvedValue(sampleLots);
-    mockLowStock.mockResolvedValue([sampleProducts[1]!]);
+    mockLowStock.mockResolvedValue([sampleLowStock]);
     mockExpiring.mockResolvedValue([]);
     mockDeleteLot.mockResolvedValue(undefined);
   });

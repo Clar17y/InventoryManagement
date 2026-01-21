@@ -21,7 +21,7 @@ export default function AlertCard({ type, title, icon, items, emptyMessage = 'No
         switch (type) {
             case 'danger': return 'border-l-red-500'
             case 'warning': return 'border-l-amber-500'
-            case 'info': return 'border-l-blue-500'
+            case 'info': return 'border-l-info-500'
         }
     }
 
@@ -29,7 +29,7 @@ export default function AlertCard({ type, title, icon, items, emptyMessage = 'No
         switch (type) {
             case 'danger': return 'bg-red-50'
             case 'warning': return 'bg-amber-50'
-            case 'info': return 'bg-blue-50'
+            case 'info': return 'bg-info-50'
         }
     }
 
@@ -37,7 +37,7 @@ export default function AlertCard({ type, title, icon, items, emptyMessage = 'No
         switch (type) {
             case 'danger': return 'text-red-700'
             case 'warning': return 'text-amber-700'
-            case 'info': return 'text-blue-700'
+            case 'info': return 'text-info-700'
         }
     }
 
@@ -61,7 +61,7 @@ export default function AlertCard({ type, title, icon, items, emptyMessage = 'No
                         <div key={item.id} className="px-4 py-3 flex items-center justify-between hover:bg-gray-50">
                             {item.link ? (
                                 <Link to={item.link} className="flex-1">
-                                    <p className="font-medium text-gray-900 hover:text-indigo-600">{item.title}</p>
+                                    <p className="font-medium text-gray-900 hover:text-primary-600">{item.title}</p>
                                     {item.subtitle && (
                                         <p className="text-sm text-gray-500">{item.subtitle}</p>
                                     )}

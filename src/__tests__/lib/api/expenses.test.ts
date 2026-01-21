@@ -2,42 +2,51 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 vi.mock('../../../lib/api/request', () => ({
   request: vi.fn(),
+  requestWithSchema: vi.fn(),
 }));
 
+import {
+  expenseResponseSchema,
+  expensesListResponseSchema,
+  expensesSummaryResponseSchema,
+} from '#contracts/routes/expenses';
 import { expenses, BusinessExpense, ExpenseSummary } from '../../../lib/api/expenses';
-import { request } from '../../../lib/api/request';
+import { request, requestWithSchema } from '../../../lib/api/request';
 
 const mockRequest = vi.mocked(request);
+const mockRequestWithSchema = vi.mocked(requestWithSchema);
 
 describe('expenses API', () => {
   beforeEach(() => {
     mockRequest.mockReset();
+    mockRequestWithSchema.mockReset();
   });
 
   const sampleExpense: BusinessExpense = {
     id: 'exp-1',
-    date: '2024-01-15',
+    date: '2024-01-15T00:00:00Z',
     category: 'STOCK',
     supplier: 'Wholesale Co',
     description: 'Chocolate supplies',
     amountIncVat: 120,
     amountExcVat: 100,
     isActive: true,
+    isHistorical: false,
     createdAt: '2024-01-15T10:00:00Z',
     updatedAt: '2024-01-15T10:00:00Z',
   };
 
   describe('list', () => {
     it('calls request with empty params', async () => {
-      mockRequest.mockResolvedValue({ expenses: [sampleExpense], total: 1, limit: 20, offset: 0 });
+      mockRequestWithSchema.mockResolvedValue({ expenses: [sampleExpense], total: 1, limit: 20, offset: 0 });
 
       await expenses.list();
 
-      expect(mockRequest).toHaveBeenCalledWith('/expenses?');
+      expect(mockRequestWithSchema).toHaveBeenCalledWith('/expenses?', expensesListResponseSchema);
     });
 
     it('calls request with all filter params', async () => {
-      mockRequest.mockResolvedValue({ expenses: [], total: 0, limit: 10, offset: 5 });
+      mockRequestWithSchema.mockResolvedValue({ expenses: [], total: 0, limit: 10, offset: 5 });
 
       await expenses.list({
         category: 'STOCK',
@@ -48,27 +57,31 @@ describe('expenses API', () => {
         offset: 5,
       });
 
-      expect(mockRequest).toHaveBeenCalledWith(
-        '/expenses?category=STOCK&startDate=2024-01-01&endDate=2024-01-31&search=chocolate&limit=10&offset=5'
+      expect(mockRequestWithSchema).toHaveBeenCalledWith(
+        '/expenses?category=STOCK&startDate=2024-01-01&endDate=2024-01-31&search=chocolate&limit=10&offset=5',
+        expensesListResponseSchema
       );
     });
 
     it('builds query string with partial params', async () => {
-      mockRequest.mockResolvedValue({ expenses: [], total: 0, limit: 20, offset: 0 });
+      mockRequestWithSchema.mockResolvedValue({ expenses: [], total: 0, limit: 20, offset: 0 });
 
       await expenses.list({ category: 'ADVERTISING' });
 
-      expect(mockRequest).toHaveBeenCalledWith('/expenses?category=ADVERTISING');
+      expect(mockRequestWithSchema).toHaveBeenCalledWith(
+        '/expenses?category=ADVERTISING',
+        expensesListResponseSchema
+      );
     });
   });
 
   describe('get', () => {
     it('calls request with expense id', async () => {
-      mockRequest.mockResolvedValue(sampleExpense);
+      mockRequestWithSchema.mockResolvedValue(sampleExpense);
 
       await expenses.get('exp-1');
 
-      expect(mockRequest).toHaveBeenCalledWith('/expenses/exp-1');
+      expect(mockRequestWithSchema).toHaveBeenCalledWith('/expenses/exp-1', expenseResponseSchema);
     });
   });
 
@@ -85,15 +98,15 @@ describe('expenses API', () => {
     };
 
     it('calls request with empty params', async () => {
-      mockRequest.mockResolvedValue(sampleSummary);
+      mockRequestWithSchema.mockResolvedValue(sampleSummary);
 
       await expenses.summary();
 
-      expect(mockRequest).toHaveBeenCalledWith('/expenses/summary?');
+      expect(mockRequestWithSchema).toHaveBeenCalledWith('/expenses/summary?', expensesSummaryResponseSchema);
     });
 
     it('calls request with date filter params', async () => {
-      mockRequest.mockResolvedValue(sampleSummary);
+      mockRequestWithSchema.mockResolvedValue(sampleSummary);
 
       await expenses.summary({
         startDate: '2024-01-01',
@@ -101,18 +114,19 @@ describe('expenses API', () => {
         search: 'wholesale',
       });
 
-      expect(mockRequest).toHaveBeenCalledWith(
-        '/expenses/summary?startDate=2024-01-01&endDate=2024-01-31&search=wholesale'
+      expect(mockRequestWithSchema).toHaveBeenCalledWith(
+        '/expenses/summary?startDate=2024-01-01&endDate=2024-01-31&search=wholesale',
+        expensesSummaryResponseSchema
       );
     });
   });
 
   describe('create', () => {
     it('calls request with POST and expense data', async () => {
-      mockRequest.mockResolvedValue(sampleExpense);
+      mockRequestWithSchema.mockResolvedValue(sampleExpense);
 
       const data = {
-        date: '2024-01-15',
+        date: '2024-01-15T00:00:00Z',
         category: 'STOCK' as const,
         supplier: 'Wholesale Co',
         description: 'Chocolate supplies',
@@ -122,14 +136,18 @@ describe('expenses API', () => {
 
       await expenses.create(data);
 
-      expect(mockRequest).toHaveBeenCalledWith('/expenses', {
-        method: 'POST',
-        body: JSON.stringify(data),
-      });
+      expect(mockRequestWithSchema).toHaveBeenCalledWith(
+        '/expenses',
+        expenseResponseSchema,
+        {
+          method: 'POST',
+          body: JSON.stringify(data),
+        }
+      );
     });
 
     it('creates expense without optional fields', async () => {
-      mockRequest.mockResolvedValue(sampleExpense);
+      mockRequestWithSchema.mockResolvedValue(sampleExpense);
 
       const data = {
         category: 'OTHER' as const,
@@ -140,27 +158,35 @@ describe('expenses API', () => {
 
       await expenses.create(data);
 
-      expect(mockRequest).toHaveBeenCalledWith('/expenses', {
-        method: 'POST',
-        body: JSON.stringify(data),
-      });
+      expect(mockRequestWithSchema).toHaveBeenCalledWith(
+        '/expenses',
+        expenseResponseSchema,
+        {
+          method: 'POST',
+          body: JSON.stringify(data),
+        }
+      );
     });
   });
 
   describe('update', () => {
     it('calls request with PUT and partial data', async () => {
-      mockRequest.mockResolvedValue(sampleExpense);
+      mockRequestWithSchema.mockResolvedValue(sampleExpense);
 
       await expenses.update('exp-1', { description: 'Updated description' });
 
-      expect(mockRequest).toHaveBeenCalledWith('/expenses/exp-1', {
-        method: 'PUT',
-        body: JSON.stringify({ description: 'Updated description' }),
-      });
+      expect(mockRequestWithSchema).toHaveBeenCalledWith(
+        '/expenses/exp-1',
+        expenseResponseSchema,
+        {
+          method: 'PUT',
+          body: JSON.stringify({ description: 'Updated description' }),
+        }
+      );
     });
 
     it('can update multiple fields', async () => {
-      mockRequest.mockResolvedValue(sampleExpense);
+      mockRequestWithSchema.mockResolvedValue(sampleExpense);
 
       await expenses.update('exp-1', {
         category: 'PACKAGING',
@@ -168,14 +194,18 @@ describe('expenses API', () => {
         amountExcVat: 125,
       });
 
-      expect(mockRequest).toHaveBeenCalledWith('/expenses/exp-1', {
-        method: 'PUT',
-        body: JSON.stringify({
-          category: 'PACKAGING',
-          amountIncVat: 150,
-          amountExcVat: 125,
-        }),
-      });
+      expect(mockRequestWithSchema).toHaveBeenCalledWith(
+        '/expenses/exp-1',
+        expenseResponseSchema,
+        {
+          method: 'PUT',
+          body: JSON.stringify({
+            category: 'PACKAGING',
+            amountIncVat: 150,
+            amountExcVat: 125,
+          }),
+        }
+      );
     });
   });
 

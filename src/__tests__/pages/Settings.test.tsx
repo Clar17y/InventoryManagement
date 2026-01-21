@@ -13,16 +13,23 @@ vi.mock('../../lib/api', () => ({
     createPackagingOverhead: vi.fn(),
     deletePackagingOverhead: vi.fn(),
   },
+  etsy: {
+    getAccounts: vi.fn(),
+    initiateAuth: vi.fn(),
+    setDefaultAccount: vi.fn(),
+    removeAccount: vi.fn(),
+  },
 }));
 
 import Settings from '../../pages/Settings';
-import { settings } from '../../lib/api';
+import { settings, etsy } from '../../lib/api';
 
 const mockGetEtsyFees = vi.mocked(settings.getEtsyFees);
 const mockCreateEtsyFees = vi.mocked(settings.createEtsyFees);
 const mockGetPackagingOverhead = vi.mocked(settings.getPackagingOverhead);
 const mockCreatePackagingOverhead = vi.mocked(settings.createPackagingOverhead);
 const mockDeletePackagingOverhead = vi.mocked(settings.deletePackagingOverhead);
+const mockGetAccounts = vi.mocked(etsy.getAccounts);
 
 describe('Settings', () => {
   const sampleEtsyFee = {
@@ -51,6 +58,7 @@ describe('Settings', () => {
       overheads: [sampleOverhead],
       totalPerOrder: 1.5,
     } as any);
+    mockGetAccounts.mockResolvedValue({ accounts: [] } as any);
   });
 
   describe('loading state', () => {

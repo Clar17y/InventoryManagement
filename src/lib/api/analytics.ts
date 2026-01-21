@@ -1,6 +1,16 @@
-import { request } from './request'
-import type { ExpenseCategory } from './expenses'
-import type { SaleChannel } from './sales'
+import { requestWithSchema } from './request'
+import {
+  analyticsExpensesResponseSchema,
+  analyticsInventoryResponseSchema,
+  analyticsOverviewResponseSchema,
+  analyticsProfitResponseSchema,
+  analyticsSalesResponseSchema,
+  type AnalyticsExpensesResponse as ContractAnalyticsExpensesResponse,
+  type AnalyticsInventoryResponse as ContractAnalyticsInventoryResponse,
+  type AnalyticsOverviewResponse as ContractAnalyticsOverviewResponse,
+  type AnalyticsProfitResponse as ContractAnalyticsProfitResponse,
+  type AnalyticsSalesResponse as ContractAnalyticsSalesResponse,
+} from '#contracts/routes/analytics'
 
 export interface AnalyticsPeriodParams {
   startDate?: string
@@ -16,77 +26,51 @@ function buildPeriodQuery(params?: AnalyticsPeriodParams) {
   return query.toString()
 }
 
-export interface AnalyticsOverviewResponse {
-  period: {
-    startDate: string
-    endDate: string
-    previousStartDate: string
-    previousEndDate: string
-    days: number
-  }
-  kpis: {
-    totalRevenue: number
-    totalProfit: number
-    avgMarginPercent: number
-    totalExpenses: number
-    netProfit: number
-    salesCount: number
-    avgOrderValue: number
-  }
-  change: Record<keyof AnalyticsOverviewResponse['kpis'], number | null>
-}
+export type AnalyticsOverviewResponse = ContractAnalyticsOverviewResponse
 
-export interface AnalyticsProfitResponse {
-  dailyTrend: { date: string; revenue: number; profit: number; marginPercent: number }[]
-  feeBreakdown: {
-    transaction: number
-    processing: number
-    regulatory: number
-    listing: number
-    postage: number
-    stock: number
-    packaging: number
-  }
-  marginByHamper: { name: string; revenue: number; profit: number; marginPercent: number }[]
-}
+export type AnalyticsProfitResponse = ContractAnalyticsProfitResponse
 
-export interface AnalyticsSalesResponse {
-  volumeTrend: { date: string; count: number; revenue: number }[]
-  bestSellers: { name: string; unitsSold: number; revenue: number }[]
-  byChannel: { channel: SaleChannel; count: number; revenue: number; profit: number }[]
-}
+export type AnalyticsSalesResponse = ContractAnalyticsSalesResponse
 
-export interface AnalyticsExpensesResponse {
-  categoryTrend: ({ month: string } & Record<ExpenseCategory, number>)[]
-  categoryBreakdown: { category: ExpenseCategory; total: number }[]
-}
+export type AnalyticsExpensesResponse = ContractAnalyticsExpensesResponse
 
-export interface AnalyticsInventoryResponse {
-  currentStockValue: number
-  cogsTrend: { date: string; cogs: number }[]
-  costByHamper: { name: string; unitsSold: number; avgCost: number }[]
-}
+export type AnalyticsInventoryResponse = ContractAnalyticsInventoryResponse
 
 export const analytics = {
   overview: (params?: AnalyticsPeriodParams) => {
     const query = buildPeriodQuery(params)
-    return request<AnalyticsOverviewResponse>(`/analytics/overview${query ? `?${query}` : ''}`)
+    return requestWithSchema(
+      `/analytics/overview${query ? `?${query}` : ''}`,
+      analyticsOverviewResponseSchema,
+    )
   },
   profit: (params?: AnalyticsPeriodParams) => {
     const query = buildPeriodQuery(params)
-    return request<AnalyticsProfitResponse>(`/analytics/profit${query ? `?${query}` : ''}`)
+    return requestWithSchema(
+      `/analytics/profit${query ? `?${query}` : ''}`,
+      analyticsProfitResponseSchema,
+    )
   },
   sales: (params?: AnalyticsPeriodParams) => {
     const query = buildPeriodQuery(params)
-    return request<AnalyticsSalesResponse>(`/analytics/sales${query ? `?${query}` : ''}`)
+    return requestWithSchema(
+      `/analytics/sales${query ? `?${query}` : ''}`,
+      analyticsSalesResponseSchema,
+    )
   },
   expenses: (params?: AnalyticsPeriodParams) => {
     const query = buildPeriodQuery(params)
-    return request<AnalyticsExpensesResponse>(`/analytics/expenses${query ? `?${query}` : ''}`)
+    return requestWithSchema(
+      `/analytics/expenses${query ? `?${query}` : ''}`,
+      analyticsExpensesResponseSchema,
+    )
   },
   inventory: (params?: AnalyticsPeriodParams) => {
     const query = buildPeriodQuery(params)
-    return request<AnalyticsInventoryResponse>(`/analytics/inventory${query ? `?${query}` : ''}`)
+    return requestWithSchema(
+      `/analytics/inventory${query ? `?${query}` : ''}`,
+      analyticsInventoryResponseSchema,
+    )
   },
 }
 

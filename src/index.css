@@ -11,6 +11,28 @@
   --color-primary-700: #15803d;
   --color-primary-800: #166534;
   --color-primary-900: #14532d;
+
+  --color-info-50: #eff6ff;
+  --color-info-100: #dbeafe;
+  --color-info-200: #bfdbfe;
+  --color-info-300: #93c5fd;
+  --color-info-400: #60a5fa;
+  --color-info-500: #3b82f6;
+  --color-info-600: #2563eb;
+  --color-info-700: #1d4ed8;
+  --color-info-800: #1e40af;
+  --color-info-900: #1e3a8a;
+
+  --color-accent-50: #faf5ff;
+  --color-accent-100: #f3e8ff;
+  --color-accent-200: #e9d5ff;
+  --color-accent-300: #d8b4fe;
+  --color-accent-400: #c084fc;
+  --color-accent-500: #a855f7;
+  --color-accent-600: #9333ea;
+  --color-accent-700: #7e22ce;
+  --color-accent-800: #6b21a8;
+  --color-accent-900: #581c87;
 }
 
 /*
@@ -49,6 +71,39 @@
 
 @utility input {
   @apply w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-primary-500 focus:border-transparent;
+}
+
+@utility alert {
+  @apply p-3 rounded-lg text-sm;
+}
+
+@utility alert-danger {
+  @apply alert bg-red-50 text-red-700;
+}
+
+@utility alert-warning {
+  @apply alert bg-amber-50 text-amber-800;
+}
+
+@utility alert-info {
+  @apply alert bg-info-50 text-info-700;
+}
+
+@utility alert-success {
+  @apply alert bg-green-50 text-green-800;
+}
+
+@keyframes slide-in-right {
+  from {
+    transform: translateX(100%);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+
+@utility animate-slide-in-right {
+  animation: slide-in-right 0.2s ease-out;
 }
 
 @layer base {

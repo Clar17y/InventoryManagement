@@ -134,7 +134,7 @@ export default function DateSearchFilter({
                         </button>
                         <button
                             onClick={clearDateFilter}
-                            className="text-xs px-2 py-1 rounded bg-blue-100 hover:bg-blue-200 text-blue-700 whitespace-nowrap"
+                            className="text-xs px-2 py-1 rounded bg-info-100 hover:bg-info-200 text-info-700 whitespace-nowrap"
                         >
                             All Time
                         </button>

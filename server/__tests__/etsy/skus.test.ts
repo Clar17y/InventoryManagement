@@ -15,6 +15,7 @@ vi.mock('../../lib/prisma', () => ({
 vi.mock('../../lib/etsyClient', () => ({
   etsyClient: {
     getListingInventory: vi.fn(),
+    getListingsByListingIds: vi.fn(),
     updateListingInventory: vi.fn(),
   },
 }));
@@ -41,6 +42,7 @@ const mockPrisma = prisma as unknown as {
 
 const mockEtsyClient = etsyClient as unknown as {
   getListingInventory: ReturnType<typeof vi.fn>;
+  getListingsByListingIds: ReturnType<typeof vi.fn>;
   updateListingInventory: ReturnType<typeof vi.fn>;
 };
 
@@ -112,17 +114,22 @@ describe('SKU Sync', () => {
       },
     ]);
 
-    mockEtsyClient.getListingInventory.mockResolvedValue({
-      listing_id: 1234567890,
-      products: [
-        {
-          product_id: 111,
-          sku: '',
-          property_values: [],
-          offerings: [],
+    mockEtsyClient.getListingsByListingIds.mockResolvedValue([
+      {
+        listing_id: 1234567890,
+        inventory: {
+          listing_id: 1234567890,
+          products: [
+            {
+              product_id: 111,
+              sku: '',
+              property_values: [],
+              offerings: [],
+            },
+          ],
         },
-      ],
-    });
+      },
+    ]);
 
     const result = await getPendingSkus();
 

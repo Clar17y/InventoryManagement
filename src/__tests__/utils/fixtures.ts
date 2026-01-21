@@ -1,7 +1,7 @@
 import type { DashboardStats } from '../../lib/api/settings';
 import type { Category } from '../../lib/api/categories';
 import type { Product } from '../../lib/api/products';
-import type { InventoryLot } from '../../lib/api/inventory';
+import type { InventoryLot, LowStockProduct } from '../../lib/api/inventory';
 import type { Hamper } from '../../lib/api/hampers';
 
 export const categoryFixtures: Category[] = [
@@ -162,5 +162,20 @@ export const dashboardStatsFixture: DashboardStats = {
   thisWeek: { salesCount: 15, revenue: 525, margin: 260 },
 };
 
-export const lowStockFixture: Product[] = [productFixtures[1]!];
+export const lowStockFixture: LowStockProduct[] = [
+  {
+    id: 'prod-2',
+    name: 'Orange Juice',
+    categoryId: 'cat-2',
+    category: categoryFixtures[1]!,
+    unit: 'units',
+    lowStockThreshold: 5,
+    isActive: true,
+    createdAt: '2024-01-02T00:00:00Z',
+    updatedAt: '2024-01-02T00:00:00Z',
+    totalStock: 3,
+    totalRemaining: 3,
+    lotCount: 1,
+  },
+];
 export const expiringLotsFixture: InventoryLot[] = [lotFixtures[2]!];

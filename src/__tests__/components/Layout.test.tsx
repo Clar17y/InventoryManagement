@@ -73,6 +73,13 @@ describe('Layout', () => {
       expect(salesLink).toHaveAttribute('href', '/sales');
     });
 
+    it('has Analytics link', () => {
+      render(<Layout />);
+
+      const analyticsLink = screen.getByRole('link', { name: /analytics/i });
+      expect(analyticsLink).toHaveAttribute('href', '/analytics');
+    });
+
     it('has Settings link', () => {
       render(<Layout />);
 
@@ -80,11 +87,11 @@ describe('Layout', () => {
       expect(settingsLink).toHaveAttribute('href', '/settings');
     });
 
-    it('renders all 5 navigation items', () => {
+    it('renders all 6 navigation items', () => {
       render(<Layout />);
 
       const navLinks = screen.getAllByRole('link');
-      expect(navLinks).toHaveLength(5);
+      expect(navLinks).toHaveLength(6);
     });
   });
 });

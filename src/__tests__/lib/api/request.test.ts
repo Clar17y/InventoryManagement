@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { z } from 'zod';
 
 // Mock supabase before importing request
 vi.mock('../../../lib/supabase', () => ({
@@ -9,7 +10,7 @@ vi.mock('../../../lib/supabase', () => ({
   },
 }));
 
-import { request } from '../../../lib/api/request';
+import { request, requestWithSchema } from '../../../lib/api/request';
 import { supabase } from '../../../lib/supabase';
 
 describe('request', () => {
@@ -246,6 +247,41 @@ describe('request', () => {
       // TypeScript should infer these properties
       expect(result.id).toBe('1');
       expect(result.name).toBe('Test');
+    });
+  });
+
+  describe('schema validation', () => {
+    beforeEach(() => {
+      vi.mocked(supabase.auth.getSession).mockResolvedValue({
+        data: { session: { access_token: 'token' } },
+        error: null,
+      } as any);
+    });
+
+    it('returns typed data when schema matches', async () => {
+      const schema = z.object({ id: z.string(), name: z.string() });
+      const responseData = { id: '1', name: 'Test' };
+
+      mockFetch.mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve(responseData),
+      });
+
+      const result = await requestWithSchema('/test', schema);
+      expect(result).toEqual(responseData);
+    });
+
+    it('throws when response does not match schema', async () => {
+      const schema = z.object({ id: z.string() });
+
+      mockFetch.mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve({ unexpected: true }),
+      });
+
+      await expect(requestWithSchema('/test', schema)).rejects.toThrow('Unexpected server response');
     });
   });
 });

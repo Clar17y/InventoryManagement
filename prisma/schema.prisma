@@ -143,6 +143,7 @@ model HamperVariant {
 }
 
 // Maps a variant's category requirement to a specific product
+// A variant can have multiple mappings to the same category (e.g., L Plate + P Plate)
 model HamperVariantMapping {
   id         String            @id @default(cuid())
   variantId  String
@@ -152,7 +153,7 @@ model HamperVariantMapping {
   productId  String
   product    Product           @relation(fields: [productId], references: [id])
 
-  @@unique([variantId, categoryId])
+  @@index([variantId])
 }
 
 model Sale {

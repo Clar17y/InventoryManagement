@@ -132,7 +132,8 @@ export async function allocateStockForRequirement(
   }
 }
 
-// Allocate stock for a variant requirement (uses specific mapped product, or falls back to category-wide)
+// Allocate stock for a variant requirement (uses specific mapped products, or falls back to category-wide)
+// A variant can have multiple mappings to the same category (e.g., L Plate + P Plate)
 // Accepts optional client for use within transactions
 export async function allocateStockForVariantRequirement(
   variantId: string,
@@ -141,13 +142,11 @@ export async function allocateStockForVariantRequirement(
   pickRule: PickRule,
   client: PrismaClientLike = prisma
 ): Promise<RequirementAllocation> {
-  // Get the variant mapping for this category
-  const mapping = await client.hamperVariantMapping.findUnique({
+  // Get all variant mappings for this category (can be multiple products)
+  const mappings = await client.hamperVariantMapping.findMany({
     where: {
-      variantId_categoryId: {
-        variantId,
-        categoryId,
-      },
+      variantId,
+      categoryId,
     },
     include: {
       category: true,
@@ -161,25 +160,31 @@ export async function allocateStockForVariantRequirement(
     },
   })
 
-  if (!mapping) {
+  if (mappings.length === 0) {
     // No mapping for this category - fall back to category-wide allocation
     return allocateStockForRequirement(categoryId, quantityNeeded, pickRule, client)
   }
 
-  const allLots: LotWithProduct[] = mapping.product.lots.map((lot) => ({
-    ...lot,
-    productId: mapping.product.id,
-    productName: mapping.product.name,
-  }))
+  // Gather lots from all mapped products
+  const allLots: LotWithProduct[] = mappings.flatMap((mapping) =>
+    mapping.product.lots.map((lot) => ({
+      ...lot,
+      productId: mapping.product.id,
+      productName: mapping.product.name,
+    }))
+  )
 
   const sortedLots = sortLotsByPickRule(allLots, pickRule)
   const { allocations, totalCost, fulfilled } = allocateFromLots(sortedLots, quantityNeeded)
 
+  // Use first mapping for category info (all mappings share same category)
+  const firstMapping = mappings[0]
   return {
-    categoryId: mapping.categoryId,
-    categoryName: mapping.category.name,
-    productId: mapping.product.id,
-    productName: mapping.product.name,
+    categoryId: firstMapping.categoryId,
+    categoryName: firstMapping.category.name,
+    // Don't set productId/productName when multiple products could be used
+    productId: mappings.length === 1 ? firstMapping.product.id : undefined,
+    productName: mappings.length === 1 ? firstMapping.product.name : undefined,
     quantityRequired: quantityNeeded,
     allocations,
     totalCost,

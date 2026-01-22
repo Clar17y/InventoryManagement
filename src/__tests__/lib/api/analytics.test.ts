@@ -72,7 +72,7 @@ describe('analytics API', () => {
 
   describe('profit', () => {
     const sample: AnalyticsProfitResponse = {
-      dailyTrend: [{ date: '2024-01-01', revenue: 100, profit: 40, marginPercent: 40 }],
+      dailyTrend: [{ date: '2024-01-01', revenue: 100, profit: 40, expenses: 10, netProfit: 30, marginPercent: 40 }],
       feeBreakdown: {
         transaction: 1,
         processing: 1,

@@ -49,6 +49,8 @@ export const analyticsProfitResponseSchema = z.object({
       date: isoDateSchema,
       revenue: z.number().finite(),
       profit: z.number().finite(),
+      expenses: z.number().finite().optional(),
+      netProfit: z.number().finite().optional(),
       marginPercent: z.number().finite(),
     })
   ),

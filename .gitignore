@@ -46,3 +46,4 @@ backups/
 # Business data files
 *.xlsx
 *.xml
+.grepai/

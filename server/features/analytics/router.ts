@@ -204,7 +204,7 @@ router.get('/profit', async (req, res) => {
     const query = analyticsPeriodQuerySchema.parse(req.query)
     const period = getPeriod(query)
 
-    const [dailyRows, feesAgg, marginByHamperRows] = await Promise.all([
+    const [dailyRows, expenseRows, feesAgg, marginByHamperRows] = await Promise.all([
       prisma.$queryRaw<Array<{ date: string | Date; revenue: unknown; profit: unknown }>>`
         SELECT DATE("saleDate") as date,
                SUM("grossRevenue") as revenue,
@@ -212,6 +212,15 @@ router.get('/profit', async (req, res) => {
         FROM "Sale"
         WHERE "saleDate" BETWEEN ${period.start} AND ${period.end}
         GROUP BY DATE("saleDate")
+        ORDER BY date ASC
+      `,
+      prisma.$queryRaw<Array<{ date: string | Date; expenses: unknown }>>`
+        SELECT DATE("date") as date,
+               SUM("amountIncVat") as expenses
+        FROM "BusinessExpense"
+        WHERE "isActive" = true
+          AND "date" BETWEEN ${period.start} AND ${period.end}
+        GROUP BY DATE("date")
         ORDER BY date ASC
       `,
       prisma.sale.aggregate({
@@ -264,14 +273,35 @@ router.get('/profit', async (req, res) => {
       })
     }
 
-    const dailyTrend: Array<{ date: string; revenue: number; profit: number; marginPercent: number }> = []
+    const expensesByDate = new Map<string, number>()
+    for (const row of expenseRows) {
+      const dateKey =
+        typeof row.date === 'string'
+          ? row.date
+          : row.date instanceof Date
+            ? toDateKey(row.date)
+            : String(row.date)
+      expensesByDate.set(dateKey, toNumber(row.expenses))
+    }
+
+    const dailyTrend: Array<{
+      date: string
+      revenue: number
+      profit: number
+      expenses: number
+      netProfit: number
+      marginPercent: number
+    }> = []
     for (let cursor = startOfDay(period.start); cursor <= startOfDay(period.end); cursor = addDays(cursor, 1)) {
       const key = toDateKey(cursor)
       const point = dailyByDate.get(key) ?? { revenue: 0, profit: 0 }
+      const expenses = expensesByDate.get(key) ?? 0
       dailyTrend.push({
         date: key,
         revenue: point.revenue,
         profit: point.profit,
+        expenses,
+        netProfit: point.profit - expenses,
         marginPercent: point.revenue > 0 ? (point.profit / point.revenue) * 100 : 0,
       })
     }

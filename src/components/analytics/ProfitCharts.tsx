@@ -43,10 +43,14 @@ export default function ProfitCharts({ data }: { data: AnalyticsProfitResponse |
     { name: 'Packaging', value: data.feeBreakdown.packaging },
   ].filter((d) => Number(d.value) > 0)
 
+  const hasNetProfit = data.dailyTrend.every((p) => typeof p.netProfit === 'number')
+  const profitSeriesKey = hasNetProfit ? 'netProfit' : 'profit'
+  const profitSeriesLabel = hasNetProfit ? 'Net Profit' : 'Profit'
+
   return (
     <div className="space-y-4">
       <div className="card">
-        <div className="font-semibold mb-3">Revenue vs Profit (Daily)</div>
+        <div className="font-semibold mb-3">Revenue vs {profitSeriesLabel} (Daily)</div>
         <div className="h-72">
           <ResponsiveContainer width="100%" height="100%">
             <LineChart data={data.dailyTrend}>
@@ -57,14 +61,23 @@ export default function ProfitCharts({ data }: { data: AnalyticsProfitResponse |
                 labelFormatter={(label) => formatShortDate(String(label))}
                 formatter={(value, name) => {
                   if (name === 'marginPercent') return [`${Number(value).toFixed(1)}%`, 'Margin %']
-                  if (name === 'revenue') return [formatCurrency(Number(value)), 'Revenue']
-                  if (name === 'profit') return [formatCurrency(Number(value)), 'Profit']
+                  if (name === 'revenue' || name === 'Revenue') return [formatCurrency(Number(value)), 'Revenue']
+                  if (name === profitSeriesKey || name === profitSeriesLabel) {
+                    return [formatCurrency(Number(value)), profitSeriesLabel]
+                  }
                   return [value as number, name]
                 }}
               />
               <Legend />
-              <Line type="monotone" dataKey="revenue" stroke="#16a34a" strokeWidth={2} dot={false} />
-              <Line type="monotone" dataKey="profit" stroke="#0ea5e9" strokeWidth={2} dot={false} />
+              <Line type="monotone" dataKey="revenue" name="Revenue" stroke="#16a34a" strokeWidth={2} dot={false} />
+              <Line
+                type="monotone"
+                dataKey={profitSeriesKey}
+                name={profitSeriesLabel}
+                stroke="#0ea5e9"
+                strokeWidth={2}
+                dot={false}
+              />
             </LineChart>
           </ResponsiveContainer>
         </div>

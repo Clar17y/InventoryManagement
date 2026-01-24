@@ -152,7 +152,7 @@ export default function Hampers() {
         ).values()
       )
 
-      if (requirements.length === 0) {
+      if (!editingId && requirements.length === 0) {
         setError('Please select at least one requirement')
         return
       }
@@ -163,13 +163,13 @@ export default function Hampers() {
         etsyListingId: formData.etsyListingId || undefined,
         indicativeQuantity: formData.hasVariants ? undefined : (formData.indicativeQuantity ? parseInt(formData.indicativeQuantity, 10) : null),
         hasVariants: formData.hasVariants,
-        requirements,
+        requirements: editingId && requirements.length === 0 ? undefined : requirements,
       }
 
       if (editingId) {
         await hampers.update(editingId, data)
       } else {
-        await hampers.create(data)
+        await hampers.create(data as Parameters<typeof hampers.create>[0])
       }
 
       setShowForm(false)

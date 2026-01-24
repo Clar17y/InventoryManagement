@@ -19,6 +19,7 @@ export const emptyHamperForm: HamperFormData = {
   name: '',
   sellingPrice: '',
   etsyListingId: '',
+  indicativeQuantity: '',
   hasVariants: false,
   requirements: [],
 }

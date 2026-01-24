@@ -117,6 +117,10 @@ export async function getSyncComparison() {
 
         if (canMake === Infinity) canMake = 0;
 
+        const indicativeQty = variant.indicativeQuantity ?? null;
+        const effectiveQuantity = Math.max(canMake, indicativeQty ?? 0);
+        const isIndicative = indicativeQty !== null && indicativeQty > canMake;
+
         let etsyQuantity = 0;
         let resolvedEtsyProductId: string | null = variant.etsyProductId;
         let resolvedEtsySku: string | null = variant.etsySku;
@@ -138,7 +142,7 @@ export async function getSyncComparison() {
           }
         }
 
-        const difference = canMake - etsyQuantity;
+        const difference = effectiveQuantity - etsyQuantity;
         const canIdentifyEtsyProduct =
           resolvedEtsyProductId !== null || resolvedEtsySku !== null;
 
@@ -148,7 +152,9 @@ export async function getSyncComparison() {
           variantId: variant.id,
           variantName: variant.name,
           etsyQuantity,
-          inventoryQuantity: canMake,
+          inventoryQuantity: effectiveQuantity,
+          indicativeQuantity: indicativeQty,
+          isIndicative,
           difference,
           needsSync: difference !== 0 && canIdentifyEtsyProduct,
         });
@@ -177,6 +183,10 @@ export async function getSyncComparison() {
 
       if (canMake === Infinity) canMake = 0;
 
+      const indicativeQty = hamper.indicativeQuantity ?? null;
+      const effectiveQuantity = Math.max(canMake, indicativeQty ?? 0);
+      const isIndicative = indicativeQty !== null && indicativeQty > canMake;
+
       let etsyQuantity = 0;
       if (etsyInventory && etsyInventory.products.length > 0) {
         const firstProduct = etsyInventory.products[0];
@@ -185,7 +195,7 @@ export async function getSyncComparison() {
         }
       }
 
-      const difference = canMake - etsyQuantity;
+      const difference = effectiveQuantity - etsyQuantity;
 
       variantComparisons.push({
         etsySku: null,
@@ -193,7 +203,9 @@ export async function getSyncComparison() {
         variantId: null,
         variantName: 'Default',
         etsyQuantity,
-        inventoryQuantity: canMake,
+        inventoryQuantity: effectiveQuantity,
+        indicativeQuantity: indicativeQty,
+        isIndicative,
         difference,
         needsSync: difference !== 0,
       });

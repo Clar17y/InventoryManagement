@@ -354,6 +354,7 @@ router.post('/', async (req, res) => {
         name: data.name,
         sellingPrice: data.sellingPrice,
         etsyListingId: data.etsyListingId,
+        indicativeQuantity: data.indicativeQuantity,
         hasVariants: data.hasVariants,
         requirements: {
           create: data.requirements.map((r) => ({
@@ -398,6 +399,7 @@ router.put('/:id', async (req, res) => {
         ...(data.name && { name: data.name }),
         ...(data.sellingPrice && { sellingPrice: data.sellingPrice }),
         ...(data.etsyListingId !== undefined && { etsyListingId: data.etsyListingId }),
+        ...(data.indicativeQuantity !== undefined && { indicativeQuantity: data.indicativeQuantity }),
         ...(data.hasVariants !== undefined && { hasVariants: data.hasVariants }),
         ...(data.requirements && {
           requirements: {
@@ -549,6 +551,7 @@ router.post('/:id/variants', async (req, res) => {
         name: data.name,
         sellingPrice: data.sellingPrice,
         etsySku: data.etsySku,
+        indicativeQuantity: data.indicativeQuantity,
         mappings: {
           create: data.mappings.map((m) => ({
             categoryId: m.categoryId,
@@ -653,6 +656,7 @@ router.put('/:id/variants/:variantId', async (req, res) => {
         ...(data.name && { name: data.name }),
         ...(data.sellingPrice !== undefined && { sellingPrice: data.sellingPrice }),
         ...(data.etsySku !== undefined && { etsySku: data.etsySku }),
+        ...(data.indicativeQuantity !== undefined && { indicativeQuantity: data.indicativeQuantity }),
         ...(data.mappings && {
           mappings: {
             create: data.mappings.map((m) => ({

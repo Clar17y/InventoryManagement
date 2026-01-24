@@ -113,7 +113,12 @@ export default function EtsyInventorySyncTab({
                       )}
                     </td>
                     <td className="px-3 py-2 text-center font-mono">{variant.etsyQuantity}</td>
-                    <td className="px-3 py-2 text-center font-mono font-medium">{variant.inventoryQuantity}</td>
+                    <td className="px-3 py-2 text-center font-mono font-medium">
+                      {variant.inventoryQuantity}
+                      {variant.isIndicative && (
+                        <span className="text-blue-500 ml-0.5" title="Using indicative quantity (real stock is lower)">*</span>
+                      )}
+                    </td>
                     <td className="px-3 py-2 text-center">
                       <span
                         className={`font-mono ${

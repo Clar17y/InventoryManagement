@@ -161,6 +161,7 @@ export default function Hampers() {
         name: formData.name,
         sellingPrice: parseFloat(formData.sellingPrice),
         etsyListingId: formData.etsyListingId || undefined,
+        indicativeQuantity: formData.hasVariants ? undefined : (formData.indicativeQuantity ? parseInt(formData.indicativeQuantity, 10) : null),
         hasVariants: formData.hasVariants,
         requirements,
       }
@@ -187,6 +188,7 @@ export default function Hampers() {
       name: hamper.name,
       sellingPrice: String(hamper.sellingPrice),
       etsyListingId: hamper.etsyListingId || '',
+      indicativeQuantity: hamper.indicativeQuantity ? String(hamper.indicativeQuantity) : '',
       hasVariants: hamper.hasVariants || false,
       requirements:
         hamper.requirements.length > 0
@@ -271,6 +273,7 @@ export default function Hampers() {
       name: variant.name,
       sellingPrice: variant.sellingPrice ?? null,
       etsySku: variant.etsySku || '',
+      indicativeQuantity: variant.indicativeQuantity ?? null,
       mappings: variant.mappings?.map((m) => ({ categoryId: m.categoryId, productId: m.productId })) || [],
     })
     setShowVariantForm(true)

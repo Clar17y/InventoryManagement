@@ -108,6 +108,8 @@ export const etsySyncComparisonVariantSchema = z.object({
   variantName: z.string(),
   etsyQuantity: z.number().int().nonnegative(),
   inventoryQuantity: z.number().int().nonnegative(),
+  indicativeQuantity: z.number().int().nonnegative().nullable(),
+  isIndicative: z.boolean(),
   difference: z.number().int(),
   needsSync: z.boolean(),
 })

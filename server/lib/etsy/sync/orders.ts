@@ -544,6 +544,26 @@ export async function importOrder(receiptId: number, postageCost: number, isHist
             lineCost: 0, // No stock cost for historical imports
             consumptions: [],
           });
+
+          // Atomically reduce indicative quantity for historical imports (NULLIF normalizes 0 to null)
+          if (lineMeta.variantId) {
+            await tx.$executeRaw`
+              UPDATE "HamperVariant"
+              SET "indicativeQuantity" = NULLIF(GREATEST(0, "indicativeQuantity" - ${lineMeta.quantity}), 0)
+              WHERE id = ${lineMeta.variantId}
+                AND "indicativeQuantity" IS NOT NULL
+                AND "indicativeQuantity" > 0
+            `;
+          } else {
+            await tx.$executeRaw`
+              UPDATE "Hamper"
+              SET "indicativeQuantity" = NULLIF(GREATEST(0, "indicativeQuantity" - ${lineMeta.quantity}), 0)
+              WHERE id = ${lineMeta.hamperId}
+                AND "indicativeQuantity" IS NOT NULL
+                AND "indicativeQuantity" > 0
+            `;
+          }
+
           continue;
         }
 

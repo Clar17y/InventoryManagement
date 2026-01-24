@@ -90,15 +90,31 @@ export default function HamperForm({
         </div>
       </div>
 
-      <div>
-        <label className="block text-sm font-medium text-gray-700 mb-1">Etsy Listing ID</label>
-        <input
-          type="text"
-          value={formData.etsyListingId}
-          onChange={(e) => setFormData({ ...formData, etsyListingId: e.target.value })}
-          className="input"
-          placeholder="Optional - for future Etsy sync"
-        />
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">Etsy Listing ID</label>
+          <input
+            type="text"
+            value={formData.etsyListingId}
+            onChange={(e) => setFormData({ ...formData, etsyListingId: e.target.value })}
+            className="input"
+            placeholder="Optional - for Etsy sync"
+          />
+        </div>
+        {!formData.hasVariants && (
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Indicative Qty</label>
+            <input
+              type="number"
+              min="0"
+              step="1"
+              value={formData.indicativeQuantity}
+              onChange={(e) => setFormData({ ...formData, indicativeQuantity: e.target.value })}
+              className="input"
+              placeholder="Optional - floor for Etsy stock"
+            />
+          </div>
+        )}
       </div>
 
       <div className="flex items-center gap-3">
@@ -161,7 +177,7 @@ export default function HamperForm({
           {/* Add Variant Form */}
           {showVariantForm && (
             <div ref={variantFormRef} className="bg-primary-50 p-4 rounded-lg mb-4 space-y-4">
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
                 <div>
                   <label className="block text-xs font-medium text-gray-700 mb-1">Variant Name *</label>
                   <input
@@ -195,6 +211,21 @@ export default function HamperForm({
                     onChange={(e) => setVariantFormData({ ...variantFormData, etsySku: e.target.value })}
                     className="input text-sm"
                     placeholder="e.g., LUX-SPA-SM"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-700 mb-1">Indicative Qty</label>
+                  <input
+                    type="number"
+                    min="0"
+                    step="1"
+                    value={variantFormData.indicativeQuantity ?? ''}
+                    onChange={(e) => setVariantFormData({
+                      ...variantFormData,
+                      indicativeQuantity: e.target.value ? parseInt(e.target.value, 10) : null
+                    })}
+                    className="input text-sm"
+                    placeholder="Floor for Etsy stock"
                   />
                 </div>
               </div>
@@ -336,6 +367,7 @@ export default function HamperForm({
                     <div className="font-medium text-gray-900">{variant.name}</div>
                     {variant.sellingPrice && <div className="text-xs text-green-600 font-medium">£{Number(variant.sellingPrice).toFixed(2)}</div>}
                     {variant.etsySku && <div className="text-xs text-gray-500 font-mono">SKU: {variant.etsySku}</div>}
+                    {!!variant.indicativeQuantity && <div className="text-xs text-blue-600">Indicative: {variant.indicativeQuantity}</div>}
                   </div>
 
                   <div className="flex gap-1">

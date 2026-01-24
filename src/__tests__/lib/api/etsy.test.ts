@@ -222,6 +222,8 @@ describe('etsy API', () => {
               variantName: 'Default',
               etsyQuantity: 5,
               inventoryQuantity: 10,
+              indicativeQuantity: null,
+              isIndicative: false,
               difference: 5,
               needsSync: true,
             },

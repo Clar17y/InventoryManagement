@@ -39,6 +39,18 @@ const hamperRequirementInputSchema = z.object({
   isOptional: z.boolean().default(false),
 })
 
+const nullableIntSchema = z
+  .union([z.number(), z.string()])
+  .optional()
+  .nullable()
+  .transform((value) => {
+    if (value === undefined) return undefined
+    if (value === null || value === '') return null
+    const num = typeof value === 'number' ? Math.trunc(value) : parseInt(value, 10)
+    if (Number.isNaN(num) || num <= 0 || !Number.isFinite(num)) return null
+    return num
+  })
+
 export const hampersCreateBodySchema = z.object({
   name: z.string().min(1).max(200),
   sellingPrice: z.number().positive(),
@@ -48,6 +60,7 @@ export const hampersCreateBodySchema = z.object({
     .optional()
     .nullable()
     .transform((value) => (value === '' ? null : value)),
+  indicativeQuantity: nullableIntSchema,
   hasVariants: z.boolean().default(false),
   requirements: z.array(hamperRequirementInputSchema).min(1),
 })
@@ -61,6 +74,7 @@ export const hampersUpdateBodySchema = z.object({
     .optional()
     .nullable()
     .transform((value) => (value === '' ? null : value)),
+  indicativeQuantity: nullableIntSchema,
   hasVariants: z.boolean().optional(),
   requirements: z.array(hamperRequirementInputSchema).optional(),
 })
@@ -92,6 +106,7 @@ export const hamperVariantCreateBodySchema = z.object({
   name: z.string().min(1).max(100),
   sellingPrice: nullableNumberSchema,
   etsySku: nullableStringSchema,
+  indicativeQuantity: nullableIntSchema,
   mappings: z.array(variantMappingInputSchema).min(1),
 })
 
@@ -99,6 +114,7 @@ export const hamperVariantUpdateBodySchema = z.object({
   name: z.string().min(1).max(100).optional(),
   sellingPrice: nullableNumberSchema,
   etsySku: nullableStringSchema,
+  indicativeQuantity: nullableIntSchema,
   mappings: z.array(variantMappingInputSchema).optional(),
 })
 

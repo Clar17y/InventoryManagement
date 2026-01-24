@@ -407,7 +407,7 @@ export default function HamperForm({
       <div className="flex gap-2 mt-8 py-4 border-t border-gray-100">
         <button
           type="submit"
-          disabled={saving || categoryList.length === 0 || formData.requirements.length === 0}
+          disabled={saving || (!editingId && (categoryList.length === 0 || formData.requirements.length === 0))}
           className="btn-primary"
         >
           {saving ? 'Saving...' : editingId ? 'Update Basic Info' : 'Create Hamper'}

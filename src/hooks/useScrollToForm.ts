@@ -9,7 +9,7 @@ export function useScrollToForm<T extends HTMLElement = HTMLDivElement>() {
 
   const scrollToForm = useCallback(() => {
     setTimeout(() => {
-      formRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+      formRef.current?.scrollIntoView?.({ behavior: 'smooth', block: 'start' })
     }, 0)
   }, [])
 

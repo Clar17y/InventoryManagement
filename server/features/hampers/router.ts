@@ -401,7 +401,7 @@ router.put('/:id', async (req, res) => {
         ...(data.etsyListingId !== undefined && { etsyListingId: data.etsyListingId }),
         ...(data.indicativeQuantity !== undefined && { indicativeQuantity: data.indicativeQuantity }),
         ...(data.hasVariants !== undefined && { hasVariants: data.hasVariants }),
-        ...(data.requirements && {
+        ...(data.requirements && data.requirements.length > 0 && {
           requirements: {
             create: data.requirements.map((r) => ({
               categoryId: r.categoryId,

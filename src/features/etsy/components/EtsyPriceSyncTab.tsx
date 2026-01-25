@@ -1,5 +1,6 @@
-import { ArrowUpTrayIcon, CheckCircleIcon, CurrencyDollarIcon } from '@heroicons/react/24/outline'
+import { ArrowDownTrayIcon, ArrowUpTrayIcon, CheckCircleIcon, CurrencyDollarIcon } from '@heroicons/react/24/outline'
 import type { EtsyPendingPriceUpdate } from '../../../lib/api'
+import { exportToXlsx, isoDatePrefix } from '../../../lib/exportXlsx'
 import { formatCurrency } from '../../../lib/formatting'
 
 export default function EtsyPriceSyncTab({
@@ -59,6 +60,24 @@ export default function EtsyPriceSyncTab({
               Select All Diff
             </button>
           )}
+          <button
+            onClick={() => {
+              const rows = filteredPrices.map((p) => ({
+                Hamper: p.hamperName,
+                Variant: p.variantName,
+                'Local Price': p.localPrice ?? '',
+                'Etsy Price': p.etsyPrice,
+                Difference: p.localPrice !== null ? +(p.localPrice - p.etsyPrice).toFixed(2) : '',
+                Status: p.needsSync ? 'Needs Sync' : 'In Sync',
+              }))
+              exportToXlsx(rows, 'Price Sync', `etsy-price-sync-${isoDatePrefix()}.xlsx`)
+            }}
+            disabled={filteredPrices.length === 0}
+            className="btn-secondary text-sm py-1 flex items-center gap-1"
+          >
+            <ArrowDownTrayIcon className="h-4 w-4" />
+            Export
+          </button>
           <button
             onClick={handleSyncPrices}
             disabled={pushingPrices || selectedPriceItems.size === 0}

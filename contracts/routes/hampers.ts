@@ -107,7 +107,7 @@ export const hamperVariantCreateBodySchema = z.object({
   sellingPrice: nullableNumberSchema,
   etsySku: nullableStringSchema,
   indicativeQuantity: nullableIntSchema,
-  mappings: z.array(variantMappingInputSchema).min(1),
+  mappings: z.array(variantMappingInputSchema),
 })
 
 export const hamperVariantUpdateBodySchema = z.object({

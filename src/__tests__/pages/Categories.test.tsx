@@ -14,14 +14,18 @@ vi.mock('../../lib/api', () => ({
     update: vi.fn(),
     delete: vi.fn(),
   },
+  products: {
+    list: vi.fn(),
+  },
 }));
 
 import Categories from '../../pages/Categories';
-import { categories } from '../../lib/api';
+import { categories, products } from '../../lib/api';
 
 const mockList = vi.mocked(categories.list);
 const mockCreate = vi.mocked(categories.create);
 const mockDelete = vi.mocked(categories.delete);
+const mockProductsList = vi.mocked(products.list);
 
 describe('Categories', () => {
   const sampleCategories = [
@@ -47,9 +51,21 @@ describe('Categories', () => {
     },
   ];
 
+  const sampleProducts = [
+    { id: 'prod-1', name: 'Chocolate 1', categoryId: 'cat-1', unit: 'pcs', totalStock: 0 },
+    { id: 'prod-2', name: 'Chocolate 2', categoryId: 'cat-1', unit: 'pcs', totalStock: 0 },
+    { id: 'prod-3', name: 'Chocolate 3', categoryId: 'cat-1', unit: 'pcs', totalStock: 0 },
+    { id: 'prod-4', name: 'Chocolate 4', categoryId: 'cat-1', unit: 'pcs', totalStock: 0 },
+    { id: 'prod-5', name: 'Chocolate 5', categoryId: 'cat-1', unit: 'pcs', totalStock: 0 },
+    { id: 'prod-6', name: 'Drink 1', categoryId: 'cat-2', unit: 'pcs', totalStock: 0 },
+    { id: 'prod-7', name: 'Drink 2', categoryId: 'cat-2', unit: 'pcs', totalStock: 0 },
+    { id: 'prod-8', name: 'Drink 3', categoryId: 'cat-2', unit: 'pcs', totalStock: 0 },
+  ];
+
   beforeEach(() => {
     vi.clearAllMocks();
     mockList.mockResolvedValue(sampleCategories);
+    mockProductsList.mockResolvedValue(sampleProducts as any);
   });
 
   describe('loading state', () => {

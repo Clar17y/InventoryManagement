@@ -135,14 +135,16 @@ export default function HamperForm({
 
       <div>
         <div className="flex justify-between items-center mb-2">
-          <label className="block text-sm font-medium text-gray-700">Requirements *</label>
+          <label className="block text-sm font-medium text-gray-700">
+            Requirements{editingId ? '' : ' *'}
+          </label>
         </div>
 
         {categoryList.length === 0 ? (
           <p className="text-sm text-amber-600">Create categories first before adding hampers</p>
         ) : (
           <div className="space-y-2">
-            {formData.requirements.length === 0 && (
+            {!editingId && formData.requirements.length === 0 && (
               <p className="text-sm text-amber-600">Select at least one requirement</p>
             )}
             <RequirementsChecklist
@@ -234,7 +236,7 @@ export default function HamperForm({
               <div>
                 <div className="flex justify-between items-center mb-2">
                   <label className="block text-xs font-medium text-gray-700">
-                    Product Mappings {variantFormData.mappings.length === 0 && <span className="text-red-500">*</span>}
+                    Product Mappings
                   </label>
                   <select
                     value=""
@@ -271,7 +273,7 @@ export default function HamperForm({
 
                 {variantFormData.mappings.length === 0 ? (
                   <div className="text-xs text-gray-500 italic py-2 text-center border border-dashed border-gray-300 rounded-lg">
-                    Add at least one category mapping to define what makes this variant unique.
+                    Optionally add category mappings to define what makes this variant unique.
                   </div>
                 ) : (
                   <div className="space-y-2">

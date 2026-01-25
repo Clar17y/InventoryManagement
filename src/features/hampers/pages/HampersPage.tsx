@@ -163,7 +163,7 @@ export default function Hampers() {
         etsyListingId: formData.etsyListingId || undefined,
         indicativeQuantity: formData.hasVariants ? undefined : (formData.indicativeQuantity ? parseInt(formData.indicativeQuantity, 10) : null),
         hasVariants: formData.hasVariants,
-        requirements: editingId && requirements.length === 0 ? undefined : requirements,
+        requirements,
       }
 
       if (editingId) {
@@ -242,10 +242,6 @@ export default function Hampers() {
     if (!editingId || !variantFormData.name) return
 
     const validMappings = variantFormData.mappings.filter((m) => m.productId)
-    if (validMappings.length === 0) {
-      setError('Please add at least one product mapping')
-      return
-    }
 
     setVariantLoading(true)
     try {

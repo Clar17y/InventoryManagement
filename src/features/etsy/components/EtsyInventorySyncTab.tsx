@@ -1,5 +1,6 @@
-import { ArrowUpTrayIcon, CheckCircleIcon } from '@heroicons/react/24/outline'
+import { ArrowDownTrayIcon, ArrowUpTrayIcon, CheckCircleIcon } from '@heroicons/react/24/outline'
 import type { EtsySyncComparison } from '../../../lib/api'
+import { exportToXlsx, isoDatePrefix } from '../../../lib/exportXlsx'
 
 export default function EtsyInventorySyncTab({
   comparisons,
@@ -53,6 +54,28 @@ export default function EtsyInventorySyncTab({
         <div className="flex gap-2">
           <button onClick={selectAllDiff} className="text-sm text-primary-600 hover:text-primary-700">
             Select All Diff
+          </button>
+          <button
+            onClick={() => {
+              const rows = filteredComparisons.flatMap((c) =>
+                c.variants.map((v) => ({
+                  Hamper: c.hamperName,
+                  Variant: v.variantName,
+                  'Etsy SKU': v.etsySku ?? '',
+                  'Etsy Qty': v.etsyQuantity,
+                  'Our Qty': v.inventoryQuantity,
+                  Indicative: v.isIndicative ? 'Yes' : '',
+                  Difference: v.difference,
+                  Status: v.needsSync ? 'Needs Sync' : 'In Sync',
+                }))
+              )
+              exportToXlsx(rows, 'Inventory Sync', `etsy-inventory-sync-${isoDatePrefix()}.xlsx`)
+            }}
+            disabled={filteredComparisons.length === 0}
+            className="btn-secondary text-sm py-1 flex items-center gap-1"
+          >
+            <ArrowDownTrayIcon className="h-4 w-4" />
+            Export
           </button>
           <button
             onClick={handleSync}

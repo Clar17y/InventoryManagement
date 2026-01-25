@@ -30,11 +30,12 @@ vi.mock('../../lib/api', () => ({
 import Hampers from '../../pages/Hampers';
 import { hampers, categories, products } from '../../lib/api';
 
-const mockHampersList = vi.mocked(hampers.list);
-const mockHampersGet = vi.mocked(hampers.get);
-const mockHampersDelete = vi.mocked(hampers.delete);
-const mockCategoriesList = vi.mocked(categories.list);
-const mockProductsList = vi.mocked(products.list);
+  const mockHampersList = vi.mocked(hampers.list);
+  const mockHampersGet = vi.mocked(hampers.get);
+  const mockHampersUpdate = vi.mocked(hampers.update);
+  const mockHampersDelete = vi.mocked(hampers.delete);
+  const mockCategoriesList = vi.mocked(categories.list);
+  const mockProductsList = vi.mocked(products.list);
 
 describe('Hampers', () => {
   const sampleCategories = [
@@ -260,12 +261,9 @@ describe('Hampers', () => {
 
       await user.click(screen.getByRole('button', { name: /new hamper/i }));
 
-      const addReqButton = screen.getByText('+ Add Requirement');
-      await user.click(addReqButton);
+      await user.click(screen.getByRole('checkbox', { name: /add chocolates/i }));
 
-      // Should now have 2 requirement rows
-      const categorySelects = screen.getAllByText('Select category...');
-      expect(categorySelects.length).toBe(2);
+      expect(screen.getByRole('checkbox', { name: /remove chocolates/i })).toBeInTheDocument();
     });
   });
 
@@ -335,6 +333,61 @@ describe('Hampers', () => {
           writable: true,
         });
       }
+    });
+
+    it('can clear all requirements on update', async () => {
+      const user = userEvent.setup();
+
+      mockHampersUpdate.mockResolvedValue({
+        id: 'ham-clear-1',
+        name: 'Clearable Hamper',
+        sellingPrice: 35,
+        etsyListingId: null,
+        hasVariants: false,
+        isActive: true,
+        createdAt: '2024-01-01T00:00:00Z',
+        requirements: [],
+        canMake: 0,
+      } as any);
+
+      mockHampersList.mockResolvedValue([
+        {
+          id: 'ham-clear-1',
+          name: 'Clearable Hamper',
+          sellingPrice: 35,
+          etsyListingId: null,
+          hasVariants: false,
+          isActive: true,
+          createdAt: '2024-01-01T00:00:00Z',
+          requirements: [
+            { id: 'req-1', categoryId: 'cat-1', category: { id: 'cat-1', name: 'Chocolates' }, quantity: 1, isOptional: false },
+          ],
+          canMake: 0,
+        },
+      ] as any);
+
+      render(<Hampers />);
+
+      await waitFor(() => {
+        expect(screen.getByText('Clearable Hamper')).toBeInTheDocument();
+      });
+
+      await user.click(screen.getByRole('button', { name: 'Edit hamper Clearable Hamper' }));
+
+      await waitFor(() => {
+        expect(screen.getByText('Edit Hamper')).toBeInTheDocument();
+      });
+
+      await user.click(screen.getByRole('checkbox', { name: /remove chocolates/i }));
+
+      await user.click(screen.getByRole('button', { name: /update basic info/i }));
+
+      await waitFor(() => {
+        expect(mockHampersUpdate).toHaveBeenCalledWith(
+          'ham-clear-1',
+          expect.objectContaining({ requirements: [] })
+        );
+      });
     });
   });
 

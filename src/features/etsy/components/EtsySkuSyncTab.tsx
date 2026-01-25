@@ -1,5 +1,6 @@
-import { ArrowUpTrayIcon, CheckCircleIcon, TagIcon } from '@heroicons/react/24/outline'
+import { ArrowDownTrayIcon, ArrowUpTrayIcon, CheckCircleIcon, TagIcon } from '@heroicons/react/24/outline'
 import type { EtsyPendingSku } from '../../../lib/api'
+import { exportToXlsx, isoDatePrefix } from '../../../lib/exportXlsx'
 
 export default function EtsySkuSyncTab({
   skuGenerateResult,
@@ -84,6 +85,23 @@ export default function EtsySkuSyncTab({
               Select All Diff
             </button>
           )}
+          <button
+            onClick={() => {
+              const rows = filteredSkus.map((s) => ({
+                Hamper: s.hamperName,
+                Variant: s.variantName,
+                'Local SKU': s.localSku,
+                'Etsy SKU': s.etsySku ?? '',
+                Status: s.needsSync ? 'Needs Sync' : 'In Sync',
+              }))
+              exportToXlsx(rows, 'SKU Sync', `etsy-sku-sync-${isoDatePrefix()}.xlsx`)
+            }}
+            disabled={filteredSkus.length === 0}
+            className="btn-secondary text-sm py-1 flex items-center gap-1"
+          >
+            <ArrowDownTrayIcon className="h-4 w-4" />
+            Export
+          </button>
           <button
             onClick={handlePushSkus}
             disabled={pushingSkus || selectedSkuItems.size === 0}

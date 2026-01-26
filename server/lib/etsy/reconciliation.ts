@@ -86,8 +86,10 @@ function toNumber(value: number | { toNumber(): number }): number {
 /**
  * Calculate how many of a hamper variant can be made from current inventory.
  * Multiple mappings per category = alternatives (sum stock across all).
+ * Exported for use by sync/inventory.ts to avoid duplication.
  */
-function calculateCanMake(
+export { HamperWithRelations };
+export function calculateCanMake(
   hamper: HamperWithRelations,
   variantId?: string
 ): number {

@@ -86,7 +86,8 @@ Routes live in `server/routes/`. All endpoints require auth via `server/middlewa
 
 ## Configuration
 - Database:
-  - `DATABASE_URL`
+  - `DATABASE_URL` (runtime, recommend pooled/pgBouncer)
+  - `DIRECT_URL` (migrations/Prisma Studio, direct/non-pooled)
 - Supabase:
   - Client: `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`
   - Server: `SUPABASE_URL`/`SUPABASE_ANON_KEY` (or re-use the VITE_ vars)

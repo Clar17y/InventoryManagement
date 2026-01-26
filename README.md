@@ -38,7 +38,7 @@ npm install
 
 # Configure environment
 cp .env.example .env
-# Edit .env with your database URL and Supabase credentials
+# Edit .env with your DATABASE_URL (runtime, recommend pooled) + DIRECT_URL (migrations) and Supabase credentials
 
 # Generate Prisma client
 npm run db:generate

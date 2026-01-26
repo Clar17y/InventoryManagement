@@ -9,7 +9,7 @@ vi.mock('../../lib/prisma', () => ({
         etsyFeeConfig: { findFirst: vi.fn() },
         packagingOverhead: { findMany: vi.fn() },
         componentCategory: { findUnique: vi.fn() },
-        hamperVariantMapping: { findUnique: vi.fn() },
+        hamperVariantMapping: { findUnique: vi.fn(), findMany: vi.fn() },
         inventoryLot: { update: vi.fn() },
         $transaction: vi.fn(),
     },
@@ -38,7 +38,7 @@ const mockPrisma = prisma as unknown as {
     etsyFeeConfig: { findFirst: ReturnType<typeof vi.fn> };
     packagingOverhead: { findMany: ReturnType<typeof vi.fn> };
     componentCategory: { findUnique: ReturnType<typeof vi.fn> };
-    hamperVariantMapping: { findUnique: ReturnType<typeof vi.fn> };
+    hamperVariantMapping: { findUnique: ReturnType<typeof vi.fn>; findMany: ReturnType<typeof vi.fn> };
     inventoryLot: { update: ReturnType<typeof vi.fn> };
     $transaction: ReturnType<typeof vi.fn>;
 };
@@ -303,6 +303,317 @@ describe('Order Import - Stock Decrement', () => {
         expect(inventoryLotUpdateCalls[1]).toEqual({
             where: { id: 'lot-2' },
             data: { remaining: { decrement: 1 } },
+        });
+    });
+
+    it('decrements priority 1 product first when variant has alternatives', async () => {
+        const inventoryLotUpdateCalls: Array<{ where: { id: string }; data: { remaining: { decrement: number } } }> = [];
+
+        // Mock for pre-check phase (uses global prisma)
+        const variantMappingsData = [
+            {
+                variantId: 'var-boy',
+                categoryId: 'cat-rattle',
+                productId: 'prod-blue',
+                priority: 1,
+                category: { id: 'cat-rattle', name: 'Rattle' },
+                product: {
+                    id: 'prod-blue',
+                    name: 'Blue Rattle',
+                    lots: [{ id: 'lot-blue', remaining: 10, unitCost: 2.0, receivedAt: new Date(), expiresAt: null }],
+                },
+            },
+            {
+                variantId: 'var-boy',
+                categoryId: 'cat-rattle',
+                productId: 'prod-grey',
+                priority: 2,
+                category: { id: 'cat-rattle', name: 'Rattle' },
+                product: {
+                    id: 'prod-grey',
+                    name: 'Grey Rattle',
+                    lots: [{ id: 'lot-grey', remaining: 10, unitCost: 1.5, receivedAt: new Date(), expiresAt: null }],
+                },
+            },
+        ];
+
+        mockPrisma.hamperVariantMapping.findMany.mockResolvedValue(variantMappingsData);
+
+        mockPrisma.$transaction.mockImplementation(async (callback: (tx: unknown) => Promise<unknown>) => {
+            const mockTx = {
+                sale: {
+                    create: vi.fn().mockResolvedValue({
+                        id: 'sale-1',
+                        etsyOrderId: '12347',
+                        grossRevenue: 30,
+                        totalCost: 5,
+                        margin: 20,
+                        netRevenue: 25,
+                        etsyFees: 5,
+                        packagingOverhead: 0,
+                    }),
+                },
+                inventoryLot: {
+                    update: vi.fn().mockImplementation((args) => {
+                        inventoryLotUpdateCalls.push(args);
+                        return Promise.resolve({});
+                    }),
+                },
+                componentCategory: {
+                    findUnique: vi.fn().mockResolvedValue({
+                        id: 'cat-rattle',
+                        name: 'Rattle',
+                        products: [
+                            {
+                                id: 'prod-blue',
+                                name: 'Blue Rattle',
+                                lots: [{ id: 'lot-blue', remaining: 10, unitCost: 2.0, receivedAt: new Date(), expiresAt: null }],
+                            },
+                            {
+                                id: 'prod-grey',
+                                name: 'Grey Rattle',
+                                lots: [{ id: 'lot-grey', remaining: 10, unitCost: 1.5, receivedAt: new Date(), expiresAt: null }],
+                            },
+                        ],
+                    }),
+                },
+                hamperVariantMapping: {
+                    findMany: vi.fn().mockResolvedValue(variantMappingsData),
+                },
+            };
+            return callback(mockTx);
+        });
+
+        mockEtsyClient.getReceipts.mockResolvedValue({
+            receipts: [
+                {
+                    receipt_id: 12347,
+                    name: 'Test Buyer',
+                    is_paid: true,
+                    is_shipped: false,
+                    create_timestamp: Math.floor(Date.now() / 1000),
+                    grandtotal: { amount: 3000, divisor: 100 },
+                    subtotal: { amount: 2500, divisor: 100 },
+                    total_shipping_cost: { amount: 500, divisor: 100 },
+                    transactions: [
+                        {
+                            transaction_id: 3,
+                            listing_id: 200,
+                            title: 'Baby Hamper - Boy',
+                            quantity: 1,
+                            price: { amount: 2500, divisor: 100 },
+                            sku: 'BOY-SKU',
+                            product_id: 888,
+                            variations: [{ property_id: 1, value: 'Boy' }],
+                        },
+                    ],
+                },
+            ],
+        });
+
+        mockPrisma.sale.findFirst.mockResolvedValue(null);
+        mockPrisma.hamper.findFirst.mockResolvedValue({
+            id: 'hamper-baby',
+            name: 'Baby Hamper',
+            etsyListingId: '200',
+            hasVariants: true,
+            requirements: [
+                {
+                    id: 'req-rattle',
+                    categoryId: 'cat-rattle',
+                    quantity: 1,
+                    isOptional: false,
+                    category: { id: 'cat-rattle', name: 'Rattle', pickRule: 'FIFO' },
+                },
+            ],
+            variants: [
+                { id: 'var-boy', name: 'Boy', etsySku: 'BOY-SKU', etsyProductId: '888' },
+            ],
+        });
+        mockPrisma.hamperVariant.findFirst.mockResolvedValue({
+            id: 'var-boy',
+            hamperId: 'hamper-baby',
+            name: 'Boy',
+            etsySku: 'BOY-SKU',
+            etsyProductId: '888',
+        });
+        mockPrisma.etsyFeeConfig.findFirst.mockResolvedValue({
+            id: 'fee-1',
+            transactionFee: 0.065,
+            regulatoryFee: 0.003,
+            paymentFeePercent: 0.04,
+            paymentFeeFixed: 0.2,
+            vatRate: 0.2,
+            listingFee: 0.15,
+        });
+        mockPrisma.packagingOverhead.findMany.mockResolvedValue([]);
+
+        const result = await importOrder(12347, 3.5);
+
+        expect(result.success).toBe(true);
+        expect(inventoryLotUpdateCalls).toHaveLength(1);
+        // Should decrement from priority 1 (Blue Rattle), not priority 2 (Grey Rattle)
+        expect(inventoryLotUpdateCalls[0]).toEqual({
+            where: { id: 'lot-blue' },
+            data: { remaining: { decrement: 1 } },
+        });
+    });
+
+    it('falls through to priority 2 when priority 1 is depleted', async () => {
+        const inventoryLotUpdateCalls: Array<{ where: { id: string }; data: { remaining: { decrement: number } } }> = [];
+
+        // Mock for pre-check phase (uses global prisma)
+        const variantMappingsData = [
+            {
+                variantId: 'var-boy',
+                categoryId: 'cat-rattle',
+                productId: 'prod-blue',
+                priority: 1,
+                category: { id: 'cat-rattle', name: 'Rattle' },
+                product: {
+                    id: 'prod-blue',
+                    name: 'Blue Rattle',
+                    lots: [{ id: 'lot-blue', remaining: 1, unitCost: 2.0, receivedAt: new Date(), expiresAt: null }],
+                },
+            },
+            {
+                variantId: 'var-boy',
+                categoryId: 'cat-rattle',
+                productId: 'prod-grey',
+                priority: 2,
+                category: { id: 'cat-rattle', name: 'Rattle' },
+                product: {
+                    id: 'prod-grey',
+                    name: 'Grey Rattle',
+                    lots: [{ id: 'lot-grey', remaining: 10, unitCost: 1.5, receivedAt: new Date(), expiresAt: null }],
+                },
+            },
+        ];
+
+        mockPrisma.hamperVariantMapping.findMany.mockResolvedValue(variantMappingsData);
+
+        mockPrisma.$transaction.mockImplementation(async (callback: (tx: unknown) => Promise<unknown>) => {
+            const mockTx = {
+                sale: {
+                    create: vi.fn().mockResolvedValue({
+                        id: 'sale-1',
+                        etsyOrderId: '12348',
+                        grossRevenue: 60,
+                        totalCost: 10,
+                        margin: 40,
+                        netRevenue: 50,
+                        etsyFees: 10,
+                        packagingOverhead: 0,
+                    }),
+                },
+                inventoryLot: {
+                    update: vi.fn().mockImplementation((args) => {
+                        inventoryLotUpdateCalls.push(args);
+                        return Promise.resolve({});
+                    }),
+                },
+                componentCategory: {
+                    findUnique: vi.fn().mockResolvedValue({
+                        id: 'cat-rattle',
+                        name: 'Rattle',
+                        products: [
+                            {
+                                id: 'prod-blue',
+                                name: 'Blue Rattle',
+                                lots: [{ id: 'lot-blue', remaining: 1, unitCost: 2.0, receivedAt: new Date(), expiresAt: null }],
+                            },
+                            {
+                                id: 'prod-grey',
+                                name: 'Grey Rattle',
+                                lots: [{ id: 'lot-grey', remaining: 10, unitCost: 1.5, receivedAt: new Date(), expiresAt: null }],
+                            },
+                        ],
+                    }),
+                },
+                hamperVariantMapping: {
+                    findMany: vi.fn().mockResolvedValue(variantMappingsData),
+                },
+            };
+            return callback(mockTx);
+        });
+
+        mockEtsyClient.getReceipts.mockResolvedValue({
+            receipts: [
+                {
+                    receipt_id: 12348,
+                    name: 'Test Buyer',
+                    is_paid: true,
+                    is_shipped: false,
+                    create_timestamp: Math.floor(Date.now() / 1000),
+                    grandtotal: { amount: 6000, divisor: 100 },
+                    subtotal: { amount: 5000, divisor: 100 },
+                    total_shipping_cost: { amount: 1000, divisor: 100 },
+                    transactions: [
+                        {
+                            transaction_id: 4,
+                            listing_id: 200,
+                            title: 'Baby Hamper - Boy',
+                            quantity: 3, // Needs 3, priority 1 has only 1
+                            price: { amount: 2000, divisor: 100 },
+                            sku: 'BOY-SKU',
+                            product_id: 888,
+                            variations: [{ property_id: 1, value: 'Boy' }],
+                        },
+                    ],
+                },
+            ],
+        });
+
+        mockPrisma.sale.findFirst.mockResolvedValue(null);
+        mockPrisma.hamper.findFirst.mockResolvedValue({
+            id: 'hamper-baby',
+            name: 'Baby Hamper',
+            etsyListingId: '200',
+            hasVariants: true,
+            requirements: [
+                {
+                    id: 'req-rattle',
+                    categoryId: 'cat-rattle',
+                    quantity: 1,
+                    isOptional: false,
+                    category: { id: 'cat-rattle', name: 'Rattle', pickRule: 'FIFO' },
+                },
+            ],
+            variants: [
+                { id: 'var-boy', name: 'Boy', etsySku: 'BOY-SKU', etsyProductId: '888' },
+            ],
+        });
+        mockPrisma.hamperVariant.findFirst.mockResolvedValue({
+            id: 'var-boy',
+            hamperId: 'hamper-baby',
+            name: 'Boy',
+            etsySku: 'BOY-SKU',
+            etsyProductId: '888',
+        });
+        mockPrisma.etsyFeeConfig.findFirst.mockResolvedValue({
+            id: 'fee-1',
+            transactionFee: 0.065,
+            regulatoryFee: 0.003,
+            paymentFeePercent: 0.04,
+            paymentFeeFixed: 0.2,
+            vatRate: 0.2,
+            listingFee: 0.15,
+        });
+        mockPrisma.packagingOverhead.findMany.mockResolvedValue([]);
+
+        const result = await importOrder(12348, 5.0);
+
+        expect(result.success).toBe(true);
+        expect(inventoryLotUpdateCalls).toHaveLength(2);
+        // First: all from priority 1 (Blue Rattle - only 1 available)
+        expect(inventoryLotUpdateCalls[0]).toEqual({
+            where: { id: 'lot-blue' },
+            data: { remaining: { decrement: 1 } },
+        });
+        // Second: remainder from priority 2 (Grey Rattle - need 2 more)
+        expect(inventoryLotUpdateCalls[1]).toEqual({
+            where: { id: 'lot-grey' },
+            data: { remaining: { decrement: 2 } },
         });
     });
 });

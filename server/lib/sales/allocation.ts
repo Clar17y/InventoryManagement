@@ -132,8 +132,9 @@ export async function allocateStockForRequirement(
   }
 }
 
-// Allocate stock for a variant requirement (uses specific mapped products, or falls back to category-wide)
-// A variant can have multiple mappings to the same category (e.g., L Plate + P Plate)
+// Allocate stock for a variant requirement using waterfall by priority
+// Multiple mappings per category = alternatives. Priority 1 tried first, then 2, etc.
+// Pick rule applies within each product's lots, not globally across alternatives.
 // Accepts optional client for use within transactions
 export async function allocateStockForVariantRequirement(
   variantId: string,
@@ -142,12 +143,13 @@ export async function allocateStockForVariantRequirement(
   pickRule: PickRule,
   client: PrismaClientLike = prisma
 ): Promise<RequirementAllocation> {
-  // Get all variant mappings for this category (can be multiple products)
+  // Get mappings ORDERED BY PRIORITY (lower = higher preference)
   const mappings = await client.hamperVariantMapping.findMany({
     where: {
       variantId,
       categoryId,
     },
+    orderBy: { priority: 'asc' },
     include: {
       category: true,
       product: {
@@ -165,17 +167,27 @@ export async function allocateStockForVariantRequirement(
     return allocateStockForRequirement(categoryId, quantityNeeded, pickRule, client)
   }
 
-  // Gather lots from all mapped products
-  const allLots: LotWithProduct[] = mappings.flatMap((mapping) =>
-    mapping.product.lots.map((lot) => ({
+  // WATERFALL: Try each product in priority order
+  let remaining = quantityNeeded
+  const allocations: AllocationLine[] = []
+  let totalCost = 0
+
+  for (const mapping of mappings) {
+    if (remaining <= 0) break
+
+    const productLots: LotWithProduct[] = mapping.product.lots.map((lot) => ({
       ...lot,
       productId: mapping.product.id,
       productName: mapping.product.name,
     }))
-  )
 
-  const sortedLots = sortLotsByPickRule(allLots, pickRule)
-  const { allocations, totalCost, fulfilled } = allocateFromLots(sortedLots, quantityNeeded)
+    const sorted = sortLotsByPickRule(productLots, pickRule)
+    const result = allocateFromLots(sorted, remaining)
+
+    allocations.push(...result.allocations)
+    totalCost += result.totalCost
+    remaining -= result.allocations.reduce((sum, a) => sum + a.quantity, 0)
+  }
 
   // Use first mapping for category info (all mappings share same category)
   const firstMapping = mappings[0]
@@ -188,7 +200,7 @@ export async function allocateStockForVariantRequirement(
     quantityRequired: quantityNeeded,
     allocations,
     totalCost,
-    fulfilled,
+    fulfilled: remaining <= 0,
   }
 }
 

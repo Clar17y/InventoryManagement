@@ -58,8 +58,8 @@ async function calculateAvailability(hamperId: string): Promise<number> {
 
 // Calculate availability for a specific variant
 // - For optional requirements: only check if variant has mappings for that category
-// - Multiple mappings per category are supported (e.g., L Plate + P Plate)
-// - Each mapping represents 1 unit needed from that specific product
+// - Multiple mappings per category = alternatives (any ONE of these products)
+// - Availability = sum of stock across all alternatives / quantity required
 async function calculateVariantAvailability(variantId: string): Promise<number> {
   const variant = await prisma.hamperVariant.findUnique({
     where: { id: variantId },
@@ -87,6 +87,7 @@ async function calculateVariantAvailability(variantId: string): Promise<number> 
         },
       },
       mappings: {
+        orderBy: { priority: 'asc' },
         include: {
           category: true,
           product: {
@@ -107,7 +108,7 @@ async function calculateVariantAvailability(variantId: string): Promise<number> 
   const requirements = variant.hamper.requirements
   if (requirements.length === 0) return 0
 
-  // Group mappings by categoryId (allows multiple mappings per category)
+  // Group mappings by categoryId (multiple mappings = alternatives)
   const mappingsByCategory = new Map<string, typeof variant.mappings>()
   for (const mapping of variant.mappings) {
     const existing = mappingsByCategory.get(mapping.categoryId) || []
@@ -126,18 +127,15 @@ async function calculateVariantAvailability(variantId: string): Promise<number> 
     }
 
     if (hasMappings) {
-      // Use mapped products only - each mapping = 1 unit needed
-      // Calculate how many complete sets we can make
-      const availabilityPerMapping = categoryMappings.map((mapping) => {
-        const productStock = mapping.product.lots.reduce(
-          (sum: number, lot: { remaining: unknown }) => sum + Number(lot.remaining),
+      // ALTERNATIVES MODEL: Sum stock across all alternative products
+      const totalAlternativeStock = categoryMappings.reduce((sum, mapping) => {
+        return sum + mapping.product.lots.reduce(
+          (lotSum: number, lot: { remaining: unknown }) => lotSum + Number(lot.remaining),
           0
         )
-        // Each mapping needs 1 unit of this product
-        return Math.floor(productStock)
-      })
-      // The limiting factor is the mapping with lowest stock
-      availabilityPerRequirement.push(Math.min(...availabilityPerMapping))
+      }, 0)
+      // How many can we make from total alternative pool?
+      availabilityPerRequirement.push(Math.floor(totalAlternativeStock / Number(req.quantity)))
     } else {
       // Non-optional, no mappings: fall back to category-wide aggregation
       const categoryStock = req.category.products.reduce((sum: number, product) => {
@@ -236,6 +234,7 @@ router.get('/:id', async (req, res) => {
           where: { isActive: true },
           include: {
             mappings: {
+              orderBy: { priority: 'asc' },
               include: {
                 category: true,
                 product: {
@@ -321,6 +320,7 @@ router.get('/:id', async (req, res) => {
             return {
               categoryId: m.categoryId,
               productId: m.productId,
+              priority: m.priority,
               category: m.category,
               product: { id: m.product.id, name: m.product.name },
               stock,
@@ -457,6 +457,7 @@ router.get('/:id/variants', async (req, res) => {
       where: { hamperId: req.params.id, isActive: true },
       include: {
         mappings: {
+          orderBy: { priority: 'asc' },
           include: {
             category: true,
             product: {
@@ -506,10 +507,11 @@ router.post('/:id/variants', async (req, res) => {
     // Build maps for validation
     const requirementMap = new Map(hamper.requirements.map((r) => [r.categoryId, r]))
 
-    // Count mappings per category
-    const mappingCounts = new Map<string, number>()
+    // Group mappings by category for validation and priority normalization
+    const mappingsByCategory = new Map<string, typeof data.mappings>()
     for (const mapping of data.mappings) {
-      mappingCounts.set(mapping.categoryId, (mappingCounts.get(mapping.categoryId) || 0) + 1)
+      const existing = mappingsByCategory.get(mapping.categoryId) || []
+      mappingsByCategory.set(mapping.categoryId, [...existing, mapping])
     }
 
     // Validate mappings
@@ -521,12 +523,12 @@ router.post('/:id/variants', async (req, res) => {
         })
       }
 
-      // Check mapping count doesn't exceed requirement quantity
-      const count = mappingCounts.get(mapping.categoryId) || 0
-      const maxQty = Math.floor(Number(requirement.quantity))
-      if (count > maxQty) {
+      // Check for duplicate products within the same category
+      const catMappings = mappingsByCategory.get(mapping.categoryId) || []
+      const productIds = catMappings.map((m) => m.productId)
+      if (new Set(productIds).size !== productIds.length) {
         return res.status(400).json({
-          error: `Too many mappings for "${requirement.category.name}": ${count} mappings but only ${maxQty} allowed`,
+          error: `Duplicate product in category "${requirement.category.name}"`,
         })
       }
 
@@ -545,6 +547,17 @@ router.post('/:id/variants', async (req, res) => {
       }
     }
 
+    // Normalize priorities to 1..n per category
+    const normalizedMappings: { categoryId: string; productId: string; priority: number }[] = []
+    for (const [catId, catMappings] of mappingsByCategory) {
+      const sorted = [...catMappings].sort((a, b) => (a.priority ?? 1) - (b.priority ?? 1))
+      sorted.forEach((m, i) => normalizedMappings.push({
+        categoryId: m.categoryId,
+        productId: m.productId,
+        priority: i + 1,
+      }))
+    }
+
     const variant = await prisma.hamperVariant.create({
       data: {
         hamperId,
@@ -553,14 +566,12 @@ router.post('/:id/variants', async (req, res) => {
         etsySku: data.etsySku,
         indicativeQuantity: data.indicativeQuantity,
         mappings: {
-          create: data.mappings.map((m) => ({
-            categoryId: m.categoryId,
-            productId: m.productId,
-          })),
+          create: normalizedMappings,
         },
       },
       include: {
         mappings: {
+          orderBy: { priority: 'asc' },
           include: {
             category: true,
             product: {
@@ -597,7 +608,9 @@ router.put('/:id/variants/:variantId', async (req, res) => {
   try {
     const data = hamperVariantUpdateBodySchema.parse(req.body)
 
-    // Validate mappings if being updated
+    let normalizedMappings: { categoryId: string; productId: string; priority: number }[] | undefined
+
+    // Validate and normalize mappings if being updated
     if (data.mappings) {
       const hamper = await prisma.hamper.findUnique({
         where: { id: req.params.id },
@@ -609,9 +622,12 @@ router.put('/:id/variants/:variantId', async (req, res) => {
       }
 
       const requirementMap = new Map(hamper.requirements.map((r) => [r.categoryId, r]))
-      const mappingCounts = new Map<string, number>()
+
+      // Group mappings by category for validation and priority normalization
+      const mappingsByCategory = new Map<string, typeof data.mappings>()
       for (const mapping of data.mappings) {
-        mappingCounts.set(mapping.categoryId, (mappingCounts.get(mapping.categoryId) || 0) + 1)
+        const existing = mappingsByCategory.get(mapping.categoryId) || []
+        mappingsByCategory.set(mapping.categoryId, [...existing, mapping])
       }
 
       for (const mapping of data.mappings) {
@@ -622,11 +638,12 @@ router.put('/:id/variants/:variantId', async (req, res) => {
           })
         }
 
-        const count = mappingCounts.get(mapping.categoryId) || 0
-        const maxQty = Math.floor(Number(requirement.quantity))
-        if (count > maxQty) {
+        // Check for duplicate products within the same category
+        const catMappings = mappingsByCategory.get(mapping.categoryId) || []
+        const productIds = catMappings.map((m) => m.productId)
+        if (new Set(productIds).size !== productIds.length) {
           return res.status(400).json({
-            error: `Too many mappings for "${requirement.category.name}": ${count} mappings but only ${maxQty} allowed`,
+            error: `Duplicate product in category "${requirement.category.name}"`,
           })
         }
 
@@ -644,6 +661,17 @@ router.put('/:id/variants/:variantId', async (req, res) => {
         }
       }
 
+      // Normalize priorities to 1..n per category
+      normalizedMappings = []
+      for (const [catId, catMappings] of mappingsByCategory) {
+        const sorted = [...catMappings].sort((a, b) => (a.priority ?? 1) - (b.priority ?? 1))
+        sorted.forEach((m, i) => normalizedMappings!.push({
+          categoryId: m.categoryId,
+          productId: m.productId,
+          priority: i + 1,
+        }))
+      }
+
       // Delete old mappings before creating new ones
       await prisma.hamperVariantMapping.deleteMany({
         where: { variantId: req.params.variantId },
@@ -657,17 +685,15 @@ router.put('/:id/variants/:variantId', async (req, res) => {
         ...(data.sellingPrice !== undefined && { sellingPrice: data.sellingPrice }),
         ...(data.etsySku !== undefined && { etsySku: data.etsySku }),
         ...(data.indicativeQuantity !== undefined && { indicativeQuantity: data.indicativeQuantity }),
-        ...(data.mappings && {
+        ...(normalizedMappings && {
           mappings: {
-            create: data.mappings.map((m) => ({
-              categoryId: m.categoryId,
-              productId: m.productId,
-            })),
+            create: normalizedMappings,
           },
         }),
       },
       include: {
         mappings: {
+          orderBy: { priority: 'asc' },
           include: {
             category: true,
             product: {

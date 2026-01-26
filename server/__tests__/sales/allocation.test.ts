@@ -1,11 +1,14 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { allocateStockForRequirement } from '../../lib/sales/allocation';
+import { allocateStockForRequirement, allocateStockForVariantRequirement } from '../../lib/sales/allocation';
 
 // Mock prisma
 vi.mock('../../lib/prisma', () => ({
   prisma: {
     componentCategory: {
       findUnique: vi.fn(),
+    },
+    hamperVariantMapping: {
+      findMany: vi.fn(),
     },
   },
 }));
@@ -15,6 +18,9 @@ import { prisma } from '../../lib/prisma';
 const mockPrisma = prisma as unknown as {
   componentCategory: {
     findUnique: ReturnType<typeof vi.fn>;
+  };
+  hamperVariantMapping: {
+    findMany: ReturnType<typeof vi.fn>;
   };
 };
 
@@ -228,6 +234,282 @@ describe('Stock Allocation', () => {
       );
       // Default prisma should NOT have been called
       expect(mockPrisma.componentCategory.findUnique).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('allocateStockForVariantRequirement', () => {
+    it('falls back to category-wide allocation when no mappings exist', async () => {
+      mockPrisma.hamperVariantMapping.findMany.mockResolvedValue([]);
+      mockPrisma.componentCategory.findUnique.mockResolvedValue({
+        id: 'cat-1',
+        name: 'Rattle',
+        products: [
+          {
+            id: 'prod-1',
+            name: 'Blue Rattle',
+            lots: [
+              { id: 'lot-1', remaining: 10, unitCost: 2.0, receivedAt: new Date('2024-01-01'), expiresAt: null },
+            ],
+          },
+        ],
+      });
+
+      const result = await allocateStockForVariantRequirement('var-1', 'cat-1', 3, 'FIFO');
+
+      expect(result.fulfilled).toBe(true);
+      expect(result.allocations).toHaveLength(1);
+      expect(result.allocations[0].quantity).toBe(3);
+    });
+
+    it('allocates from priority 1 product first (waterfall)', async () => {
+      mockPrisma.hamperVariantMapping.findMany.mockResolvedValue([
+        {
+          variantId: 'var-1',
+          categoryId: 'cat-1',
+          productId: 'prod-blue',
+          priority: 1,
+          category: { id: 'cat-1', name: 'Rattle' },
+          product: {
+            id: 'prod-blue',
+            name: 'Blue Rattle',
+            lots: [
+              { id: 'lot-blue', remaining: 10, unitCost: 2.0, receivedAt: new Date('2024-01-01'), expiresAt: null },
+            ],
+          },
+        },
+        {
+          variantId: 'var-1',
+          categoryId: 'cat-1',
+          productId: 'prod-grey',
+          priority: 2,
+          category: { id: 'cat-1', name: 'Rattle' },
+          product: {
+            id: 'prod-grey',
+            name: 'Grey Rattle',
+            lots: [
+              { id: 'lot-grey', remaining: 10, unitCost: 1.5, receivedAt: new Date('2024-01-01'), expiresAt: null },
+            ],
+          },
+        },
+      ]);
+
+      const result = await allocateStockForVariantRequirement('var-1', 'cat-1', 3, 'FIFO');
+
+      expect(result.fulfilled).toBe(true);
+      expect(result.allocations).toHaveLength(1);
+      expect(result.allocations[0].productId).toBe('prod-blue'); // Priority 1 used first
+      expect(result.allocations[0].quantity).toBe(3);
+    });
+
+    it('falls through to priority 2 when priority 1 depleted', async () => {
+      mockPrisma.hamperVariantMapping.findMany.mockResolvedValue([
+        {
+          variantId: 'var-1',
+          categoryId: 'cat-1',
+          productId: 'prod-blue',
+          priority: 1,
+          category: { id: 'cat-1', name: 'Rattle' },
+          product: {
+            id: 'prod-blue',
+            name: 'Blue Rattle',
+            lots: [
+              { id: 'lot-blue', remaining: 2, unitCost: 2.0, receivedAt: new Date('2024-01-01'), expiresAt: null },
+            ],
+          },
+        },
+        {
+          variantId: 'var-1',
+          categoryId: 'cat-1',
+          productId: 'prod-grey',
+          priority: 2,
+          category: { id: 'cat-1', name: 'Rattle' },
+          product: {
+            id: 'prod-grey',
+            name: 'Grey Rattle',
+            lots: [
+              { id: 'lot-grey', remaining: 10, unitCost: 1.5, receivedAt: new Date('2024-01-01'), expiresAt: null },
+            ],
+          },
+        },
+      ]);
+
+      const result = await allocateStockForVariantRequirement('var-1', 'cat-1', 5, 'FIFO');
+
+      expect(result.fulfilled).toBe(true);
+      expect(result.allocations).toHaveLength(2);
+      // First allocation from priority 1 (Blue)
+      expect(result.allocations[0].productId).toBe('prod-blue');
+      expect(result.allocations[0].quantity).toBe(2);
+      // Second allocation from priority 2 (Grey)
+      expect(result.allocations[1].productId).toBe('prod-grey');
+      expect(result.allocations[1].quantity).toBe(3);
+    });
+
+    it('skips priority 1 entirely when out of stock', async () => {
+      mockPrisma.hamperVariantMapping.findMany.mockResolvedValue([
+        {
+          variantId: 'var-1',
+          categoryId: 'cat-1',
+          productId: 'prod-blue',
+          priority: 1,
+          category: { id: 'cat-1', name: 'Rattle' },
+          product: {
+            id: 'prod-blue',
+            name: 'Blue Rattle',
+            lots: [], // No stock
+          },
+        },
+        {
+          variantId: 'var-1',
+          categoryId: 'cat-1',
+          productId: 'prod-grey',
+          priority: 2,
+          category: { id: 'cat-1', name: 'Rattle' },
+          product: {
+            id: 'prod-grey',
+            name: 'Grey Rattle',
+            lots: [
+              { id: 'lot-grey', remaining: 10, unitCost: 1.5, receivedAt: new Date('2024-01-01'), expiresAt: null },
+            ],
+          },
+        },
+      ]);
+
+      const result = await allocateStockForVariantRequirement('var-1', 'cat-1', 3, 'FIFO');
+
+      expect(result.fulfilled).toBe(true);
+      expect(result.allocations).toHaveLength(1);
+      expect(result.allocations[0].productId).toBe('prod-grey'); // Fell through to priority 2
+      expect(result.allocations[0].quantity).toBe(3);
+    });
+
+    it('returns unfulfilled when all alternatives exhausted', async () => {
+      mockPrisma.hamperVariantMapping.findMany.mockResolvedValue([
+        {
+          variantId: 'var-1',
+          categoryId: 'cat-1',
+          productId: 'prod-blue',
+          priority: 1,
+          category: { id: 'cat-1', name: 'Rattle' },
+          product: {
+            id: 'prod-blue',
+            name: 'Blue Rattle',
+            lots: [
+              { id: 'lot-blue', remaining: 2, unitCost: 2.0, receivedAt: new Date('2024-01-01'), expiresAt: null },
+            ],
+          },
+        },
+        {
+          variantId: 'var-1',
+          categoryId: 'cat-1',
+          productId: 'prod-grey',
+          priority: 2,
+          category: { id: 'cat-1', name: 'Rattle' },
+          product: {
+            id: 'prod-grey',
+            name: 'Grey Rattle',
+            lots: [
+              { id: 'lot-grey', remaining: 1, unitCost: 1.5, receivedAt: new Date('2024-01-01'), expiresAt: null },
+            ],
+          },
+        },
+      ]);
+
+      const result = await allocateStockForVariantRequirement('var-1', 'cat-1', 5, 'FIFO');
+
+      expect(result.fulfilled).toBe(false);
+      expect(result.allocations).toHaveLength(2);
+      // Partial allocation: 2 from blue + 1 from grey = 3 total (needed 5)
+      expect(result.allocations.reduce((sum, a) => sum + a.quantity, 0)).toBe(3);
+    });
+
+    it('applies pick rule within each product lots', async () => {
+      mockPrisma.hamperVariantMapping.findMany.mockResolvedValue([
+        {
+          variantId: 'var-1',
+          categoryId: 'cat-1',
+          productId: 'prod-blue',
+          priority: 1,
+          category: { id: 'cat-1', name: 'Rattle' },
+          product: {
+            id: 'prod-blue',
+            name: 'Blue Rattle',
+            lots: [
+              { id: 'lot-expensive', remaining: 5, unitCost: 3.0, receivedAt: new Date('2024-01-01'), expiresAt: null },
+              { id: 'lot-cheap', remaining: 5, unitCost: 1.0, receivedAt: new Date('2024-01-02'), expiresAt: null },
+            ],
+          },
+        },
+      ]);
+
+      const result = await allocateStockForVariantRequirement('var-1', 'cat-1', 3, 'CHEAPEST');
+
+      expect(result.fulfilled).toBe(true);
+      expect(result.allocations).toHaveLength(1);
+      expect(result.allocations[0].lotId).toBe('lot-cheap'); // CHEAPEST rule applied
+      expect(result.totalCost).toBe(3.0); // 3 * 1.0
+    });
+
+    it('sets productId/Name when single mapping', async () => {
+      mockPrisma.hamperVariantMapping.findMany.mockResolvedValue([
+        {
+          variantId: 'var-1',
+          categoryId: 'cat-1',
+          productId: 'prod-blue',
+          priority: 1,
+          category: { id: 'cat-1', name: 'Rattle' },
+          product: {
+            id: 'prod-blue',
+            name: 'Blue Rattle',
+            lots: [
+              { id: 'lot-blue', remaining: 10, unitCost: 2.0, receivedAt: new Date('2024-01-01'), expiresAt: null },
+            ],
+          },
+        },
+      ]);
+
+      const result = await allocateStockForVariantRequirement('var-1', 'cat-1', 3, 'FIFO');
+
+      expect(result.productId).toBe('prod-blue');
+      expect(result.productName).toBe('Blue Rattle');
+    });
+
+    it('does not set productId/Name when multiple mappings', async () => {
+      mockPrisma.hamperVariantMapping.findMany.mockResolvedValue([
+        {
+          variantId: 'var-1',
+          categoryId: 'cat-1',
+          productId: 'prod-blue',
+          priority: 1,
+          category: { id: 'cat-1', name: 'Rattle' },
+          product: {
+            id: 'prod-blue',
+            name: 'Blue Rattle',
+            lots: [
+              { id: 'lot-blue', remaining: 10, unitCost: 2.0, receivedAt: new Date('2024-01-01'), expiresAt: null },
+            ],
+          },
+        },
+        {
+          variantId: 'var-1',
+          categoryId: 'cat-1',
+          productId: 'prod-grey',
+          priority: 2,
+          category: { id: 'cat-1', name: 'Rattle' },
+          product: {
+            id: 'prod-grey',
+            name: 'Grey Rattle',
+            lots: [
+              { id: 'lot-grey', remaining: 10, unitCost: 1.5, receivedAt: new Date('2024-01-01'), expiresAt: null },
+            ],
+          },
+        },
+      ]);
+
+      const result = await allocateStockForVariantRequirement('var-1', 'cat-1', 3, 'FIFO');
+
+      expect(result.productId).toBeUndefined();
+      expect(result.productName).toBeUndefined();
     });
   });
 });

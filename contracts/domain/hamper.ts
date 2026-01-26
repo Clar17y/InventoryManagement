@@ -20,6 +20,7 @@ export type HamperRequirement = z.infer<typeof hamperRequirementSchema>
 export const hamperVariantMappingSchema = z.object({
   categoryId: cuidSchema,
   productId: cuidSchema,
+  priority: z.number().int().min(1),
   category: categoryRefSchema.optional(),
   product: productRefSchema.optional(),
 })

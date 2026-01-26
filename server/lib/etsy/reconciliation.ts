@@ -85,6 +85,7 @@ function toNumber(value: number | { toNumber(): number }): number {
 
 /**
  * Calculate how many of a hamper variant can be made from current inventory.
+ * Multiple mappings per category = alternatives (sum stock across all).
  */
 function calculateCanMake(
   hamper: HamperWithRelations,
@@ -95,9 +96,15 @@ function calculateCanMake(
   const variant = variantId
     ? hamper.variants.find((v) => v.id === variantId)
     : undefined;
-  const mappedByCategory = variant
-    ? new Map(variant.mappings.map((m) => [m.categoryId, m]))
-    : new Map();
+
+  // Group mappings by categoryId (multiple = alternatives, not required)
+  const mappingsByCategory = new Map<string, typeof variant extends undefined ? never : NonNullable<typeof variant>['mappings']>();
+  if (variant) {
+    for (const m of variant.mappings) {
+      const existing = mappingsByCategory.get(m.categoryId) || [];
+      mappingsByCategory.set(m.categoryId, [...existing, m]);
+    }
+  }
 
   for (const requirement of hamper.requirements) {
     if (requirement.isOptional) continue;
@@ -105,16 +112,22 @@ function calculateCanMake(
     const qtyNeeded = toNumber(requirement.quantity);
     if (!qtyNeeded) continue;
 
-    const mapping = mappedByCategory.get(requirement.categoryId);
+    const categoryMappings = mappingsByCategory.get(requirement.categoryId);
 
-    if (mapping) {
-      // Use mapped product's stock only
-      const productStock = mapping.product.lots.reduce(
-        (sum: number, lot: LotWithRemaining) => sum + toNumber(lot.remaining),
+    if (categoryMappings && categoryMappings.length > 0) {
+      // ALTERNATIVES MODEL: Sum stock across all alternative products
+      const totalAlternativeStock = categoryMappings.reduce(
+        (sum: number, mapping) => {
+          const productStock = mapping.product.lots.reduce(
+            (lotSum: number, lot: LotWithRemaining) => lotSum + toNumber(lot.remaining),
+            0
+          );
+          return sum + productStock;
+        },
         0
       );
-      const canMakeFromProduct = Math.floor(productStock / qtyNeeded);
-      canMake = Math.min(canMake, canMakeFromProduct);
+      const canMakeFromAlternatives = Math.floor(totalAlternativeStock / qtyNeeded);
+      canMake = Math.min(canMake, canMakeFromAlternatives);
     } else {
       // Fall back to category-wide aggregation
       const categoryStock = requirement.category.products.reduce(

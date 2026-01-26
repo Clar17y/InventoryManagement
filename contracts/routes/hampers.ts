@@ -82,6 +82,7 @@ export const hampersUpdateBodySchema = z.object({
 const variantMappingInputSchema = z.object({
   categoryId: cuidSchema,
   productId: cuidSchema,
+  priority: z.number().int().min(1).default(1),
 })
 
 const nullableNumberSchema = z

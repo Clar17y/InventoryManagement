@@ -144,8 +144,8 @@ model HamperVariant {
   @@unique([hamperId, name])
 }
 
-// Maps a variant's category requirement to a specific product
-// A variant can have multiple mappings to the same category (e.g., L Plate + P Plate)
+// Maps a variant's category requirement to a specific product (or alternatives with priority)
+// Multiple mappings per category = alternatives, not required products. Priority 1 = first choice.
 model HamperVariantMapping {
   id         String            @id @default(cuid())
   variantId  String
@@ -154,7 +154,10 @@ model HamperVariantMapping {
   category   ComponentCategory @relation(fields: [categoryId], references: [id])
   productId  String
   product    Product           @relation(fields: [productId], references: [id])
+  priority   Int               @default(1) // 1-based, lower = higher priority
 
+  @@unique([variantId, categoryId, priority])   // No duplicate priorities within category
+  @@unique([variantId, categoryId, productId])  // No duplicate products within category
   @@index([variantId])
 }
 

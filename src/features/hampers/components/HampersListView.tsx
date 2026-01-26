@@ -243,22 +243,58 @@ export default function HampersListView({
                       const selectedVariant = expandedDetail.variantAvailability?.find(v => v.variantId === selectedVariantId)
                       if (!selectedVariant?.mappings?.length) return null
 
+                      // Group mappings by category
+                      const byCategory: Record<string, Array<{ name: string; stock: number; priority: number }>> = {}
+                      for (const m of selectedVariant.mappings) {
+                        const catName = m.category?.name || 'Category'
+                        if (!byCategory[catName]) byCategory[catName] = []
+                        byCategory[catName].push({
+                          name: m.product?.name || 'Product',
+                          stock: (m as { stock?: number }).stock ?? 0,
+                          priority: (m as { priority?: number }).priority ?? 1,
+                        })
+                      }
+
+                      // Sort categories to match hamper requirement order
+                      const reqOrder = expandedDetail.requirements.map(r => r.category.name)
+                      const sortedCategories = Object.entries(byCategory).sort(([a], [b]) => {
+                        const aIdx = reqOrder.indexOf(a)
+                        const bIdx = reqOrder.indexOf(b)
+                        // Categories not in requirements go to end
+                        if (aIdx === -1 && bIdx === -1) return a.localeCompare(b)
+                        if (aIdx === -1) return 1
+                        if (bIdx === -1) return -1
+                        return aIdx - bIdx
+                      })
+
                       return (
                         <div className="mt-3 p-3 bg-gray-50 rounded-lg border border-gray-200">
                           <div className="text-xs font-medium text-gray-600 mb-2">
                             {selectedVariant.name} Requirements
                           </div>
-                          <div className="space-y-1">
-                            {selectedVariant.mappings.map((m, idx) => {
-                              const stock = (m as { stock?: number }).stock ?? 0
+                          <div className="space-y-2">
+                            {sortedCategories.map(([catName, products]) => {
+                              // Sort by priority and calculate total
+                              const sorted = [...products].sort((a, b) => a.priority - b.priority)
+                              const totalStock = sorted.reduce((sum, p) => sum + p.stock, 0)
+
                               return (
-                                <div key={idx} className="flex justify-between items-center text-sm">
-                                  <span className="text-gray-500">{m.category?.name || 'Category'}:</span>
+                                <div key={catName} className="flex justify-between items-center text-sm">
+                                  <span className="text-gray-500">{catName}:</span>
                                   <div className="flex items-center gap-2">
-                                    <span className="font-medium text-primary-700">{m.product?.name || 'Product'}</span>
-                                    <span className={`text-xs px-1.5 py-0.5 rounded ${stock > 0 ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
-                                      {stock}
+                                    <span className="font-medium text-primary-700">
+                                      {sorted.map((p) => `${p.name} (${p.stock})`).join(' > ')}
                                     </span>
+                                    {sorted.length > 1 && (
+                                      <span className={`text-xs px-1.5 py-0.5 rounded ${totalStock > 0 ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
+                                        = {totalStock}
+                                      </span>
+                                    )}
+                                    {sorted.length === 1 && (
+                                      <span className={`text-xs px-1.5 py-0.5 rounded ${totalStock > 0 ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
+                                        {totalStock}
+                                      </span>
+                                    )}
                                   </div>
                                 </div>
                               )

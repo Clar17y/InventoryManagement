@@ -169,6 +169,7 @@ describe('hamperVariants API', () => {
       {
         categoryId: 'cat-1',
         productId: 'prod-1',
+        priority: 1,
         category: { id: 'cat-1', name: 'Chocolates' },
         product: { id: 'prod-1', name: 'Dark Chocolate Bar' },
       },

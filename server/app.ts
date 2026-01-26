@@ -13,6 +13,7 @@ import expensesRouter from './routes/expenses'
 import etsyRouter from './routes/etsy'
 import etsySyncRouter from './routes/etsySync'
 import { requireAuth } from './middleware/requireAuth'
+import { createPrismaIdleDisconnectMiddleware } from './middleware/prismaIdleDisconnect'
 import { healthResponseSchema } from '#contracts/routes/health'
 
 export function createApp() {
@@ -29,6 +30,9 @@ export function createApp() {
     const payload = { status: 'ok', timestamp: new Date().toISOString() }
     res.json(healthResponseSchema.parse(payload))
   })
+
+  // Disconnect Prisma when idle so Neon can autosuspend (no open connections)
+  app.use('/api', createPrismaIdleDisconnectMiddleware({ idleMs: 5 * 60 * 1000 }))
 
   // Require auth for all other API routes
   app.use('/api', requireAuth)

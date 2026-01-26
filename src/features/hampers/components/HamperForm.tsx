@@ -1,5 +1,5 @@
-import { useEffect, useRef } from 'react'
-import { PencilIcon, TrashIcon, XMarkIcon } from '@heroicons/react/24/outline'
+import { useEffect, useMemo, useRef } from 'react'
+import { ChevronDownIcon, ChevronUpIcon, PencilIcon, TrashIcon, XMarkIcon } from '@heroicons/react/24/outline'
 import type { FormEvent, RefObject } from 'react'
 import type { Category, HamperVariant, HamperVariantCreateData, Product } from '../../../lib/api'
 import type { HamperFormData } from '../types'
@@ -57,6 +57,81 @@ export default function HamperForm({
       }, 0)
     }
   }, [showVariantForm, editingVariantId])
+
+  // Group mappings by category for display
+  const mappingsByCategory = useMemo(() => {
+    const grouped = new Map<string, typeof variantFormData.mappings>()
+    for (const m of variantFormData.mappings) {
+      const existing = grouped.get(m.categoryId) || []
+      grouped.set(m.categoryId, [...existing, m].sort((a, b) => (a.priority ?? 1) - (b.priority ?? 1)))
+    }
+    return grouped
+  }, [variantFormData.mappings])
+
+  // Move a mapping up in priority (lower number = higher priority)
+  const moveUp = (categoryId: string, productId: string) => {
+    const catMappings = [...(mappingsByCategory.get(categoryId) || [])]
+    const idx = catMappings.findIndex((m) => m.productId === productId)
+    if (idx <= 0) return
+    const current = catMappings[idx]
+    const above = catMappings[idx - 1]
+    if (!current || !above) return
+    const updated = variantFormData.mappings.map((m) => {
+      if (m.categoryId === categoryId && m.productId === productId)
+        return { ...m, priority: above.priority ?? idx }
+      if (m.categoryId === categoryId && m.productId === above.productId)
+        return { ...m, priority: current.priority ?? idx + 1 }
+      return m
+    })
+    setVariantFormData({ ...variantFormData, mappings: updated })
+  }
+
+  // Move a mapping down in priority
+  const moveDown = (categoryId: string, productId: string) => {
+    const catMappings = [...(mappingsByCategory.get(categoryId) || [])]
+    const idx = catMappings.findIndex((m) => m.productId === productId)
+    if (idx < 0 || idx >= catMappings.length - 1) return
+    const current = catMappings[idx]
+    const below = catMappings[idx + 1]
+    if (!current || !below) return
+    const updated = variantFormData.mappings.map((m) => {
+      if (m.categoryId === categoryId && m.productId === productId)
+        return { ...m, priority: below.priority ?? idx + 2 }
+      if (m.categoryId === categoryId && m.productId === below.productId)
+        return { ...m, priority: current.priority ?? idx + 1 }
+      return m
+    })
+    setVariantFormData({ ...variantFormData, mappings: updated })
+  }
+
+  // Add an alternative product to a category
+  const addAlternative = (categoryId: string, productId: string) => {
+    const existing = mappingsByCategory.get(categoryId) || []
+    const newPriority = existing.length + 1
+    setVariantFormData({
+      ...variantFormData,
+      mappings: [...variantFormData.mappings, { categoryId, productId, priority: newPriority }],
+    })
+  }
+
+  // Remove an alternative and renormalize priorities
+  const removeAlternative = (categoryId: string, productId: string) => {
+    const remaining = variantFormData.mappings.filter(
+      (m) => !(m.categoryId === categoryId && m.productId === productId)
+    )
+    // Renormalize priorities per category
+    const byCat = new Map<string, typeof remaining>()
+    for (const m of remaining) {
+      const existing = byCat.get(m.categoryId) || []
+      byCat.set(m.categoryId, [...existing, m])
+    }
+    const normalized: typeof remaining = []
+    for (const [, catMappings] of byCat) {
+      const sorted = [...catMappings].sort((a, b) => (a.priority ?? 1) - (b.priority ?? 1))
+      sorted.forEach((m, i) => normalized.push({ ...m, priority: i + 1 }))
+    }
+    setVariantFormData({ ...variantFormData, mappings: normalized })
+  }
 
   return (
     <form ref={formRef} onSubmit={handleSubmit} className="card space-y-4">
@@ -234,98 +309,105 @@ export default function HamperForm({
 
 
               <div>
-                <div className="flex justify-between items-center mb-2">
-                  <label className="block text-xs font-medium text-gray-700">
-                    Product Mappings
-                  </label>
-                  <select
-                    value=""
-                    onChange={(e) => {
-                      if (e.target.value) {
-                        setVariantFormData({
-                          ...variantFormData,
-                          mappings: [...variantFormData.mappings, { categoryId: e.target.value, productId: '' }]
-                        })
-                      }
-                    }}
-                    className="input text-xs py-1 w-auto"
-                  >
-                    <option value="">+ Add category mapping...</option>
-                    {formData.requirements
-                      .flatMap(r => {
-                        if (!r.categoryId) return []
-                        const cat = categoryList.find(c => c.id === r.categoryId)
-                        const maxQty = Math.floor(r.quantity) || 1
-                        const currentMappings = variantFormData.mappings.filter(m => m.categoryId === r.categoryId).length
-                        // Show option for each remaining slot up to qty
-                        const remainingSlots = maxQty - currentMappings
-                        if (remainingSlots <= 0) return []
-                        // If qty=1, just show category name; if qty>1, show slot number
-                        if (maxQty === 1) {
-                          return [<option key={r.categoryId} value={r.categoryId}>{cat?.name || 'Category'}</option>]
-                        }
-                        return [<option key={`${r.categoryId}-${currentMappings + 1}`} value={r.categoryId}>
-                          {cat?.name || 'Category'} ({currentMappings + 1} of {maxQty})
-                        </option>]
-                      })}
-                  </select>
-                </div>
+                <label className="block text-xs font-medium text-gray-700 mb-2">
+                  Product Alternatives by Category
+                </label>
+                <p className="text-xs text-gray-500 mb-3">
+                  Add alternative products per category. Priority 1 is tried first when allocating stock.
+                </p>
 
-                {variantFormData.mappings.length === 0 ? (
-                  <div className="text-xs text-gray-500 italic py-2 text-center border border-dashed border-gray-300 rounded-lg">
-                    Optionally add category mappings to define what makes this variant unique.
-                  </div>
-                ) : (
-                  <div className="space-y-2">
-                    {variantFormData.mappings.map((mapping, idx) => {
-                      const category = categoryList.find(c => c.id === mapping.categoryId)
-                      const categoryProds = productList.filter(p => p.categoryId === mapping.categoryId)
-                      // Calculate slot number for this mapping within its category
-                      const requirement = formData.requirements.find(r => r.categoryId === mapping.categoryId)
-                      const maxQty = requirement ? Math.floor(requirement.quantity) || 1 : 1
-                      const slotIndex = variantFormData.mappings
-                        .slice(0, idx)
-                        .filter(m => m.categoryId === mapping.categoryId).length + 1
-                      const showSlotNumber = maxQty > 1
+                {/* Categories with their alternatives */}
+                <div className="space-y-3">
+                  {formData.requirements.map((req) => {
+                    if (!req.categoryId) return null
+                    const category = categoryList.find((c) => c.id === req.categoryId)
+                    const catMappings = mappingsByCategory.get(req.categoryId) || []
+                    const categoryProds = productList.filter((p) => p.categoryId === req.categoryId)
+                    // Products already selected (can't select again)
+                    const selectedProductIds = new Set(catMappings.map((m) => m.productId))
+                    const availableProds = categoryProds.filter((p) => !selectedProductIds.has(p.id))
 
-                      return (
-                        <div key={idx} className="flex items-center gap-2 bg-white p-2 rounded border border-gray-200">
-                          <div className="text-xs font-medium text-gray-600 w-32 truncate" title={category?.name}>
-                            {category?.name || 'Category'}
-                            {showSlotNumber && <span className="text-gray-400 ml-1">({slotIndex}/{maxQty})</span>}
+                    return (
+                      <div key={req.categoryId} className="bg-white p-3 rounded-lg border border-gray-200">
+                        <div className="flex justify-between items-center mb-2">
+                          <span className="text-sm font-medium text-gray-800">
+                            {category?.name || 'Category'}{' '}
+                            <span className="text-gray-400 font-normal">(need {req.quantity})</span>
+                          </span>
+                        </div>
+
+                        {catMappings.length === 0 ? (
+                          <div className="text-xs text-gray-400 italic mb-2">
+                            No alternatives set - will use any product from category
                           </div>
+                        ) : (
+                          <div className="space-y-1 mb-2">
+                            {catMappings.map((mapping, idx) => {
+                              const product = productList.find((p) => p.id === mapping.productId)
+                              const isFirst = idx === 0
+                              const isLast = idx === catMappings.length - 1
+
+                              return (
+                                <div
+                                  key={mapping.productId}
+                                  className="flex items-center gap-2 text-sm bg-gray-50 p-2 rounded"
+                                >
+                                  <span className="text-xs text-gray-400 w-4">{idx + 1}.</span>
+                                  <span className="flex-1 text-gray-800">{product?.name || 'Unknown'}</span>
+                                  <button
+                                    type="button"
+                                    onClick={() => moveUp(req.categoryId, mapping.productId)}
+                                    disabled={isFirst}
+                                    className={`p-0.5 ${isFirst ? 'text-gray-200' : 'text-gray-400 hover:text-primary-600'}`}
+                                    title="Move up"
+                                  >
+                                    <ChevronUpIcon className="h-4 w-4" />
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => moveDown(req.categoryId, mapping.productId)}
+                                    disabled={isLast}
+                                    className={`p-0.5 ${isLast ? 'text-gray-200' : 'text-gray-400 hover:text-primary-600'}`}
+                                    title="Move down"
+                                  >
+                                    <ChevronDownIcon className="h-4 w-4" />
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => removeAlternative(req.categoryId, mapping.productId)}
+                                    className="p-0.5 text-gray-400 hover:text-red-600"
+                                    title="Remove"
+                                  >
+                                    <XMarkIcon className="h-4 w-4" />
+                                  </button>
+                                </div>
+                              )
+                            })}
+                          </div>
+                        )}
+
+                        {availableProds.length > 0 && (
                           <select
-                            value={mapping.productId}
+                            value=""
                             onChange={(e) => {
-                              const newMappings = [...variantFormData.mappings]
-                              newMappings[idx] = { ...mapping, productId: e.target.value }
-                              setVariantFormData({ ...variantFormData, mappings: newMappings })
+                              if (e.target.value) {
+                                addAlternative(req.categoryId, e.target.value)
+                              }
                             }}
-                            className="input text-sm flex-1"
+                            className="input text-xs py-1"
                           >
-                            <option value="">Select product...</option>
-                            {categoryProds.map(p => (
-                              <option key={p.id} value={p.id}>{p.name}</option>
+                            <option value="">+ Add alternative...</option>
+                            {availableProds.map((p) => (
+                              <option key={p.id} value={p.id}>
+                                {p.name}
+                              </option>
                             ))}
                           </select>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setVariantFormData({
-                                ...variantFormData,
-                                mappings: variantFormData.mappings.filter((_, i) => i !== idx)
-                              })
-                            }}
-                            className="p-1 text-gray-400 hover:text-red-600"
-                            title="Remove mapping"
-                          >
-                            <XMarkIcon className="h-4 w-4" />
-                          </button>
-                        </div>
-                      )
-                    })}
-                  </div>
-                )}
+                        )}
+                      </div>
+                    )
+                  })}
+                </div>
               </div>
 
               <div className="flex gap-2">
@@ -393,12 +475,27 @@ export default function HamperForm({
                 </div>
 
                 <div className="mt-2 space-y-1">
-                  {variant.mappings?.map((m, idx) => (
-                    <div key={idx} className="flex justify-between items-center text-xs">
-                      <span className="text-gray-500">{m.category.name}:</span>
-                      <span className="font-medium text-primary-700">{m.product?.name}</span>
-                    </div>
-                  ))}
+                  {variant.mappings && (() => {
+                    // Group mappings by category and sort by priority
+                    const grouped: Record<string, typeof variant.mappings> = {}
+                    for (const m of variant.mappings) {
+                      const key = m.category.name
+                      if (!grouped[key]) grouped[key] = []
+                      grouped[key].push(m)
+                    }
+
+                    return Object.entries(grouped).map(([catName, mappings]) => (
+                      <div key={catName} className="flex justify-between items-center text-xs">
+                        <span className="text-gray-500">{catName}:</span>
+                        <span className="font-medium text-primary-700">
+                          {mappings
+                            .sort((a, b) => (a.priority ?? 1) - (b.priority ?? 1))
+                            .map((m) => m.product?.name)
+                            .join(' > ')}
+                        </span>
+                      </div>
+                    ))
+                  })()}
                 </div>
               </div>
             ))}

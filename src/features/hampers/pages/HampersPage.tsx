@@ -270,7 +270,11 @@ export default function Hampers() {
       sellingPrice: variant.sellingPrice ?? null,
       etsySku: variant.etsySku || '',
       indicativeQuantity: variant.indicativeQuantity ?? null,
-      mappings: variant.mappings?.map((m) => ({ categoryId: m.categoryId, productId: m.productId })) || [],
+      mappings: variant.mappings?.map((m) => ({
+        categoryId: m.categoryId,
+        productId: m.productId,
+        priority: m.priority ?? 1,
+      })) || [],
     })
     setShowVariantForm(true)
   }

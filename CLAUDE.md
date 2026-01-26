@@ -118,9 +118,13 @@ This applies to every coding session, whether single-agent or multi-agent.
 ## Environment Variables
 
 Required in `.env`:
-- `DATABASE_URL` - NeonDB PostgreSQL connection string
+- `DATABASE_URL` - Neon PostgreSQL connection string (recommend pooled/pgBouncer for runtime)
+- `DIRECT_URL` - Neon direct connection string (Prisma Migrate/Studio)
 - `VITE_SUPABASE_URL` - Supabase project URL
 - `VITE_SUPABASE_ANON_KEY` - Supabase anonymous key
+
+Optional:
+- `PRISMA_IDLE_DISCONNECT_MS` - Milliseconds before disconnecting idle Prisma connection (default: 300000 = 5 min)
 
 
 ## grepai - Semantic Code Search

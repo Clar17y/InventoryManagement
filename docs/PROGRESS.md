@@ -285,6 +285,7 @@ npm run test:server:run   # Single run (server only)
 | 2026-01-12 | Clar17y | Real Etsy API updates (SKU + price + product IDs) | Done | feature/real-etsy-integration |
 | 2026-01-12 | Codex CLI | Sync UX polish + caching plan doc + string normalization | Done | feature/real-etsy-integration |
 | 2026-01-19 | Codex CLI | Architecture refactor v2 (contracts + feature structure) | In Progress | refactor/arch-v2 |
+| 2026-01-26 | Codex CLI | Neon pooled runtime + Prisma idle disconnect | Done | feature/alternative-products |
 
 
 ---

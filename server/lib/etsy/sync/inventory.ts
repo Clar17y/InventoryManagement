@@ -81,7 +81,12 @@ export async function getSyncComparison() {
       for (const variant of hamper.variants) {
         let canMake = Infinity;
 
-        const mappedByCategory = new Map(variant.mappings.map((m) => [m.categoryId, m]));
+        // Group mappings by categoryId (multiple = alternatives, not required)
+        const mappingsByCategory = new Map<string, typeof variant.mappings>();
+        for (const m of variant.mappings) {
+          const existing = mappingsByCategory.get(m.categoryId) || [];
+          mappingsByCategory.set(m.categoryId, [...existing, m]);
+        }
 
         for (const requirement of hamper.requirements) {
           if (requirement.isOptional) continue;
@@ -89,16 +94,21 @@ export async function getSyncComparison() {
           const qtyNeeded = Number(requirement.quantity);
           if (!qtyNeeded) continue;
 
-          const mapping = mappedByCategory.get(requirement.categoryId);
+          const categoryMappings = mappingsByCategory.get(requirement.categoryId);
 
-          if (mapping) {
-            const productStock = mapping.product.lots.reduce(
-              (sum, lot) => sum + Number(lot.remaining),
-              0
-            );
-            const canMakeFromProduct = Math.floor(productStock / qtyNeeded);
-            canMake = Math.min(canMake, canMakeFromProduct);
+          if (categoryMappings && categoryMappings.length > 0) {
+            // ALTERNATIVES MODEL: Sum stock across all alternative products
+            const totalAlternativeStock = categoryMappings.reduce((sum, mapping) => {
+              const productStock = mapping.product.lots.reduce(
+                (lotSum, lot) => lotSum + Number(lot.remaining),
+                0
+              );
+              return sum + productStock;
+            }, 0);
+            const canMakeFromAlternatives = Math.floor(totalAlternativeStock / qtyNeeded);
+            canMake = Math.min(canMake, canMakeFromAlternatives);
           } else {
+            // No mappings: fall back to category-wide aggregation
             const categoryStock = requirement.category.products.reduce(
               (sum, product) => {
                 const productStock = product.lots.reduce(

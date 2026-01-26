@@ -14,6 +14,7 @@ import {
   getListingInventoriesBatched,
   invalidateListingInventory,
 } from '../inventoryCache';
+import { calculateCanMake, HamperWithRelations } from '../reconciliation';
 
 export type InventoryUpdate = {
   etsyListingId: string;
@@ -79,53 +80,7 @@ export async function getSyncComparison() {
 
     if (hamper.hasVariants && hamper.variants.length > 0) {
       for (const variant of hamper.variants) {
-        let canMake = Infinity;
-
-        // Group mappings by categoryId (multiple = alternatives, not required)
-        const mappingsByCategory = new Map<string, typeof variant.mappings>();
-        for (const m of variant.mappings) {
-          const existing = mappingsByCategory.get(m.categoryId) || [];
-          mappingsByCategory.set(m.categoryId, [...existing, m]);
-        }
-
-        for (const requirement of hamper.requirements) {
-          if (requirement.isOptional) continue;
-
-          const qtyNeeded = Number(requirement.quantity);
-          if (!qtyNeeded) continue;
-
-          const categoryMappings = mappingsByCategory.get(requirement.categoryId);
-
-          if (categoryMappings && categoryMappings.length > 0) {
-            // ALTERNATIVES MODEL: Sum stock across all alternative products
-            const totalAlternativeStock = categoryMappings.reduce((sum, mapping) => {
-              const productStock = mapping.product.lots.reduce(
-                (lotSum, lot) => lotSum + Number(lot.remaining),
-                0
-              );
-              return sum + productStock;
-            }, 0);
-            const canMakeFromAlternatives = Math.floor(totalAlternativeStock / qtyNeeded);
-            canMake = Math.min(canMake, canMakeFromAlternatives);
-          } else {
-            // No mappings: fall back to category-wide aggregation
-            const categoryStock = requirement.category.products.reduce(
-              (sum, product) => {
-                const productStock = product.lots.reduce(
-                  (lotSum, lot) => lotSum + Number(lot.remaining),
-                  0
-                );
-                return sum + productStock;
-              },
-              0
-            );
-
-            const canMakeFromCategory = Math.floor(categoryStock / qtyNeeded);
-            canMake = Math.min(canMake, canMakeFromCategory);
-          }
-        }
-
-        if (canMake === Infinity) canMake = 0;
+        const canMake = calculateCanMake(hamper as HamperWithRelations, variant.id);
 
         const indicativeQty = variant.indicativeQuantity ?? null;
         const effectiveQuantity = Math.max(canMake, indicativeQty ?? 0);
@@ -170,28 +125,7 @@ export async function getSyncComparison() {
         });
       }
     } else {
-      let canMake = Infinity;
-
-      for (const requirement of hamper.requirements) {
-        if (requirement.isOptional) continue;
-
-        const categoryStock = requirement.category.products.reduce(
-          (sum, product) => {
-            const productStock = product.lots.reduce(
-              (lotSum, lot) => lotSum + Number(lot.remaining),
-              0
-            );
-            return sum + productStock;
-          },
-          0
-        );
-
-        const qtyNeeded = Number(requirement.quantity);
-        const canMakeFromCategory = Math.floor(categoryStock / qtyNeeded);
-        canMake = Math.min(canMake, canMakeFromCategory);
-      }
-
-      if (canMake === Infinity) canMake = 0;
+      const canMake = calculateCanMake(hamper as HamperWithRelations);
 
       const indicativeQty = hamper.indicativeQuantity ?? null;
       const effectiveQuantity = Math.max(canMake, indicativeQty ?? 0);

@@ -10,7 +10,7 @@ vi.mock('../../lib/prisma', () => ({
         packagingOverhead: { findMany: vi.fn() },
         componentCategory: { findUnique: vi.fn() },
         hamperVariantMapping: { findUnique: vi.fn(), findMany: vi.fn() },
-        inventoryLot: { update: vi.fn() },
+        inventoryLot: { update: vi.fn(), findMany: vi.fn() },
         $transaction: vi.fn(),
     },
 }));
@@ -39,7 +39,7 @@ const mockPrisma = prisma as unknown as {
     packagingOverhead: { findMany: ReturnType<typeof vi.fn> };
     componentCategory: { findUnique: ReturnType<typeof vi.fn> };
     hamperVariantMapping: { findUnique: ReturnType<typeof vi.fn>; findMany: ReturnType<typeof vi.fn> };
-    inventoryLot: { update: ReturnType<typeof vi.fn> };
+    inventoryLot: { update: ReturnType<typeof vi.fn>; findMany: ReturnType<typeof vi.fn> };
     $transaction: ReturnType<typeof vi.fn>;
 };
 
@@ -614,6 +614,526 @@ describe('Order Import - Stock Decrement', () => {
         expect(inventoryLotUpdateCalls[1]).toEqual({
             where: { id: 'lot-grey' },
             data: { remaining: { decrement: 2 } },
+        });
+    });
+
+    it('returns verbose shortages across multiple categories', async () => {
+        mockEtsyClient.getReceipts.mockResolvedValue({
+            receipts: [
+                {
+                    receipt_id: 5001,
+                    name: 'Test Buyer',
+                    is_paid: true,
+                    is_shipped: false,
+                    create_timestamp: Math.floor(Date.now() / 1000),
+                    grandtotal: { amount: 3000, divisor: 100 },
+                    subtotal: { amount: 2500, divisor: 100 },
+                    total_shipping_cost: { amount: 500, divisor: 100 },
+                    transactions: [
+                        {
+                            transaction_id: 1,
+                            listing_id: 100,
+                            title: 'Test Hamper',
+                            quantity: 1,
+                            price: { amount: 2500, divisor: 100 },
+                            sku: null,
+                            product_id: null,
+                            variations: [],
+                        },
+                    ],
+                },
+            ],
+        });
+
+        mockPrisma.sale.findFirst.mockResolvedValue(null);
+        mockPrisma.hamper.findFirst.mockResolvedValue({
+            id: 'hamper-1',
+            name: 'Test Hamper',
+            etsyListingId: '100',
+            hasVariants: false,
+            requirements: [
+                {
+                    id: 'req-a',
+                    categoryId: 'cat-a',
+                    quantity: 2,
+                    isOptional: false,
+                    category: { id: 'cat-a', name: 'Category A', pickRule: 'FIFO' },
+                },
+                {
+                    id: 'req-b',
+                    categoryId: 'cat-b',
+                    quantity: 1,
+                    isOptional: false,
+                    category: { id: 'cat-b', name: 'Category B', pickRule: 'FIFO' },
+                },
+            ],
+            variants: [],
+        });
+        mockPrisma.etsyFeeConfig.findFirst.mockResolvedValue({
+            id: 'fee-1',
+            transactionFee: 0.065,
+            regulatoryFee: 0.003,
+            paymentFeePercent: 0.04,
+            paymentFeeFixed: 0.2,
+            vatRate: 0.2,
+            listingFee: 0.15,
+        });
+        mockPrisma.packagingOverhead.findMany.mockResolvedValue([]);
+
+        mockPrisma.componentCategory.findUnique.mockImplementation(({ where }: any) => {
+            if (where?.id === 'cat-a') {
+                return Promise.resolve({
+                    id: 'cat-a',
+                    name: 'Category A',
+                    products: [
+                        {
+                            id: 'prod-a',
+                            name: 'Product A',
+                            lots: [
+                                { id: 'lot-a', remaining: 1, unitCost: 1.0, receivedAt: new Date(), expiresAt: null },
+                            ],
+                        },
+                    ],
+                });
+            }
+            if (where?.id === 'cat-b') {
+                return Promise.resolve({
+                    id: 'cat-b',
+                    name: 'Category B',
+                    products: [
+                        {
+                            id: 'prod-b',
+                            name: 'Product B',
+                            lots: [],
+                        },
+                    ],
+                });
+            }
+            return Promise.resolve(null);
+        });
+
+        let thrown: any;
+        try {
+            await importOrder(5001, 3.5);
+        } catch (err) {
+            thrown = err;
+        }
+
+        expect(thrown).toBeTruthy();
+        expect(thrown.status).toBe(400);
+        expect(thrown.body.code).toBe('insufficient_stock');
+        expect(thrown.body.shortages).toHaveLength(2);
+
+        const shortages = thrown.body.shortages as any[];
+        const shortageA = shortages.find((s) => s.key === 'cat-a-all');
+        const shortageB = shortages.find((s) => s.key === 'cat-b-all');
+
+        expect(shortageA).toMatchObject({
+            categoryId: 'cat-a',
+            categoryName: 'Category A',
+            need: 2,
+            have: 1,
+            missing: 1,
+            productName: 'Product A',
+        });
+        expect(shortageB).toMatchObject({
+            categoryId: 'cat-b',
+            categoryName: 'Category B',
+            need: 1,
+            have: 0,
+            missing: 1,
+        });
+        expect(String(thrown.body.message)).toContain('Category A');
+        expect(String(thrown.body.message)).toContain('need 2, have 1');
+        expect(String(thrown.body.message)).toContain('Category B');
+    });
+
+    it('imports successfully using substitutions across multiple categories', async () => {
+        const inventoryLotUpdateCalls: Array<{ where: { id: string }; data: { remaining: { decrement: number } } }> = [];
+
+        mockPrisma.$transaction.mockImplementation(async (callback: (tx: any) => Promise<unknown>) => {
+            const mockTx = {
+                sale: {
+                    create: vi.fn().mockResolvedValue({
+                        id: 'sale-5002',
+                        etsyOrderId: '5002',
+                        grossRevenue: 30,
+                        totalCost: 5,
+                        margin: 20,
+                        netRevenue: 25,
+                        etsyFees: 5,
+                        packagingOverhead: 0,
+                    }),
+                },
+                inventoryLot: {
+                    findUnique: vi.fn().mockImplementation(({ where }: any) => {
+                        if (where?.id === 'lot-a1') {
+                            return Promise.resolve({ id: 'lot-a1', remaining: 10, unitCost: 1.25 });
+                        }
+                        if (where?.id === 'lot-b1') {
+                            return Promise.resolve({ id: 'lot-b1', remaining: 10, unitCost: 0.5 });
+                        }
+                        return Promise.resolve(null);
+                    }),
+                    update: vi.fn().mockImplementation((args: any) => {
+                        inventoryLotUpdateCalls.push(args);
+                        return Promise.resolve({});
+                    }),
+                },
+            };
+            return callback(mockTx);
+        });
+
+        mockEtsyClient.getReceipts.mockResolvedValue({
+            receipts: [
+                {
+                    receipt_id: 5002,
+                    name: 'Test Buyer',
+                    is_paid: true,
+                    is_shipped: false,
+                    create_timestamp: Math.floor(Date.now() / 1000),
+                    grandtotal: { amount: 3000, divisor: 100 },
+                    subtotal: { amount: 2500, divisor: 100 },
+                    total_shipping_cost: { amount: 500, divisor: 100 },
+                    transactions: [
+                        {
+                            transaction_id: 1,
+                            listing_id: 100,
+                            title: 'Test Hamper',
+                            quantity: 1,
+                            price: { amount: 2500, divisor: 100 },
+                            sku: null,
+                            product_id: null,
+                            variations: [],
+                        },
+                    ],
+                },
+            ],
+        });
+
+        mockPrisma.sale.findFirst.mockResolvedValue(null);
+        mockPrisma.hamper.findFirst.mockResolvedValue({
+            id: 'hamper-1',
+            name: 'Test Hamper',
+            etsyListingId: '100',
+            hasVariants: false,
+            requirements: [
+                {
+                    id: 'req-a',
+                    categoryId: 'cat-a',
+                    quantity: 2,
+                    isOptional: false,
+                    category: { id: 'cat-a', name: 'Category A', pickRule: 'FIFO' },
+                },
+                {
+                    id: 'req-b',
+                    categoryId: 'cat-b',
+                    quantity: 1,
+                    isOptional: false,
+                    category: { id: 'cat-b', name: 'Category B', pickRule: 'FIFO' },
+                },
+            ],
+            variants: [],
+        });
+        mockPrisma.etsyFeeConfig.findFirst.mockResolvedValue({
+            id: 'fee-1',
+            transactionFee: 0.065,
+            regulatoryFee: 0.003,
+            paymentFeePercent: 0.04,
+            paymentFeeFixed: 0.2,
+            vatRate: 0.2,
+            listingFee: 0.15,
+        });
+        mockPrisma.packagingOverhead.findMany.mockResolvedValue([]);
+
+        mockPrisma.inventoryLot.findMany.mockResolvedValue([
+            {
+                id: 'lot-a1',
+                remaining: 10,
+                product: { id: 'prod-a', name: 'Product A', categoryId: 'cat-a' },
+            },
+            {
+                id: 'lot-b1',
+                remaining: 10,
+                product: { id: 'prod-b', name: 'Product B', categoryId: 'cat-b' },
+            },
+        ] as any);
+
+        const result = await importOrder(5002, 3.5, false, {
+            'cat-a-all': [{ lotId: 'lot-a1', quantity: 2 }],
+            'cat-b-all': [{ lotId: 'lot-b1', quantity: 1 }],
+        });
+
+        expect(result.success).toBe(true);
+        expect(inventoryLotUpdateCalls).toHaveLength(2);
+        expect(inventoryLotUpdateCalls).toEqual([
+            { where: { id: 'lot-a1' }, data: { remaining: { decrement: 2 } } },
+            { where: { id: 'lot-b1' }, data: { remaining: { decrement: 1 } } },
+        ]);
+    });
+
+    it('rejects substitutions that do not cover the required quantity', async () => {
+        mockEtsyClient.getReceipts.mockResolvedValue({
+            receipts: [
+                {
+                    receipt_id: 5003,
+                    name: 'Test Buyer',
+                    is_paid: true,
+                    is_shipped: false,
+                    create_timestamp: Math.floor(Date.now() / 1000),
+                    grandtotal: { amount: 3000, divisor: 100 },
+                    subtotal: { amount: 2500, divisor: 100 },
+                    total_shipping_cost: { amount: 500, divisor: 100 },
+                    transactions: [
+                        {
+                            transaction_id: 1,
+                            listing_id: 100,
+                            title: 'Test Hamper',
+                            quantity: 1,
+                            price: { amount: 2500, divisor: 100 },
+                            sku: null,
+                            product_id: null,
+                            variations: [],
+                        },
+                    ],
+                },
+            ],
+        });
+
+        mockPrisma.sale.findFirst.mockResolvedValue(null);
+        mockPrisma.hamper.findFirst.mockResolvedValue({
+            id: 'hamper-1',
+            name: 'Test Hamper',
+            etsyListingId: '100',
+            hasVariants: false,
+            requirements: [
+                {
+                    id: 'req-a',
+                    categoryId: 'cat-a',
+                    quantity: 2,
+                    isOptional: false,
+                    category: { id: 'cat-a', name: 'Category A', pickRule: 'FIFO' },
+                },
+            ],
+            variants: [],
+        });
+        mockPrisma.etsyFeeConfig.findFirst.mockResolvedValue({
+            id: 'fee-1',
+            transactionFee: 0.065,
+            regulatoryFee: 0.003,
+            paymentFeePercent: 0.04,
+            paymentFeeFixed: 0.2,
+            vatRate: 0.2,
+            listingFee: 0.15,
+        });
+        mockPrisma.packagingOverhead.findMany.mockResolvedValue([]);
+
+        mockPrisma.inventoryLot.findMany.mockResolvedValue([
+            {
+                id: 'lot-a1',
+                remaining: 10,
+                product: { id: 'prod-a', name: 'Product A', categoryId: 'cat-a' },
+            },
+        ] as any);
+
+        await expect(
+            importOrder(5003, 3.5, false, {
+                'cat-a-all': [{ lotId: 'lot-a1', quantity: 1 }], // Need 2
+            })
+        ).rejects.toMatchObject({
+            status: 400,
+        });
+    });
+
+    it('splits substituted quantity across multiple lots in the same category', async () => {
+        const inventoryLotUpdateCalls: Array<{ where: { id: string }; data: { remaining: { decrement: number } } }> = [];
+
+        mockPrisma.$transaction.mockImplementation(async (callback: (tx: any) => Promise<unknown>) => {
+            const mockTx = {
+                sale: {
+                    create: vi.fn().mockResolvedValue({
+                        id: 'sale-5004',
+                        etsyOrderId: '5004',
+                        grossRevenue: 30,
+                        totalCost: 5,
+                        margin: 20,
+                        netRevenue: 25,
+                        etsyFees: 5,
+                        packagingOverhead: 0,
+                    }),
+                },
+                inventoryLot: {
+                    findUnique: vi.fn().mockImplementation(({ where }: any) => {
+                        if (where?.id === 'lot-a1') {
+                            return Promise.resolve({ id: 'lot-a1', remaining: 10, unitCost: 1.25 });
+                        }
+                        if (where?.id === 'lot-a2') {
+                            return Promise.resolve({ id: 'lot-a2', remaining: 10, unitCost: 1.5 });
+                        }
+                        return Promise.resolve(null);
+                    }),
+                    update: vi.fn().mockImplementation((args: any) => {
+                        inventoryLotUpdateCalls.push(args);
+                        return Promise.resolve({});
+                    }),
+                },
+            };
+            return callback(mockTx);
+        });
+
+        mockEtsyClient.getReceipts.mockResolvedValue({
+            receipts: [
+                {
+                    receipt_id: 5004,
+                    name: 'Test Buyer',
+                    is_paid: true,
+                    is_shipped: false,
+                    create_timestamp: Math.floor(Date.now() / 1000),
+                    grandtotal: { amount: 3000, divisor: 100 },
+                    subtotal: { amount: 2500, divisor: 100 },
+                    total_shipping_cost: { amount: 500, divisor: 100 },
+                    transactions: [
+                        {
+                            transaction_id: 1,
+                            listing_id: 100,
+                            title: 'Test Hamper',
+                            quantity: 1,
+                            price: { amount: 2500, divisor: 100 },
+                            sku: null,
+                            product_id: null,
+                            variations: [],
+                        },
+                    ],
+                },
+            ],
+        });
+
+        mockPrisma.sale.findFirst.mockResolvedValue(null);
+        mockPrisma.hamper.findFirst.mockResolvedValue({
+            id: 'hamper-1',
+            name: 'Test Hamper',
+            etsyListingId: '100',
+            hasVariants: false,
+            requirements: [
+                {
+                    id: 'req-a',
+                    categoryId: 'cat-a',
+                    quantity: 2,
+                    isOptional: false,
+                    category: { id: 'cat-a', name: 'Category A', pickRule: 'FIFO' },
+                },
+            ],
+            variants: [],
+        });
+        mockPrisma.etsyFeeConfig.findFirst.mockResolvedValue({
+            id: 'fee-1',
+            transactionFee: 0.065,
+            regulatoryFee: 0.003,
+            paymentFeePercent: 0.04,
+            paymentFeeFixed: 0.2,
+            vatRate: 0.2,
+            listingFee: 0.15,
+        });
+        mockPrisma.packagingOverhead.findMany.mockResolvedValue([]);
+
+        mockPrisma.inventoryLot.findMany.mockResolvedValue([
+            {
+                id: 'lot-a1',
+                remaining: 10,
+                product: { id: 'prod-a', name: 'Product A', categoryId: 'cat-a' },
+            },
+            {
+                id: 'lot-a2',
+                remaining: 10,
+                product: { id: 'prod-a', name: 'Product A', categoryId: 'cat-a' },
+            },
+        ] as any);
+
+        const result = await importOrder(5004, 3.5, false, {
+            'cat-a-all': [
+                { lotId: 'lot-a1', quantity: 1 },
+                { lotId: 'lot-a2', quantity: 1 },
+            ],
+        });
+
+        expect(result.success).toBe(true);
+        expect(inventoryLotUpdateCalls).toHaveLength(2);
+        expect(inventoryLotUpdateCalls).toEqual([
+            { where: { id: 'lot-a1' }, data: { remaining: { decrement: 1 } } },
+            { where: { id: 'lot-a2' }, data: { remaining: { decrement: 1 } } },
+        ]);
+    });
+
+    it('rejects substitutions when a selected lot is in the wrong category', async () => {
+        mockEtsyClient.getReceipts.mockResolvedValue({
+            receipts: [
+                {
+                    receipt_id: 5005,
+                    name: 'Test Buyer',
+                    is_paid: true,
+                    is_shipped: false,
+                    create_timestamp: Math.floor(Date.now() / 1000),
+                    grandtotal: { amount: 3000, divisor: 100 },
+                    subtotal: { amount: 2500, divisor: 100 },
+                    total_shipping_cost: { amount: 500, divisor: 100 },
+                    transactions: [
+                        {
+                            transaction_id: 1,
+                            listing_id: 100,
+                            title: 'Test Hamper',
+                            quantity: 1,
+                            price: { amount: 2500, divisor: 100 },
+                            sku: null,
+                            product_id: null,
+                            variations: [],
+                        },
+                    ],
+                },
+            ],
+        });
+
+        mockPrisma.sale.findFirst.mockResolvedValue(null);
+        mockPrisma.hamper.findFirst.mockResolvedValue({
+            id: 'hamper-1',
+            name: 'Test Hamper',
+            etsyListingId: '100',
+            hasVariants: false,
+            requirements: [
+                {
+                    id: 'req-a',
+                    categoryId: 'cat-a',
+                    quantity: 1,
+                    isOptional: false,
+                    category: { id: 'cat-a', name: 'Category A', pickRule: 'FIFO' },
+                },
+            ],
+            variants: [],
+        });
+        mockPrisma.etsyFeeConfig.findFirst.mockResolvedValue({
+            id: 'fee-1',
+            transactionFee: 0.065,
+            regulatoryFee: 0.003,
+            paymentFeePercent: 0.04,
+            paymentFeeFixed: 0.2,
+            vatRate: 0.2,
+            listingFee: 0.15,
+        });
+        mockPrisma.packagingOverhead.findMany.mockResolvedValue([]);
+
+        mockPrisma.inventoryLot.findMany.mockResolvedValue([
+            {
+                id: 'lot-wrong',
+                remaining: 10,
+                product: { id: 'prod-b', name: 'Product B', categoryId: 'cat-b' }, // Wrong category
+            },
+        ] as any);
+
+        await expect(
+            importOrder(5005, 3.5, false, {
+                'cat-a-all': [{ lotId: 'lot-wrong', quantity: 1 }],
+            })
+        ).rejects.toMatchObject({
+            status: 400,
         });
     });
 });

@@ -89,8 +89,8 @@ router.get('/orders/pending', async (req, res) => {
 router.post('/orders/import', async (req, res) => {
     try {
         const data = etsyOrderImportBodySchema.parse(req.body)
-        const { receiptId, postageCost, isHistorical = false } = data
-        const result = await importOrder(receiptId, postageCost, isHistorical);
+        const { receiptId, postageCost, isHistorical = false, allocationOverrides } = data
+        const result = await importOrder(receiptId, postageCost, isHistorical, allocationOverrides);
         res.json(result);
     } catch (error) {
         if (error instanceof z.ZodError) {

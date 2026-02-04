@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { cuidSchema } from '../http/primitives'
 import {
   etsyOrdersBulkImportResultSchema,
   etsyOrderImportResultSchema,
@@ -53,6 +54,17 @@ export const etsyOrderImportBodySchema = z.object({
   receiptId: z.number().int().positive(),
   postageCost: z.number().finite().nonnegative(),
   isHistorical: z.boolean().optional(),
+  allocationOverrides: z
+    .record(
+      z.string(),
+      z.array(
+        z.object({
+          lotId: cuidSchema,
+          quantity: z.number().positive(),
+        })
+      )
+    )
+    .optional(),
 })
 
 export const etsyOrderImportResponseSchema = etsyOrderImportResultSchema

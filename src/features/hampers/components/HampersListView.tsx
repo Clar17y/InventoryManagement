@@ -11,7 +11,7 @@ import type { Hamper, HamperDetail, HamperVariantAvailability } from '../../../l
 import { formatCurrency } from '../../../lib/formatting'
 import { HAMPER_SORT_OPTIONS } from '../constants'
 import type { HamperSortOption } from '../types'
-import { getAvailabilityColor } from '../utils'
+import { formatAvailability, getAvailabilityColor, getDisplayAvailability } from '../utils'
 
 export default function HampersListView({
   sortedHampers,
@@ -141,11 +141,14 @@ export default function HampersListView({
                   {formatCurrency(hamper.sellingPrice)} • {hamper.requirements.length} requirements
                 </div>
                 <div className="flex items-center gap-2">
-                  {!hamper.hasVariants && (
-                    <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${getAvailabilityColor(hamper.canMake)}`}>
-                      Can make: {hamper.canMake}
-                    </span>
-                  )}
+                  {!hamper.hasVariants && (() => {
+                    const { value } = getDisplayAvailability(hamper.canMake, hamper.indicativeQuantity)
+                    return (
+                      <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${getAvailabilityColor(value)}`}>
+                        Can make: {formatAvailability(hamper.canMake, hamper.indicativeQuantity)}
+                      </span>
+                    )
+                  })()}
                   {expandedId === hamper.id ? (
                     <ChevronUpIcon className="h-5 w-5 text-gray-400 flex-shrink-0" />
                   ) : (
@@ -157,15 +160,18 @@ export default function HampersListView({
               {/* Variant Badges (show max 3, then "+X more") */}
               {hamper.hasVariants && hamper.variantAvailability && hamper.variantAvailability.length > 0 && (
                 <div className="flex flex-wrap gap-1 mt-2">
-                  {hamper.variantAvailability.slice(0, 3).map((v: HamperVariantAvailability) => (
-                    <span
-                      key={v.variantId}
-                      className={`px-2 py-0.5 rounded-full text-xs font-medium ${getAvailabilityColor(v.canMake)}`}
-                      title={v.etsySku ? `SKU: ${v.etsySku}` : undefined}
-                    >
-                      {v.name}: {v.canMake}
-                    </span>
-                  ))}
+                  {hamper.variantAvailability.slice(0, 3).map((v: HamperVariantAvailability) => {
+                    const { value } = getDisplayAvailability(v.canMake, v.indicativeQuantity)
+                    return (
+                      <span
+                        key={v.variantId}
+                        className={`px-2 py-0.5 rounded-full text-xs font-medium ${getAvailabilityColor(value)}`}
+                        title={v.etsySku ? `SKU: ${v.etsySku}` : undefined}
+                      >
+                        {v.name}: {formatAvailability(v.canMake, v.indicativeQuantity)}
+                      </span>
+                    )
+                  })}
                   {hamper.variantAvailability.length > 3 && (
                     <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-600">
                       +{hamper.variantAvailability.length - 3} more
@@ -220,22 +226,25 @@ export default function HampersListView({
                   <div className="mt-4">
                     <h4 className="text-sm font-medium text-gray-700 mb-2">Variant Availability</h4>
                     <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-                      {expandedDetail.variantAvailability.map((v: HamperVariantAvailability) => (
-                        <button
-                          type="button"
-                          key={v.variantId}
-                          onClick={() => setSelectedVariantId(selectedVariantId === v.variantId ? null : v.variantId)}
-                          className={`p-2 rounded-lg text-center transition-all ${getAvailabilityColor(v.canMake)} ${
-                            selectedVariantId === v.variantId ? 'ring-2 ring-primary-500 ring-offset-1' : 'hover:opacity-80'
-                          }`}
-                        >
-                          <div className="font-medium text-sm">{v.name}</div>
-                          <div className="text-lg font-bold">{v.canMake}</div>
-                          {v.etsySku && (
-                            <div className="text-xs opacity-75 font-mono">{v.etsySku}</div>
-                          )}
-                        </button>
-                      ))}
+                      {expandedDetail.variantAvailability.map((v: HamperVariantAvailability) => {
+                        const { value } = getDisplayAvailability(v.canMake, v.indicativeQuantity)
+                        return (
+                          <button
+                            type="button"
+                            key={v.variantId}
+                            onClick={() => setSelectedVariantId(selectedVariantId === v.variantId ? null : v.variantId)}
+                            className={`p-2 rounded-lg text-center transition-all ${getAvailabilityColor(value)} ${
+                              selectedVariantId === v.variantId ? 'ring-2 ring-primary-500 ring-offset-1' : 'hover:opacity-80'
+                            }`}
+                          >
+                            <div className="font-medium text-sm">{v.name}</div>
+                            <div className="text-lg font-bold">{formatAvailability(v.canMake, v.indicativeQuantity)}</div>
+                            {v.etsySku && (
+                              <div className="text-xs opacity-75 font-mono">{v.etsySku}</div>
+                            )}
+                          </button>
+                        )
+                      })}
                     </div>
 
                     {/* Selected Variant Mappings */}

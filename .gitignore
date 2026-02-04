@@ -47,3 +47,4 @@ backups/
 *.xlsx
 *.xml
 .grepai/
+*.sql

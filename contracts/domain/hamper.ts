@@ -53,6 +53,7 @@ export const hamperVariantAvailabilitySchema = z.object({
   name: z.string().min(1).max(100),
   etsySku: z.string().max(50).nullable(),
   sellingPrice: decimalSchema.nullable(),
+  indicativeQuantity: z.number().int().nonnegative().nullable().optional(),
   canMake: z.number().int().nonnegative(),
   mappings: z
     .array(

@@ -300,12 +300,16 @@ export function buildInventoryUpdateProducts(
         value_ids: pv.value_ids,
         values: pv.values,
       })),
-      offerings: product.offerings.map((offering) => ({
-        quantity: (productUpdate ?? defaultVariantUpdate)?.quantity ?? offering.quantity,
-        price: offering.price.amount / offering.price.divisor,
-        is_enabled: offering.is_enabled,
-        readiness_state_id: offering.readiness_state_id,
-      })),
+      offerings: product.offerings.map((offering) => {
+        const newQuantity = (productUpdate ?? defaultVariantUpdate)?.quantity ?? offering.quantity;
+        return {
+          quantity: newQuantity,
+          price: offering.price.amount / offering.price.divisor,
+          // Set visibility based on quantity: visible if quantity > 0, hidden if 0
+          is_enabled: newQuantity > 0,
+          readiness_state_id: offering.readiness_state_id,
+        };
+      }),
     };
   });
 }

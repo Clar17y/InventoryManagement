@@ -14,6 +14,76 @@ import {
 import { SyncHttpError } from './errors';
 import { decodeHtmlEntities } from '../utils';
 
+type AllocationOverride = Array<{ lotId: string; quantity: number }>
+type AllocationOverridesByNeedKey = Record<string, AllocationOverride>
+
+function buildNeedKey(categoryId: string, variantId: string | null): string {
+  return `${categoryId}-${variantId || 'all'}`;
+}
+
+async function validateAllocationOverride(params: {
+  key: string;
+  categoryId: string;
+  quantityRequired: number;
+  override: AllocationOverride;
+}): Promise<{ quantitySelected: number }> {
+  const { key, categoryId, quantityRequired, override } = params
+
+  const requestedByLotId = override.reduce<Record<string, number>>((acc, o) => {
+    acc[o.lotId] = (acc[o.lotId] ?? 0) + o.quantity
+    return acc
+  }, {})
+
+  const lotIds = Object.keys(requestedByLotId)
+  if (lotIds.length === 0) {
+    throw new SyncHttpError(400, {
+      error: 'Invalid substitution',
+      message: `Substitution for ${key} is empty (need ${quantityRequired}).`,
+    });
+  }
+
+  const lots = await prisma.inventoryLot.findMany({
+    where: { id: { in: lotIds } },
+    include: { product: true },
+  })
+
+  const lotsById = new Map(lots.map((l) => [l.id, l]))
+  const missingLots = lotIds.filter((id) => !lotsById.has(id))
+  if (missingLots.length > 0) {
+    throw new SyncHttpError(400, {
+      error: 'Invalid substitution',
+      message: `Substitution contains unknown lot(s): ${missingLots.join(', ')}`,
+    });
+  }
+
+  for (const [lotId, qty] of Object.entries(requestedByLotId)) {
+    const lot = lotsById.get(lotId)!
+    if (lot.product.categoryId !== categoryId) {
+      throw new SyncHttpError(400, {
+        error: 'Invalid substitution',
+        message: `Lot ${lotId} is not in the required category for ${key}.`,
+      });
+    }
+
+    if (Number(lot.remaining) < qty) {
+      throw new SyncHttpError(400, {
+        error: 'Invalid substitution',
+        message: `Lot ${lotId} does not have enough remaining stock (selected ${qty}, remaining ${Number(lot.remaining)}).`,
+      });
+    }
+  }
+
+  const quantitySelected = Object.values(requestedByLotId).reduce((sum, qty) => sum + qty, 0)
+  if (quantitySelected < quantityRequired) {
+    throw new SyncHttpError(400, {
+      error: 'Invalid substitution',
+      message: `Substitution for ${key} does not cover the required quantity (selected ${quantitySelected}, need ${quantityRequired}).`,
+    });
+  }
+
+  return { quantitySelected }
+}
+
 export async function getPendingOrders() {
   const sessionId = startLogSession('PENDING_ORDERS');
   try {
@@ -116,10 +186,21 @@ export async function getPendingOrders() {
   }
 }
 
-export async function importOrder(receiptId: number, postageCost: number, isHistorical = false) {
+export async function importOrder(
+  receiptId: number,
+  postageCost: number,
+  isHistorical = false,
+  allocationOverrides?: AllocationOverridesByNeedKey
+) {
   const sessionId = startLogSession('ORDER_IMPORT');
   try {
-    logWorkflow('IMPORT', 'Starting order import', { receiptId, postageCost, isHistorical });
+    logWorkflow('IMPORT', 'Starting order import', {
+      receiptId,
+      postageCost,
+      isHistorical,
+      hasAllocationOverrides: !!allocationOverrides && Object.keys(allocationOverrides).length > 0,
+      allocationOverrideKeys: allocationOverrides ? Object.keys(allocationOverrides) : [],
+    });
 
     if (!receiptId || postageCost === undefined) {
       logWorkflow('IMPORT', 'Validation failed - missing required fields', {
@@ -448,10 +529,15 @@ export async function importOrder(receiptId: number, postageCost: number, isHist
     if (!isHistorical) {
       logWorkflow('IMPORT:PHASE2', 'Starting stock availability pre-check');
       const stockShortages: Array<{
-        category: string;
-        product?: string;
+        key: string;
+        categoryId: string;
+        categoryName: string;
+        variantId: string | null;
+        pickRule: string;
+        productName?: string;
         need: number;
         have: number;
+        missing: number;
       }> = [];
 
       for (const [key, need] of aggregatedNeeds) {
@@ -462,6 +548,21 @@ export async function importOrder(receiptId: number, postageCost: number, isHist
           totalNeeded: need.totalNeeded,
           pickRule: need.pickRule,
         });
+
+        const override = allocationOverrides?.[key];
+        if (override) {
+          await validateAllocationOverride({
+            key,
+            categoryId: need.categoryId,
+            quantityRequired: need.totalNeeded,
+            override,
+          });
+
+          logWorkflow('IMPORT:PHASE2', `Override validated for ${key}`, {
+            overrideLots: override.length,
+          });
+          continue;
+        }
 
         const allocation = need.variantId
           ? await allocateStockForVariantRequirement(
@@ -489,11 +590,24 @@ export async function importOrder(receiptId: number, postageCost: number, isHist
 
         if (!allocation.fulfilled) {
           const have = allocation.allocations.reduce((sum, a) => sum + a.quantity, 0);
+          const missing = Math.max(0, need.totalNeeded - have);
+
+          const uniqueProducts = Array.from(
+            new Set(allocation.allocations.map((a) => a.productName).filter(Boolean))
+          );
+          const productName =
+            allocation.productName ||
+            (uniqueProducts.length === 1 ? uniqueProducts[0] : undefined);
           stockShortages.push({
-            category: allocation.categoryName,
-            product: allocation.productName,
+            key,
+            categoryId: need.categoryId,
+            categoryName: allocation.categoryName,
+            variantId: need.variantId,
+            pickRule: need.pickRule,
+            productName,
             need: need.totalNeeded,
             have,
+            missing,
           });
         }
       }
@@ -510,8 +624,17 @@ export async function importOrder(receiptId: number, postageCost: number, isHist
           error: 'insufficient_stock',
           stockShortages,
         });
+        const message = `Insufficient stock \u2192 ${stockShortages
+          .map((s) => {
+            const product = s.productName ? ` (${s.productName})` : '';
+            return `${s.categoryName}${product}: need ${s.need}, have ${s.have}`;
+          })
+          .join(', ')}`;
         throw new SyncHttpError(400, {
           error: 'Insufficient stock to fulfill order',
+          code: 'insufficient_stock',
+          receiptId,
+          message,
           shortages: stockShortages,
         });
       }
@@ -522,6 +645,25 @@ export async function importOrder(receiptId: number, postageCost: number, isHist
     logWorkflow('IMPORT:PHASE3', 'Starting transactional import');
     const sale = await prisma.$transaction(async (tx) => {
       let totalCost = 0;
+
+      const overridePools = new Map<string, Array<{ lotId: string; remainingQty: number }>>();
+      if (allocationOverrides) {
+        for (const [key, override] of Object.entries(allocationOverrides)) {
+          const requestedByLotId = override.reduce<Record<string, number>>((acc, o) => {
+            acc[o.lotId] = (acc[o.lotId] ?? 0) + o.quantity;
+            return acc;
+          }, {});
+
+          overridePools.set(
+            key,
+            Object.entries(requestedByLotId).map(([lotId, qty]) => ({
+              lotId,
+              remainingQty: qty,
+            }))
+          );
+        }
+      }
+
       const saleLines: Array<{
         hamperId: string;
         variantId: string | null;
@@ -575,6 +717,65 @@ export async function importOrder(receiptId: number, postageCost: number, isHist
 
         for (const requirement of lineMeta.requirements) {
           const totalNeeded = requirement.quantity * lineMeta.quantity;
+
+          const needKey = buildNeedKey(requirement.categoryId, lineMeta.variantId);
+          const overridePool = overridePools.get(needKey);
+
+          if (overridePool) {
+            let remaining = totalNeeded;
+            const selected: Array<{ lotId: string; quantity: number; unitCost: number }> = [];
+
+            for (const entry of overridePool) {
+              if (remaining <= 0) break;
+              if (entry.remainingQty <= 0) continue;
+
+              const qty = Math.min(remaining, entry.remainingQty);
+              if (qty <= 0) continue;
+
+              const lot = await tx.inventoryLot.findUnique({
+                where: { id: entry.lotId },
+              });
+              if (!lot) throw new Error(`Lot ${entry.lotId} not found`);
+              if (Number(lot.remaining) < qty) {
+                throw new Error(
+                  `Lot ${entry.lotId} does not have enough remaining stock (need ${qty}, remaining ${Number(
+                    lot.remaining
+                  )})`
+                );
+              }
+
+              selected.push({
+                lotId: entry.lotId,
+                quantity: qty,
+                unitCost: Number(lot.unitCost),
+              });
+
+              entry.remainingQty -= qty;
+              remaining -= qty;
+            }
+
+            if (remaining > 0) {
+              throw new Error(
+                `Substitution did not cover required quantity for ${needKey} (need ${totalNeeded}, missing ${remaining})`
+              );
+            }
+
+            for (const alloc of selected) {
+              await tx.inventoryLot.update({
+                where: { id: alloc.lotId },
+                data: { remaining: { decrement: alloc.quantity } },
+              });
+
+              consumptions.push({
+                lotId: alloc.lotId,
+                quantity: alloc.quantity,
+                unitCost: alloc.unitCost,
+              });
+              totalCost += alloc.quantity * alloc.unitCost;
+            }
+
+            continue;
+          }
 
           const allocation = lineMeta.variantId
             ? await allocateStockForVariantRequirement(

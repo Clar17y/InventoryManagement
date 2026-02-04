@@ -4,3 +4,24 @@ export function getAvailabilityColor(canMake: number): string {
   return 'bg-red-100 text-red-800'
 }
 
+// Returns display value and whether it's indicative (higher than actual)
+export function getDisplayAvailability(
+  canMake: number,
+  indicativeQuantity: number | null | undefined
+): { value: number; isIndicative: boolean } {
+  const indicative = indicativeQuantity ?? 0
+  if (indicative > canMake) {
+    return { value: indicative, isIndicative: true }
+  }
+  return { value: canMake, isIndicative: false }
+}
+
+// Format availability with asterisk if indicative
+export function formatAvailability(
+  canMake: number,
+  indicativeQuantity: number | null | undefined
+): string {
+  const { value, isIndicative } = getDisplayAvailability(canMake, indicativeQuantity)
+  return isIndicative ? `${value}*` : `${value}`
+}
+

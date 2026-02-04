@@ -1,109 +1,105 @@
-# Savvy Hampers
+# Savvy Hampers Inventory Manager
 
-Inventory, costing, and margin management system for an Etsy hamper business. Cloud-hosted, mobile-first, single-user.
+Mobile-first inventory, costing, and margin tracking for a hamper / kit business (built for an Etsy seller).
 
 ## Features
 
-- **Inventory Management** – Track products with barcode scanning, lot-based stock (FIFO/FEFO), expiry dates
-- **Hamper Builder** – Define hamper requirements by category, view real-time availability ("can make X")
-- **Sales & Margins** – Record sales with automatic stock allocation, Etsy fee calculation, margin tracking
-- **Business Expenses** – Track advertising, packaging, postage, and other business costs
-- **Historical Import** – Import sales and expenses from Excel spreadsheets
-- **Low Stock Alerts** – Per-product threshold alerts and dashboard warnings
+- Lot-based inventory with expiry dates and FIFO allocation
+- Barcode scanning (camera or handheld scanner input) for fast stock entry
+- Hamper definitions with category-based requirements and real-time "can make" availability
+- Sales recording with automatic stock consumption and margin calculation (including Etsy fees)
+- Business expenses tracking (packaging, ads, postage, etc.)
+- Analytics dashboards plus low-stock / expiring alerts
+- Optional Etsy integration to sync listing inventory (real mode or mock mode for dev)
+- Historical import from spreadsheets (sales + expenses)
 
 ## Tech Stack
 
 | Layer | Technology |
-|-------|------------|
-| Frontend | React 19 + Vite + TypeScript + TailwindCSS 4 |
+|---|---|
+| Frontend | React + Vite + TypeScript + TailwindCSS |
 | Backend | Express + TypeScript |
-| Database | PostgreSQL (Neon) |
+| Database | PostgreSQL |
 | ORM | Prisma |
 | Auth | Supabase (magic links) |
 | Barcode | html5-qrcode |
 
-## Getting Started
+## Quick Start (Development)
 
 ### Prerequisites
 
 - Node.js 20+
-- PostgreSQL database (recommend [Neon](https://neon.tech) for serverless)
-- Supabase project for auth
+- PostgreSQL database (Neon works well)
+- Supabase project (Auth)
 
-### Installation
+### Setup
 
 ```bash
-# Install dependencies
 npm install
-
-# Configure environment
 cp .env.example .env
-# Edit .env with your DATABASE_URL (runtime, recommend pooled) + DIRECT_URL (migrations) and Supabase credentials
 
-# Generate Prisma client
 npm run db:generate
-
-# Run migrations
 npm run db:migrate
 
-# Start development server
 npm run dev
 ```
 
-The app runs at `http://localhost:3000` with the API at `http://localhost:3001` (proxied via `/api`).
+### URLs
 
-All `/api/*` endpoints (except `/api/health`) require a Supabase access token (`Authorization: Bearer <token>`); the frontend sends this automatically after login. For development only, you can set `VITE_DEV_BYPASS_AUTH=true` to bypass auth in both the UI and API.
+- UI: `https://localhost:3000`
+- API: `http://localhost:3001` (proxied via `/api` from the UI)
 
-## Project Structure
+Note: the dev UI uses a self-signed HTTPS cert (so barcode scanning works from mobile devices on your LAN). You may need to accept the certificate warning on the device/browser.
 
+## Environment Variables
+
+See `.env.example` for the full list. Minimum required for local dev:
+
+- `DATABASE_URL` and `DIRECT_URL` (Postgres)
+- `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` (Supabase Auth)
+
+Optional:
+
+- `ETSY_MODE=mock` to run without Etsy credentials
+- `ETSY_API_KEY` and `ETSY_REDIRECT_URI` for real Etsy integration
+
+## Auth
+
+All `/api/*` endpoints (except `/api/health` and the Etsy callback) require a Supabase access token (`Authorization: Bearer <token>`). The frontend sends this automatically after login.
+
+For local development only, you can bypass auth by setting either:
+
+- `DEV_BYPASS_AUTH=true` (server-only), or
+- `VITE_DEV_BYPASS_AUTH=true` (client + server)
+
+## Production (Single Server)
+
+The Express server can serve the built frontend from `dist/`.
+
+```bash
+npm run build
+npx tsx server/index.ts
 ```
-├── src/              # React frontend
-│   ├── components/   # Reusable UI components
-│   ├── pages/        # Page components (Dashboard, Products, Sales, etc.)
-│   └── lib/          # API client and utilities
-├── server/           # Express API backend
-│   └── routes/       # API route handlers
-├── prisma/           # Database schema and migrations
-├── scripts/          # Utility scripts (historical import)
-└── docs/             # Project documentation
-```
+
+Then open `http://localhost:3001` (or set `PORT` to choose a different port).
 
 ## Scripts
 
 | Command | Description |
-|---------|-------------|
-| `npm run dev` | Start frontend + backend in development mode |
-| `npm run build` | Build for production |
+|---|---|
+| `npm run dev` | Start UI + API in development mode |
+| `npm run build` | Typecheck + build the frontend |
+| `npm run lint` | Lint |
+| `npm test` | Run tests (watch) |
+| `npm run test:run` | Run tests (CI mode) |
 | `npm run db:migrate` | Run Prisma migrations |
-| `npm run db:studio` | Open Prisma Studio GUI |
+| `npm run db:studio` | Open Prisma Studio |
+| `npm run db:backup` | Run DB backup script |
 
 ## Documentation
 
-See the [`docs/`](./docs) folder for:
-
-- [Implementation Plan](./docs/IMPLEMENTATION_PLAN.md) – Full technical specification
-- [Progress Tracker](./docs/PROGRESS.md) – Development status and handoff notes
-
-## Development Status
-
-| Phase | Status |
-|-------|--------|
-| Foundation | ✅ Complete |
-| Core Data (Products, Categories, Stock) | ✅ Complete |
-| Hampers | ✅ Complete |
-| Sales & Margins | ✅ Complete |
-| Finance Tracking | ✅ Complete |
-| Historical Import | ✅ Complete |
-| Polish & Alerts | ✅ Complete |
-
-## Effort Estimates (Tokens)
-
-When planning work, estimate effort as an approximate **LLM token budget** (prompt + completion) for an AI coding agent, not wall-clock time.
-
-- **Tiny change**: ~5k–15k tokens
-- **Small feature**: ~15k–50k tokens
-- **Medium feature**: ~50k–150k tokens
-- **Large feature/refactor**: ~150k–400k+ tokens
+- `docs/IMPLEMENTATION_PLAN.md` (design and technical spec)
+- `docs/PROGRESS.md` (development notes / handoff)
 
 ## License
 

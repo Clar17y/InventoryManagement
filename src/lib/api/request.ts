@@ -3,6 +3,18 @@ import { z } from 'zod'
 
 const API_BASE = '/api'
 
+export class ApiError extends Error {
+  status: number
+  body: unknown
+
+  constructor(message: string, status: number, body: unknown) {
+    super(message)
+    this.name = 'ApiError'
+    this.status = status
+    this.body = body
+  }
+}
+
 export async function request<T>(endpoint: string, options?: RequestInit): Promise<T> {
   const {
     data: { session },
@@ -18,10 +30,14 @@ export async function request<T>(endpoint: string, options?: RequestInit): Promi
   })
 
   if (!response.ok) {
-    const error = await response.json().catch(() => ({ error: 'Request failed' }))
-    // Use detailed message if available (e.g., stock shortages), otherwise fall back to error
-    const errorMessage = error.message || error.error || 'Request failed'
-    throw new Error(errorMessage)
+    const errorBody = await response.json().catch(() => ({ error: 'Request failed' }))
+    const errorMessage =
+      typeof errorBody === 'object' && errorBody && 'message' in errorBody && typeof (errorBody as any).message === 'string'
+        ? (errorBody as any).message
+        : typeof errorBody === 'object' && errorBody && 'error' in errorBody && typeof (errorBody as any).error === 'string'
+          ? (errorBody as any).error
+          : 'Request failed'
+    throw new ApiError(errorMessage, response.status, errorBody)
   }
 
   if (response.status === 204) {

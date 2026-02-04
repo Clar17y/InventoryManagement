@@ -154,7 +154,7 @@ async function calculateVariantAvailability(variantId: string): Promise<number> 
 }
 
 // Get variant availability for all variants of a hamper
-async function getVariantAvailabilities(hamperId: string): Promise<{ variantId: string; name: string; etsySku: string | null; sellingPrice: number | null; canMake: number }[]> {
+async function getVariantAvailabilities(hamperId: string): Promise<{ variantId: string; name: string; etsySku: string | null; sellingPrice: number | null; indicativeQuantity: number | null; canMake: number }[]> {
   const variants = await prisma.hamperVariant.findMany({
     where: { hamperId, isActive: true },
     orderBy: { name: 'asc' },
@@ -166,6 +166,7 @@ async function getVariantAvailabilities(hamperId: string): Promise<{ variantId: 
       name: v.name,
       etsySku: v.etsySku,
       sellingPrice: v.sellingPrice ? Number(v.sellingPrice) : null,
+      indicativeQuantity: v.indicativeQuantity,
       canMake: await calculateVariantAvailability(v.id),
     }))
   )
@@ -311,6 +312,7 @@ router.get('/:id', async (req, res) => {
           name: v.name,
           etsySku: v.etsySku,
           sellingPrice: v.sellingPrice ? Number(v.sellingPrice) : null,
+          indicativeQuantity: v.indicativeQuantity,
           canMake: await calculateVariantAvailability(v.id),
           mappings: v.mappings.map((m) => {
             const stock = m.product.lots?.reduce(

@@ -6,8 +6,47 @@ import {
   LinkIcon,
   XMarkIcon,
 } from '@heroicons/react/24/outline'
-import { etsy, EtsyPendingOrder, EtsyStatus } from '../../../lib/api'
+import { etsy, EtsyPendingOrder, EtsyStatus, inventory, type CategoryLot } from '../../../lib/api'
+import { ApiError } from '../../../lib/api/request'
+import OverrideEditor from '../../sales/components/OverrideEditor'
+import type { LotOverride } from '../../sales/types'
 import EtsyPendingOrdersList from './EtsyPendingOrdersList'
+
+type InsufficientStockShortage = {
+  key: string
+  categoryId: string
+  categoryName: string
+  variantId: string | null
+  pickRule: string
+  productName?: string
+  need: number
+  have: number
+  missing: number
+}
+
+type InsufficientStockErrorBody = {
+  code?: string
+  receiptId?: number
+  message?: string
+  shortages: InsufficientStockShortage[]
+}
+
+function isInsufficientStockErrorBody(body: unknown): body is InsufficientStockErrorBody {
+  if (!body || typeof body !== 'object') return false
+  const shortages = (body as any).shortages
+  if (!Array.isArray(shortages) || shortages.length === 0) return false
+
+  return shortages.every((s: any) => {
+    return (
+      s &&
+      typeof s === 'object' &&
+      typeof s.key === 'string' &&
+      typeof s.categoryId === 'string' &&
+      typeof s.categoryName === 'string' &&
+      typeof s.need === 'number'
+    )
+  })
+}
 
 interface EtsyOrdersSyncPanelProps {
   isOpen: boolean
@@ -27,6 +66,24 @@ export default function EtsyOrdersSyncPanel({ isOpen, onClose, onImportComplete 
   const [lastImport, setLastImport] = useState<{ receiptId: number; saleId: string } | null>(null)
   const [bulkImportResult, setBulkImportResult] = useState<{ imported: number; failed: number } | null>(null)
   const [isHistorical, setIsHistorical] = useState(false)
+
+  const [insufficientStock, setInsufficientStock] = useState<{
+    receiptId: number
+    postageCost: number
+    isHistorical: boolean
+    message?: string
+    shortages: InsufficientStockShortage[]
+  } | null>(null)
+  const [substitutionOverrides, setSubstitutionOverrides] = useState<Record<string, LotOverride[]>>({})
+  const [editingSubstitution, setEditingSubstitution] = useState<{
+    key: string
+    categoryId: string
+    categoryName: string
+    quantityRequired: number
+  } | null>(null)
+  const [availableLots, setAvailableLots] = useState<CategoryLot[]>([])
+  const [lotsLoading, setLotsLoading] = useState(false)
+  const [substitutionSaving, setSubstitutionSaving] = useState(false)
 
   const pendingCount = pendingOrders.length
 
@@ -67,6 +124,11 @@ export default function EtsyOrdersSyncPanel({ isOpen, onClose, onImportComplete 
   useEffect(() => {
     if (!isOpen) return
 
+    setError(null)
+    setInsufficientStock(null)
+    setSubstitutionOverrides({})
+    setEditingSubstitution(null)
+
       ; (async () => {
         const statusData = await loadStatus()
         if (statusData?.connected) {
@@ -75,6 +137,28 @@ export default function EtsyOrdersSyncPanel({ isOpen, onClose, onImportComplete 
       })()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen])
+
+  useEffect(() => {
+    if (!editingSubstitution) {
+      setAvailableLots([])
+      return
+    }
+
+    const fetchLots = async () => {
+      setLotsLoading(true)
+      try {
+        const lots = await inventory.lotsByCategory(editingSubstitution.categoryId)
+        setAvailableLots(lots)
+      } catch (err) {
+        console.error('Failed to load lots for substitution', err)
+        setAvailableLots([])
+      } finally {
+        setLotsLoading(false)
+      }
+    }
+
+    fetchLots()
+  }, [editingSubstitution?.categoryId])
 
   const handleConnect = async () => {
     try {
@@ -96,6 +180,9 @@ export default function EtsyOrdersSyncPanel({ isOpen, onClose, onImportComplete 
       setSelectedOrders(new Set())
       setLastImport(null)
       setBulkImportResult(null)
+      setInsufficientStock(null)
+      setSubstitutionOverrides({})
+      setEditingSubstitution(null)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to disconnect')
     }
@@ -134,6 +221,9 @@ export default function EtsyOrdersSyncPanel({ isOpen, onClose, onImportComplete 
     setError(null)
     setLastImport(null)
     setBulkImportResult(null)
+    setInsufficientStock(null)
+    setSubstitutionOverrides({})
+    setEditingSubstitution(null)
 
     try {
       const result = await etsy.importOrder({ receiptId, postageCost, isHistorical })
@@ -141,9 +231,93 @@ export default function EtsyOrdersSyncPanel({ isOpen, onClose, onImportComplete 
       setPendingOrders((prev) => prev.filter((o) => o.receiptId !== receiptId))
       onImportComplete()
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to import order')
+      if (err instanceof ApiError && isInsufficientStockErrorBody(err.body)) {
+        setInsufficientStock({
+          receiptId,
+          postageCost,
+          isHistorical,
+          message: err.body.message || err.message,
+          shortages: err.body.shortages,
+        })
+        setError(null)
+      } else {
+        setError(err instanceof Error ? err.message : 'Failed to import order')
+      }
     } finally {
       setImportingOrderId(null)
+    }
+  }
+
+  const getSelectedQuantity = (key: string) => {
+    return (substitutionOverrides[key] || []).reduce((sum, l) => sum + l.quantity, 0)
+  }
+
+  const substitutionReady = insufficientStock
+    ? insufficientStock.shortages.every((s) => getSelectedQuantity(s.key) >= s.need)
+    : false
+
+  const startSubstitution = (shortage: InsufficientStockShortage) => {
+    setEditingSubstitution({
+      key: shortage.key,
+      categoryId: shortage.categoryId,
+      categoryName: shortage.categoryName,
+      quantityRequired: shortage.need,
+    })
+  }
+
+  const cancelSubstitutionEdit = () => {
+    setEditingSubstitution(null)
+  }
+
+  const saveSubstitutionEdit = (lots: LotOverride[]) => {
+    if (!editingSubstitution) return
+    setSubstitutionOverrides((prev) => ({
+      ...prev,
+      [editingSubstitution.key]: lots,
+    }))
+    setEditingSubstitution(null)
+  }
+
+  const cancelSubstitutionFlow = () => {
+    setInsufficientStock(null)
+    setSubstitutionOverrides({})
+    setEditingSubstitution(null)
+    setAvailableLots([])
+    setSubstitutionSaving(false)
+  }
+
+  const importWithSubstitutions = async () => {
+    if (!insufficientStock) return
+    if (!substitutionReady) return
+
+    setSubstitutionSaving(true)
+    setError(null)
+    setLastImport(null)
+    setBulkImportResult(null)
+
+    try {
+      const allocationOverrides = Object.fromEntries(
+        Object.entries(substitutionOverrides).map(([key, lots]) => [
+          key,
+          lots.map((l) => ({ lotId: l.lotId, quantity: l.quantity })),
+        ])
+      )
+
+      const result = await etsy.importOrder({
+        receiptId: insufficientStock.receiptId,
+        postageCost: insufficientStock.postageCost,
+        isHistorical: insufficientStock.isHistorical,
+        allocationOverrides,
+      })
+
+      setLastImport({ receiptId: insufficientStock.receiptId, saleId: result.sale.id })
+      setPendingOrders((prev) => prev.filter((o) => o.receiptId !== insufficientStock.receiptId))
+      cancelSubstitutionFlow()
+      onImportComplete()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to import order')
+    } finally {
+      setSubstitutionSaving(false)
     }
   }
 
@@ -244,6 +418,87 @@ export default function EtsyOrdersSyncPanel({ isOpen, onClose, onImportComplete 
             <div className="alert-danger flex items-start gap-2">
               <ExclamationTriangleIcon className="h-5 w-5 flex-shrink-0" />
               <span>{error}</span>
+            </div>
+          )}
+
+          {insufficientStock && (
+            <div className="bg-red-50 border border-red-200 rounded-lg p-3 space-y-3">
+              <div className="text-sm font-medium text-red-800">
+                Insufficient stock for order #{insufficientStock.receiptId}
+              </div>
+              {insufficientStock.message && (
+                <div className="text-sm text-red-700">{insufficientStock.message}</div>
+              )}
+
+              <div className="space-y-3">
+                {insufficientStock.shortages.map((s) => {
+                  const selectedLots = substitutionOverrides[s.key] || []
+                  const selectedQty = getSelectedQuantity(s.key)
+                  const isEditing = editingSubstitution?.key === s.key
+
+                  return (
+                    <div key={s.key} className="bg-white rounded-lg border border-red-100 p-3">
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <div className="text-sm font-medium text-gray-900">
+                            {s.categoryName}
+                            {s.productName && <span className="text-gray-500"> ({s.productName})</span>}
+                          </div>
+                          <div className="text-xs text-gray-600 mt-0.5">
+                            Need {s.need}, have {s.have} (missing {s.missing}) • Pick rule: {s.pickRule}
+                          </div>
+                          {selectedLots.length > 0 && (
+                            <div className="text-xs text-gray-700 mt-2">
+                              Selected {selectedQty} / {s.need}:{' '}
+                              {selectedLots.map((l) => `${l.productName} ${l.quantity}`).join(', ')}
+                            </div>
+                          )}
+                        </div>
+
+                        <button
+                          type="button"
+                          className="btn-secondary text-sm"
+                          onClick={() => startSubstitution(s)}
+                          disabled={substitutionSaving}
+                        >
+                          Substitute
+                        </button>
+                      </div>
+
+                      {isEditing && (
+                        <OverrideEditor
+                          categoryName={s.categoryName}
+                          quantityRequired={s.need}
+                          availableLots={availableLots}
+                          loading={lotsLoading}
+                          initialSelection={selectedLots}
+                          onSave={saveSubstitutionEdit}
+                          onCancel={cancelSubstitutionEdit}
+                        />
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
+
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  className="btn-secondary text-sm"
+                  onClick={cancelSubstitutionFlow}
+                  disabled={substitutionSaving}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  className="btn-primary text-sm flex-1"
+                  onClick={importWithSubstitutions}
+                  disabled={!substitutionReady || substitutionSaving}
+                >
+                  {substitutionSaving ? 'Importing…' : 'Import with substitutions'}
+                </button>
+              </div>
             </div>
           )}
 

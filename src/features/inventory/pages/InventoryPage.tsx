@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { MagnifyingGlassIcon, XMarkIcon } from '@heroicons/react/24/outline'
 import { products, inventory, type Product, type InventoryLot } from '../../../lib/api'
 import { useDebounce } from '../../../hooks/useDebounce'
@@ -38,6 +39,8 @@ export default function Inventory() {
   )
   const [searchQuery, setSearchQuery] = useState('')
   const debouncedSearch = useDebounce(searchQuery, 300)
+  const [searchParams, setSearchParams] = useSearchParams()
+  const lowStockFilter = searchParams.get('filter') === 'low-stock'
   // Edit lot state
   const [editingLot, setEditingLot] = useState<string | null>(null)
   const [editForm, setEditForm] = useState<{
@@ -72,15 +75,23 @@ export default function Inventory() {
     localStorage.setItem('inventory-sort', sortBy)
   }, [sortBy])
 
-  // Filter products by search
+  // Filter products by search and low-stock filter
   const filteredProducts = useMemo(() => {
-    if (!debouncedSearch.trim()) return allProducts
-    const query = debouncedSearch.toLowerCase()
-    return allProducts.filter((p) =>
-      p.name.toLowerCase().includes(query) ||
-      p.category?.name?.toLowerCase().includes(query)
-    )
-  }, [allProducts, debouncedSearch])
+    let filtered = allProducts
+    if (debouncedSearch.trim()) {
+      const query = debouncedSearch.toLowerCase()
+      filtered = filtered.filter((p) =>
+        p.name.toLowerCase().includes(query) ||
+        p.category?.name?.toLowerCase().includes(query)
+      )
+    }
+    if (lowStockFilter) {
+      filtered = filtered.filter(p =>
+        p.lowStockThreshold > 0 && (p.totalStock ?? 0) <= p.lowStockThreshold
+      )
+    }
+    return filtered
+  }, [allProducts, debouncedSearch, lowStockFilter])
 
   // Sort products based on selected option
   const sortedProducts = useMemo(() => {
@@ -281,6 +292,21 @@ export default function Inventory() {
           </select>
         </div>
       </div>
+
+      {/* Low Stock Filter Chip */}
+      {lowStockFilter && (
+        <div className="flex items-center gap-2">
+          <span className="inline-flex items-center gap-1 px-3 py-1 bg-amber-100 text-amber-800 rounded-full text-sm font-medium">
+            Low Stock Only
+            <button
+              onClick={() => setSearchParams({})}
+              className="ml-1 hover:text-amber-900"
+            >
+              <XMarkIcon className="h-4 w-4" />
+            </button>
+          </span>
+        </div>
+      )}
 
       {/* Summary Cards */}
       <div className="grid grid-cols-3 gap-2">

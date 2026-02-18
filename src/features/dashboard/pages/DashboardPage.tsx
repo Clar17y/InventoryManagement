@@ -132,7 +132,7 @@ export default function Dashboard() {
               )}
             </div>
           </div>
-          <div className="card">
+          <Link to="/inventory?filter=low-stock" className="card block hover:ring-2 hover:ring-amber-300 transition-shadow">
             <div className="text-sm text-gray-500">Low Stock</div>
             <div className={`text-2xl font-bold ${(stats?.lowStockProducts ?? 0) > 0 ? 'text-amber-600' : 'text-emerald-600'}`}>
               {isLoading ? (
@@ -141,7 +141,7 @@ export default function Dashboard() {
                 stats?.lowStockProducts ?? 0
               )}
             </div>
-          </div>
+          </Link>
           <div className="card">
             <div className="text-sm text-gray-500">Today's Sales</div>
             <div className="text-2xl font-bold">
@@ -215,7 +215,7 @@ export default function Dashboard() {
               title: p.name,
               subtitle: p.category?.name,
               value: `${p.totalStock ?? 0} left`,
-              link: '/inventory',
+              link: '/inventory?filter=low-stock',
             }))}
             emptyMessage="All products well stocked!"
           />

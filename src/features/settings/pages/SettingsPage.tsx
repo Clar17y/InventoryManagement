@@ -1,8 +1,9 @@
 import { useState, useEffect } from 'react'
-import { settings, etsy, EtsyFeeConfig, PackagingOverhead, EtsyAccount } from '../../../lib/api'
+import { settings, etsy, EtsyFeeConfig, PackagingOverhead, PostageTier, EtsyAccount } from '../../../lib/api'
 import EtsyAccessManagementSection from '../components/EtsyAccessManagementSection'
 import EtsyFeesSection from '../components/EtsyFeesSection'
 import PackagingOverheadSection from '../components/PackagingOverheadSection'
+import PostageTiersSection from '../components/PostageTiersSection'
 import SettingsLinksList from '../components/SettingsLinksList'
 
 const settingsLinks = [
@@ -50,6 +51,11 @@ export default function Settings() {
   const [newOverheadName, setNewOverheadName] = useState('')
   const [newOverheadCost, setNewOverheadCost] = useState('')
 
+  // Postage tiers
+  const [postageTiers, setPostageTiers] = useState<PostageTier[]>([])
+  const [newEtsyCharge, setNewEtsyCharge] = useState('')
+  const [newActualCost, setNewActualCost] = useState('')
+
   // Etsy Access Management
   const [etsyAccounts, setEtsyAccounts] = useState<EtsyAccount[]>([])
   const [loadingAccounts, setLoadingAccounts] = useState(false)
@@ -58,9 +64,10 @@ export default function Settings() {
   const loadSettings = async () => {
     try {
       setLoading(true)
-      const [feesData, overheadData] = await Promise.all([
+      const [feesData, overheadData, tiersData] = await Promise.all([
         settings.getEtsyFees(),
         settings.getPackagingOverhead(),
+        settings.getPostageTiers(),
       ])
 
       // Get the active config (first one since ordered by effectiveFrom desc)
@@ -81,6 +88,7 @@ export default function Settings() {
 
       setPackagingOverheads(overheadData.overheads)
       setPackagingTotal(overheadData.totalPerOrder)
+      setPostageTiers(tiersData)
       setError(null)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load settings')
@@ -148,6 +156,35 @@ export default function Settings() {
       await loadSettings()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to delete overhead')
+    }
+  }
+
+  const handleAddPostageTier = async () => {
+    if (!newEtsyCharge || !newActualCost) return
+    setSaving(true)
+    setError(null)
+    try {
+      await settings.createPostageTier({
+        etsyCharge: parseFloat(newEtsyCharge),
+        actualCost: parseFloat(newActualCost),
+      })
+      setNewEtsyCharge('')
+      setNewActualCost('')
+      await loadSettings()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to add postage tier')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const handleDeletePostageTier = async (id: string) => {
+    if (!confirm('Delete this postage tier?')) return
+    try {
+      await settings.deletePostageTier(id)
+      await loadSettings()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to delete postage tier')
     }
   }
 
@@ -234,6 +271,17 @@ export default function Settings() {
         saving={saving}
         onAddOverhead={handleAddOverhead}
         onDeleteOverhead={handleDeleteOverhead}
+      />
+
+      <PostageTiersSection
+        tiers={postageTiers}
+        newEtsyCharge={newEtsyCharge}
+        newActualCost={newActualCost}
+        onNewEtsyChargeChange={setNewEtsyCharge}
+        onNewActualCostChange={setNewActualCost}
+        saving={saving}
+        onAddTier={handleAddPostageTier}
+        onDeleteTier={handleDeletePostageTier}
       />
 
       <EtsyAccessManagementSection

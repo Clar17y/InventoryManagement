@@ -12,6 +12,7 @@ import settingsRouter from './routes/settings'
 import expensesRouter from './routes/expenses'
 import etsyRouter from './routes/etsy'
 import etsySyncRouter from './routes/etsySync'
+import suppliersRouter from './routes/suppliers'
 import { requireAuth } from './middleware/requireAuth'
 import { createPrismaIdleDisconnectMiddleware } from './middleware/prismaIdleDisconnect'
 import { healthResponseSchema } from '#contracts/routes/health'
@@ -48,6 +49,7 @@ export function createApp() {
   app.use('/api/expenses', expensesRouter)
   app.use('/api/etsy', etsyRouter)
   app.use('/api/etsy/sync', etsySyncRouter)
+  app.use('/api/suppliers', suppliersRouter)
 
   // Serve static files in production
   app.use(express.static(path.join(__dirname, '../dist')))

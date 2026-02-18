@@ -12,6 +12,9 @@ vi.mock('../../lib/api', () => ({
     getPackagingOverhead: vi.fn(),
     createPackagingOverhead: vi.fn(),
     deletePackagingOverhead: vi.fn(),
+    getPostageTiers: vi.fn(),
+    createPostageTier: vi.fn(),
+    deletePostageTier: vi.fn(),
   },
   etsy: {
     getAccounts: vi.fn(),
@@ -19,17 +22,25 @@ vi.mock('../../lib/api', () => ({
     setDefaultAccount: vi.fn(),
     removeAccount: vi.fn(),
   },
+  suppliers: {
+    list: vi.fn(),
+    create: vi.fn(),
+    update: vi.fn(),
+    delete: vi.fn(),
+  },
 }));
 
 import Settings from '../../pages/Settings';
-import { settings, etsy } from '../../lib/api';
+import { settings, etsy, suppliers } from '../../lib/api';
 
 const mockGetEtsyFees = vi.mocked(settings.getEtsyFees);
 const mockCreateEtsyFees = vi.mocked(settings.createEtsyFees);
 const mockGetPackagingOverhead = vi.mocked(settings.getPackagingOverhead);
 const mockCreatePackagingOverhead = vi.mocked(settings.createPackagingOverhead);
 const mockDeletePackagingOverhead = vi.mocked(settings.deletePackagingOverhead);
+const mockGetPostageTiers = vi.mocked(settings.getPostageTiers);
 const mockGetAccounts = vi.mocked(etsy.getAccounts);
+const mockSuppliersList = vi.mocked(suppliers.list);
 
 describe('Settings', () => {
   const sampleEtsyFee = {
@@ -59,6 +70,8 @@ describe('Settings', () => {
       totalPerOrder: 1.5,
     } as any);
     mockGetAccounts.mockResolvedValue({ accounts: [] } as any);
+    mockGetPostageTiers.mockResolvedValue([]);
+    mockSuppliersList.mockResolvedValue([]);
   });
 
   describe('loading state', () => {
@@ -87,7 +100,7 @@ describe('Settings', () => {
     it('has link to Products', async () => {
       render(<Settings />);
       await waitFor(() => {
-        const link = screen.getByRole('link', { name: /products/i });
+        const link = screen.getByRole('link', { name: /manage products and their barcodes/i });
         expect(link).toHaveAttribute('href', '/products');
       });
     });
@@ -205,7 +218,7 @@ describe('Settings', () => {
 
       await user.type(screen.getByPlaceholderText('Item name (e.g., Tape)'), 'Bubble Wrap');
       await user.type(screen.getByPlaceholderText('Cost'), '0.50');
-      await user.click(screen.getByRole('button', { name: 'Add' }));
+      await user.click(screen.getAllByRole('button', { name: 'Add' })[0]!);
 
       await waitFor(() => {
         expect(mockCreatePackagingOverhead).toHaveBeenCalledWith({

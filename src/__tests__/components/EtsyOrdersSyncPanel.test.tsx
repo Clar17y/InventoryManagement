@@ -17,10 +17,13 @@ vi.mock('../../lib/api', () => ({
   inventory: {
     lotsByCategory: vi.fn(),
   },
+  settings: {
+    getPostageTiers: vi.fn(),
+  },
 }))
 
 import EtsyOrdersSyncPanel from '../../components/EtsyOrdersSyncPanel'
-import { etsy, inventory } from '../../lib/api'
+import { etsy, inventory, settings } from '../../lib/api'
 import { ApiError } from '../../lib/api/request'
 
 const mockGetStatus = vi.mocked(etsy.getStatus)
@@ -28,6 +31,7 @@ const mockGetPendingOrders = vi.mocked(etsy.getPendingOrders)
 const mockImportOrder = vi.mocked(etsy.importOrder)
 const mockImportOrdersBulk = vi.mocked(etsy.importOrdersBulk)
 const mockLotsByCategory = vi.mocked(inventory.lotsByCategory)
+const mockGetPostageTiers = vi.mocked(settings.getPostageTiers)
 
 describe('EtsyOrdersSyncPanel', () => {
   const mockOnClose = vi.fn()
@@ -38,6 +42,7 @@ describe('EtsyOrdersSyncPanel', () => {
     mockGetStatus.mockResolvedValue({ connected: false })
     mockGetPendingOrders.mockResolvedValue({ orders: [] })
     mockLotsByCategory.mockResolvedValue([])
+    mockGetPostageTiers.mockResolvedValue([])
     mockImportOrder.mockResolvedValue({
       success: true,
       sale: { id: 'sale-1', etsyOrderId: '12345', totalCost: 0, margin: 0, lines: 1 },

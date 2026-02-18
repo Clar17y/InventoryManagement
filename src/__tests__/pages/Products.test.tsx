@@ -17,14 +17,18 @@ vi.mock('../../lib/api', () => ({
   categories: {
     list: vi.fn(),
   },
+  suppliers: {
+    list: vi.fn(),
+  },
 }));
 
 import Products from '../../pages/Products';
-import { products, categories } from '../../lib/api';
+import { products, categories, suppliers } from '../../lib/api';
 
 const mockProductsList = vi.mocked(products.list);
 const mockCategoriesList = vi.mocked(categories.list);
 const mockProductsDelete = vi.mocked(products.delete);
+const mockSuppliersList = vi.mocked(suppliers.list);
 
 describe('Products', () => {
   const sampleCategories = [
@@ -65,6 +69,7 @@ describe('Products', () => {
     vi.clearAllMocks();
     mockProductsList.mockResolvedValue(sampleProducts as any);
     mockCategoriesList.mockResolvedValue(sampleCategories as any);
+    mockSuppliersList.mockResolvedValue([]);
   });
 
   describe('loading state', () => {

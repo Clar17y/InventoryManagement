@@ -4,12 +4,14 @@ import {
   sales,
   hampers,
   inventory,
+  settings,
   Sale,
   SalePreview,
   Hamper,
   CategoryLot,
   SaleChannel,
   SalesSummary,
+  type PostageTier,
 } from '../../../lib/api'
 import SalesListView from '../components/SalesListView'
 import SalesRecordView from '../components/SalesRecordView'
@@ -58,6 +60,9 @@ export default function Sales() {
   const [saleDate, setSaleDate] = useState(new Date().toISOString().split('T')[0] ?? '')
   const [saving, setSaving] = useState(false)
   const [isHistorical, setIsHistorical] = useState(false)
+
+  // Postage tiers state
+  const [postageTiers, setPostageTiers] = useState<PostageTier[]>([])
 
   // Override state
   const [editingOverride, setEditingOverride] = useState<{ hamperIdx: number; categoryId: string } | null>(null)
@@ -124,6 +129,18 @@ export default function Sales() {
     loadData(true)
     isFirstRender.current = false
   }, [])
+
+  // Load postage tiers on mount
+  useEffect(() => {
+    settings.getPostageTiers().then(setPostageTiers).catch(() => {})
+  }, [])
+
+  // Update default postage cost when tiers load
+  useEffect(() => {
+    if (postageTiers.length > 0 && postageTiers[0]) {
+      setPostageCost(Number(postageTiers[0].actualCost).toFixed(2))
+    }
+  }, [postageTiers])
 
   // Re-fetch when filters change (no loading indicator - data updates in place)
   useEffect(() => {
@@ -219,7 +236,8 @@ export default function Sales() {
     setEtsyOrderId('')
     setSaleChannel('etsy')
     setPostageCharged('5.00')
-    setPostageCost('5.35')
+    setPostageCost(postageTiers.length > 0 && postageTiers[0]
+      ? Number(postageTiers[0].actualCost).toFixed(2) : '5.35')
     setSaleDate(new Date().toISOString().split('T')[0] ?? '')
     setError(null)
     setOverrides({})
@@ -379,6 +397,7 @@ export default function Sales() {
         editingOverride={editingOverride}
         availableLots={availableLots}
         lotsLoading={lotsLoading}
+        postageTiers={postageTiers}
         handleCancel={handleCancel}
         handleAddLine={handleAddLine}
         handleRemoveLine={handleRemoveLine}

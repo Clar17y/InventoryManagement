@@ -1,4 +1,4 @@
-import type { SaleChannel } from '../../../../lib/api'
+import type { PostageTier, SaleChannel } from '../../../../lib/api'
 import { channelColors, channelLabels } from '../../constants'
 
 interface SaleChannelCardProps {
@@ -8,6 +8,7 @@ interface SaleChannelCardProps {
   setPostageCost: (value: string) => void
   isHistorical: boolean
   setIsHistorical: (value: boolean) => void
+  postageTiers: PostageTier[]
 }
 
 export default function SaleChannelCard({
@@ -17,6 +18,7 @@ export default function SaleChannelCard({
   setPostageCost,
   isHistorical,
   setIsHistorical,
+  postageTiers,
 }: SaleChannelCardProps) {
   return (
     <div className="card space-y-3">
@@ -33,7 +35,9 @@ export default function SaleChannelCard({
                 setPostageCost('0')
               } else if (channel === 'etsy') {
                 setPostageCharged('5.00')
-                setPostageCost('5.35')
+                const defaultCost = postageTiers.length > 0 && postageTiers[0]
+                  ? Number(postageTiers[0].actualCost).toFixed(2) : '5.35'
+                setPostageCost(defaultCost)
               }
             }}
             className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${saleChannel === channel

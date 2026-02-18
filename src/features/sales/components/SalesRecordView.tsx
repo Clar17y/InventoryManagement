@@ -1,4 +1,4 @@
-import type { CategoryLot, Hamper, SaleChannel, SalePreview } from '../../../lib/api'
+import type { CategoryLot, Hamper, PostageTier, SaleChannel, SalePreview } from '../../../lib/api'
 import { getOverrideKey } from '../utils'
 import type { LotOverride, SaleLineInput } from '../types'
 import HistoricalSaleSummaryCard from './record/HistoricalSaleSummaryCard'
@@ -33,6 +33,7 @@ export default function SalesRecordView({
   editingOverride,
   availableLots,
   lotsLoading,
+  postageTiers,
   handleCancel,
   handleAddLine,
   handleRemoveLine,
@@ -67,6 +68,7 @@ export default function SalesRecordView({
   editingOverride: { hamperIdx: number; categoryId: string } | null
   availableLots: CategoryLot[]
   lotsLoading: boolean
+  postageTiers: PostageTier[]
   handleCancel: () => void
   handleAddLine: (bespoke?: boolean) => void
   handleRemoveLine: (index: number) => void
@@ -114,6 +116,7 @@ export default function SalesRecordView({
         setPostageCost={setPostageCost}
         isHistorical={isHistorical}
         setIsHistorical={setIsHistorical}
+        postageTiers={postageTiers}
       />
 
       {/* Hamper Selection */}

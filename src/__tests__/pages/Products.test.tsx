@@ -19,6 +19,8 @@ vi.mock('../../lib/api', () => ({
   },
   suppliers: {
     list: vi.fn(),
+    getProductSuppliers: vi.fn(),
+    setProductSuppliers: vi.fn(),
   },
 }));
 
@@ -26,9 +28,12 @@ import Products from '../../pages/Products';
 import { products, categories, suppliers } from '../../lib/api';
 
 const mockProductsList = vi.mocked(products.list);
+const mockProductsCreate = vi.mocked(products.create);
 const mockCategoriesList = vi.mocked(categories.list);
 const mockProductsDelete = vi.mocked(products.delete);
 const mockSuppliersList = vi.mocked(suppliers.list);
+const mockGetProductSuppliers = vi.mocked(suppliers.getProductSuppliers);
+const mockSetProductSuppliers = vi.mocked(suppliers.setProductSuppliers);
 
 describe('Products', () => {
   const sampleCategories = [
@@ -191,6 +196,69 @@ describe('Products', () => {
 
       await waitFor(() => {
         expect(mockProductsDelete).toHaveBeenCalled();
+      });
+    });
+  });
+
+  describe('supplier assignment', () => {
+    const sampleSuppliers = [
+      { id: 'sup-1', name: 'Home Bargains', isActive: true, createdAt: '2024-01-01T00:00:00Z', updatedAt: '2024-01-01T00:00:00Z' },
+      { id: 'sup-2', name: 'Tesco', isActive: true, createdAt: '2024-01-01T00:00:00Z', updatedAt: '2024-01-01T00:00:00Z' },
+    ];
+
+    it('shows supplier checkboxes in product form', async () => {
+      const user = userEvent.setup();
+      mockSuppliersList.mockResolvedValue(sampleSuppliers as any);
+
+      render(<Products />);
+
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: /add/i })).toBeInTheDocument();
+      });
+
+      await user.click(screen.getByRole('button', { name: /add/i }));
+
+      await waitFor(() => {
+        expect(screen.getByText('Home Bargains')).toBeInTheDocument();
+        expect(screen.getByText('Tesco')).toBeInTheDocument();
+      });
+
+      // They should be checkboxes
+      expect(screen.getByText('Available at')).toBeInTheDocument();
+    });
+
+    it('saves supplier associations on product create', async () => {
+      const user = userEvent.setup();
+      mockSuppliersList.mockResolvedValue(sampleSuppliers as any);
+      mockProductsCreate.mockResolvedValue({ id: 'new-prod-1', name: 'Test Product' } as any);
+      mockSetProductSuppliers.mockResolvedValue([]);
+
+      render(<Products />);
+
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: /add/i })).toBeInTheDocument();
+      });
+
+      await user.click(screen.getByRole('button', { name: /add/i }));
+
+      await waitFor(() => {
+        expect(screen.getByText('New Product')).toBeInTheDocument();
+      });
+
+      // Fill required fields
+      await user.type(screen.getByPlaceholderText('e.g., Lavender Hand Cream 100ml'), 'Test Product');
+      // Select a category - find the required select (first combobox is category)
+      const selects = screen.getAllByRole('combobox');
+      await user.selectOptions(selects[0]!, 'cat-1');
+
+      // Select a supplier checkbox
+      await user.click(screen.getByLabelText('Home Bargains'));
+
+      // Submit the form
+      await user.click(screen.getByRole('button', { name: 'Create' }));
+
+      await waitFor(() => {
+        expect(mockSetProductSuppliers).toHaveBeenCalledWith('new-prod-1', ['sup-1']);
       });
     });
   });

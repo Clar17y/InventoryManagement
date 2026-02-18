@@ -11,8 +11,10 @@ import {
   etsyFeeConfigsResponseSchema,
   packagingOverheadItemResponseSchema,
   packagingOverheadResponseSchema,
+  postageTierResponseSchema,
+  postageTiersResponseSchema,
 } from '#contracts/routes/settings';
-import { settings, DashboardStats, EtsyFeeConfig, PackagingOverhead } from '../../../lib/api/settings';
+import { settings, DashboardStats, EtsyFeeConfig, PackagingOverhead, PostageTier } from '../../../lib/api/settings';
 import { request, requestWithSchema } from '../../../lib/api/request';
 
 const mockRequest = vi.mocked(request);
@@ -217,6 +219,87 @@ describe('settings API', () => {
         await settings.deletePackagingOverhead('pkg-1');
 
         expect(mockRequest).toHaveBeenCalledWith('/settings/packaging-overhead/pkg-1', {
+          method: 'DELETE',
+        });
+      });
+    });
+  });
+
+  describe('Postage Tiers', () => {
+    const sampleTier: PostageTier = {
+      id: 'pt-1',
+      etsyCharge: 5.00,
+      actualCost: 5.05,
+      label: 'Standard',
+      isActive: true,
+      createdAt: '2024-01-01T00:00:00Z',
+    };
+
+    describe('getPostageTiers', () => {
+      it('calls request with correct endpoint', async () => {
+        mockRequestWithSchema.mockResolvedValue([sampleTier]);
+
+        await settings.getPostageTiers();
+
+        expect(mockRequestWithSchema).toHaveBeenCalledWith(
+          '/settings/postage-tiers',
+          postageTiersResponseSchema
+        );
+      });
+
+      it('returns array of postage tiers', async () => {
+        mockRequestWithSchema.mockResolvedValue([sampleTier]);
+
+        const result = await settings.getPostageTiers();
+
+        expect(result).toHaveLength(1);
+        expect(result[0]!.etsyCharge).toBe(5.00);
+      });
+    });
+
+    describe('createPostageTier', () => {
+      it('calls request with POST and tier data', async () => {
+        mockRequestWithSchema.mockResolvedValue(sampleTier);
+
+        const data = { etsyCharge: 5.00, actualCost: 5.05 };
+
+        await settings.createPostageTier(data);
+
+        expect(mockRequestWithSchema).toHaveBeenCalledWith(
+          '/settings/postage-tiers',
+          postageTierResponseSchema,
+          {
+            method: 'POST',
+            body: JSON.stringify(data),
+          }
+        );
+      });
+    });
+
+    describe('updatePostageTier', () => {
+      it('calls request with PUT and partial data', async () => {
+        mockRequestWithSchema.mockResolvedValue(sampleTier);
+
+        await settings.updatePostageTier('pt-1', { actualCost: 5.10 });
+
+        expect(mockRequestWithSchema).toHaveBeenCalledWith(
+          '/settings/postage-tiers/pt-1',
+          postageTierResponseSchema,
+          {
+            method: 'PUT',
+            body: JSON.stringify({ actualCost: 5.10 }),
+          }
+        );
+      });
+    });
+
+    describe('deletePostageTier', () => {
+      it('calls request with DELETE method', async () => {
+        mockRequest.mockResolvedValue(undefined);
+
+        await settings.deletePostageTier('pt-1');
+
+        expect(mockRequest).toHaveBeenCalledWith('/settings/postage-tiers/pt-1', {
           method: 'DELETE',
         });
       });

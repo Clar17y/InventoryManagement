@@ -279,3 +279,14 @@ model EtsyCredentials {
 
   @@index([isDefault])
 }
+
+model PostageTier {
+  id         String   @id @default(cuid())
+  etsyCharge Decimal  @db.Decimal(10, 2)
+  actualCost Decimal  @db.Decimal(10, 2)
+  label      String?
+  isActive   Boolean  @default(true)
+  createdAt  DateTime @default(now())
+
+  @@unique([etsyCharge])
+}

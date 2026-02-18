@@ -13,6 +13,7 @@ const Categories = lazy(() => import('./pages/Categories'))
 const Products = lazy(() => import('./pages/Products'))
 const Expenses = lazy(() => import('./pages/Expenses'))
 const Analytics = lazy(() => import('./pages/Analytics'))
+const ShoppingList = lazy(() => import('./pages/ShoppingList'))
 
 // Dev bypass for testing without Supabase magic link
 const DEV_BYPASS_AUTH = import.meta.env.VITE_DEV_BYPASS_AUTH === 'true'
@@ -52,6 +53,7 @@ export default function App() {
           <Route path="products" element={<Products />} />
           <Route path="expenses" element={<Expenses />} />
           <Route path="analytics" element={<Analytics />} />
+          <Route path="shopping-list" element={<ShoppingList />} />
         </Route>
       </Routes>
     </Suspense>

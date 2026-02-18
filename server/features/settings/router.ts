@@ -5,6 +5,8 @@ import {
   etsyFeeCreateBodySchema,
   packagingOverheadCreateBodySchema,
   packagingOverheadUpdateBodySchema,
+  postageTierCreateBodySchema,
+  postageTierUpdateBodySchema,
 } from '#contracts/routes/settings'
 
 const router = Router()
@@ -133,6 +135,75 @@ router.delete('/packaging-overhead/:id', async (req, res) => {
   } catch (error) {
     console.error('Error deleting packaging overhead:', error)
     res.status(500).json({ error: 'Failed to delete packaging overhead' })
+  }
+})
+
+// === Postage Tiers ===
+
+router.get('/postage-tiers', async (_, res) => {
+  try {
+    const tiers = await prisma.postageTier.findMany({
+      where: { isActive: true },
+      orderBy: { etsyCharge: 'asc' },
+    })
+    res.json(tiers)
+  } catch (error) {
+    console.error('Error fetching postage tiers:', error)
+    res.status(500).json({ error: 'Failed to fetch postage tiers' })
+  }
+})
+
+router.post('/postage-tiers', async (req, res) => {
+  try {
+    const data = postageTierCreateBodySchema.parse(req.body)
+    const tier = await prisma.postageTier.create({
+      data: {
+        etsyCharge: data.etsyCharge,
+        actualCost: data.actualCost,
+        label: data.label,
+      },
+    })
+    res.status(201).json(tier)
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      return res.status(400).json({ error: 'Validation failed', details: error.errors })
+    }
+    console.error('Error creating postage tier:', error)
+    res.status(500).json({ error: 'Failed to create postage tier' })
+  }
+})
+
+router.put('/postage-tiers/:id', async (req, res) => {
+  try {
+    const data = postageTierUpdateBodySchema.parse(req.body)
+    const tier = await prisma.postageTier.update({
+      where: { id: req.params.id },
+      data: {
+        ...(data.etsyCharge !== undefined && { etsyCharge: data.etsyCharge }),
+        ...(data.actualCost !== undefined && { actualCost: data.actualCost }),
+        ...(data.label !== undefined && { label: data.label }),
+      },
+    })
+    res.json(tier)
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      return res.status(400).json({ error: 'Validation failed', details: error.errors })
+    }
+    console.error('Error updating postage tier:', error)
+    res.status(500).json({ error: 'Failed to update postage tier' })
+  }
+})
+
+router.delete('/postage-tiers/:id', async (req, res) => {
+  try {
+    await prisma.postageTier.update({
+      where: { id: req.params.id },
+      data: { isActive: false },
+    })
+    res.status(204).send()
+  } catch (error) {
+    console.error('Error deleting postage tier:', error)
+    res.status(500).json({ error: 'Failed to delete postage tier' })
   }
 })
 

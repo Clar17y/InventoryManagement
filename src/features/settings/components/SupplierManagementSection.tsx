@@ -1,4 +1,6 @@
+import { useState } from 'react'
 import type { Supplier } from '../../../lib/api'
+import SupplierProductsModal from './SupplierProductsModal'
 
 interface SupplierManagementSectionProps {
   suppliersList: Supplier[]
@@ -17,6 +19,8 @@ export default function SupplierManagementSection({
   onAddSupplier,
   onDeleteSupplier,
 }: SupplierManagementSectionProps) {
+  const [managingSupplier, setManagingSupplier] = useState<Supplier | null>(null)
+
   return (
     <section className="card space-y-4">
       <h3 className="font-medium">Suppliers / Shops</h3>
@@ -29,12 +33,20 @@ export default function SupplierManagementSection({
           {suppliersList.map((supplier) => (
             <div key={supplier.id} className="flex justify-between items-center bg-gray-50 p-2 rounded-lg">
               <span>{supplier.name}</span>
-              <button
-                onClick={() => onDeleteSupplier(supplier.id)}
-                className="text-xs text-red-600 hover:text-red-700"
-              >
-                Remove
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setManagingSupplier(supplier)}
+                  className="text-xs text-primary-600 hover:text-primary-700"
+                >
+                  Products
+                </button>
+                <button
+                  onClick={() => onDeleteSupplier(supplier.id)}
+                  className="text-xs text-red-600 hover:text-red-700"
+                >
+                  Remove
+                </button>
+              </div>
             </div>
           ))}
         </div>
@@ -56,6 +68,13 @@ export default function SupplierManagementSection({
           Add
         </button>
       </div>
+
+      {managingSupplier && (
+        <SupplierProductsModal
+          supplier={managingSupplier}
+          onClose={() => setManagingSupplier(null)}
+        />
+      )}
     </section>
   )
 }

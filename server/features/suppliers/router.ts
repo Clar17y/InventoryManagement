@@ -117,6 +117,46 @@ router.get('/:id/low-stock', async (req, res) => {
   }
 })
 
+// GET product IDs for a supplier
+router.get('/:id/products', async (req, res) => {
+  try {
+    const links = await prisma.productSupplier.findMany({
+      where: { supplierId: req.params.id },
+      select: { productId: true },
+    })
+    res.json(links.map((l) => l.productId))
+  } catch (error) {
+    console.error('Error fetching supplier products:', error)
+    res.status(500).json({ error: 'Failed to fetch supplier products' })
+  }
+})
+
+// PUT set product IDs for a supplier (replace all)
+router.put('/:id/products', async (req, res) => {
+  try {
+    const { productIds } = z.object({ productIds: z.array(z.string()) }).parse(req.body)
+
+    await prisma.$transaction([
+      prisma.productSupplier.deleteMany({
+        where: { supplierId: req.params.id },
+      }),
+      ...productIds.map((productId) =>
+        prisma.productSupplier.create({
+          data: { productId, supplierId: req.params.id },
+        })
+      ),
+    ])
+
+    res.json(productIds)
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      return res.status(400).json({ error: 'Validation failed', details: error.errors })
+    }
+    console.error('Error updating supplier products:', error)
+    res.status(500).json({ error: 'Failed to update supplier products' })
+  }
+})
+
 // GET supplier IDs for a product
 router.get('/by-product/:productId', async (req, res) => {
   try {

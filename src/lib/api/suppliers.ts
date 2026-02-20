@@ -35,4 +35,11 @@ export const suppliers = {
       method: 'PUT',
       body: JSON.stringify({ supplierIds }),
     }),
+  getSupplierProducts: (supplierId: string) =>
+    requestWithSchema(`/suppliers/${supplierId}/products`, productSupplierIdsResponseSchema),
+  setSupplierProducts: (supplierId: string, productIds: string[]) =>
+    requestWithSchema(`/suppliers/${supplierId}/products`, productSupplierIdsResponseSchema, {
+      method: 'PUT',
+      body: JSON.stringify({ productIds }),
+    }),
 }

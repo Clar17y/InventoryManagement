@@ -32,7 +32,6 @@ const mockProductsCreate = vi.mocked(products.create);
 const mockCategoriesList = vi.mocked(categories.list);
 const mockProductsDelete = vi.mocked(products.delete);
 const mockSuppliersList = vi.mocked(suppliers.list);
-const mockGetProductSuppliers = vi.mocked(suppliers.getProductSuppliers);
 const mockSetProductSuppliers = vi.mocked(suppliers.setProductSuppliers);
 
 describe('Products', () => {

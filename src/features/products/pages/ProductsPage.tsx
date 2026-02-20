@@ -56,7 +56,7 @@ export default function Products() {
   }, [filterCategory])
 
   useEffect(() => {
-    suppliers.list().then(setAllSuppliers).catch(() => {})
+    suppliers.list().then(setAllSuppliers).catch((err) => console.error('Failed to load suppliers', err))
   }, [])
 
   const filteredProducts = useMemo(() => {
@@ -114,7 +114,10 @@ export default function Products() {
     setEditingProduct(product)
     setShowForm(true)
     scrollToForm()
-    suppliers.getProductSuppliers(product.id).then(setSelectedSupplierIds).catch(() => setSelectedSupplierIds([]))
+    suppliers.getProductSuppliers(product.id).then(setSelectedSupplierIds).catch((err) => {
+      console.error('Failed to load product suppliers', err)
+      setSelectedSupplierIds([])
+    })
   }
 
   const handleDelete = async (id: string) => {

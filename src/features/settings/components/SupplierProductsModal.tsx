@@ -14,6 +14,7 @@ export default function SupplierProductsModal({ supplier, onClose }: SupplierPro
   const [initialIds, setInitialIds] = useState<Set<string>>(new Set())
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
+  const [error, setError] = useState<string | null>(null)
   const [searchQuery, setSearchQuery] = useState('')
   const debouncedSearch = useDebounce(searchQuery, 300)
 
@@ -94,7 +95,7 @@ export default function SupplierProductsModal({ supplier, onClose }: SupplierPro
       onClose()
     } catch (err) {
       console.error('Failed to save supplier products', err)
-      alert('Failed to save. Please try again.')
+      setError('Failed to save. Please try again.')
     } finally {
       setSaving(false)
     }
@@ -201,7 +202,9 @@ export default function SupplierProductsModal({ supplier, onClose }: SupplierPro
         </div>
 
         {/* Footer */}
-        <div className="flex gap-2 p-3 border-t border-gray-200">
+        <div className="p-3 border-t border-gray-200 space-y-2">
+          {error && <div className="text-sm text-red-600">{error}</div>}
+          <div className="flex gap-2">
           <button
             onClick={onClose}
             className="flex-1 px-3 py-2 text-sm text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200"
@@ -215,6 +218,7 @@ export default function SupplierProductsModal({ supplier, onClose }: SupplierPro
           >
             {saving ? 'Saving...' : 'Save'}
           </button>
+          </div>
         </div>
       </div>
     </div>

@@ -6,6 +6,7 @@ import {
   CurrencyPoundIcon,
   ChartBarIcon,
   Cog6ToothIcon,
+  ShoppingCartIcon,
   ArrowRightOnRectangleIcon
 } from '@heroicons/react/24/outline'
 import { useAuth } from '../lib/auth'
@@ -16,6 +17,7 @@ const navItems = [
   { to: '/hampers', icon: GiftIcon, label: 'Hampers' },
   { to: '/sales', icon: CurrencyPoundIcon, label: 'Sales' },
   { to: '/analytics', icon: ChartBarIcon, label: 'Analytics' },
+  { to: '/shopping-list', icon: ShoppingCartIcon, label: 'Shop' },
   { to: '/settings', icon: Cog6ToothIcon, label: 'Settings' },
 ]
 

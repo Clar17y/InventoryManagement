@@ -1,5 +1,6 @@
 import { Router } from 'express'
 import { z } from 'zod'
+import { Prisma } from '@prisma/client'
 import { prisma } from '../../lib/prisma'
 import {
   supplierCreateBodySchema,
@@ -34,6 +35,9 @@ router.post('/', async (req, res) => {
     if (error instanceof z.ZodError) {
       return res.status(400).json({ error: 'Validation failed', details: error.errors })
     }
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+      return res.status(409).json({ error: 'A supplier with this name already exists' })
+    }
     console.error('Error creating supplier:', error)
     res.status(500).json({ error: 'Failed to create supplier' })
   }
@@ -45,7 +49,7 @@ router.put('/:id', async (req, res) => {
     const data = supplierUpdateBodySchema.parse(req.body)
     const supplier = await prisma.supplier.update({
       where: { id: req.params.id },
-      data: { ...(data.name && { name: data.name }) },
+      data: { ...(data.name !== undefined && { name: data.name }) },
     })
     res.json(supplier)
   } catch (error) {
@@ -140,11 +144,11 @@ router.put('/:id/products', async (req, res) => {
       prisma.productSupplier.deleteMany({
         where: { supplierId: req.params.id },
       }),
-      ...productIds.map((productId) =>
-        prisma.productSupplier.create({
-          data: { productId, supplierId: req.params.id },
-        })
-      ),
+      ...(productIds.length > 0
+        ? [prisma.productSupplier.createMany({
+            data: productIds.map((productId) => ({ productId, supplierId: req.params.id })),
+          })]
+        : []),
     ])
 
     res.json(productIds)
@@ -180,11 +184,11 @@ router.put('/by-product/:productId', async (req, res) => {
       prisma.productSupplier.deleteMany({
         where: { productId: req.params.productId },
       }),
-      ...supplierIds.map((supplierId) =>
-        prisma.productSupplier.create({
-          data: { productId: req.params.productId, supplierId },
-        })
-      ),
+      ...(supplierIds.length > 0
+        ? [prisma.productSupplier.createMany({
+            data: supplierIds.map((supplierId) => ({ productId: req.params.productId, supplierId })),
+          })]
+        : []),
     ])
 
     res.json(supplierIds)

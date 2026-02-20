@@ -94,4 +94,11 @@ describe('SupplierManagementSection', () => {
     expect(screen.queryByText('Home Bargains')).not.toBeInTheDocument();
     expect(screen.queryByText('Amazon')).not.toBeInTheDocument();
   });
+
+  it('shows Products button for each supplier', () => {
+    render(<SupplierManagementSection {...defaultProps} />);
+
+    const productsButtons = screen.getAllByText('Products');
+    expect(productsButtons).toHaveLength(2);
+  });
 });

@@ -1,5 +1,6 @@
 import { Router } from 'express'
 import { z } from 'zod'
+import { Prisma } from '@prisma/client'
 import { prisma } from '../../lib/prisma'
 import {
   etsyFeeCreateBodySchema,
@@ -167,6 +168,9 @@ router.post('/postage-tiers', async (req, res) => {
   } catch (error) {
     if (error instanceof z.ZodError) {
       return res.status(400).json({ error: 'Validation failed', details: error.errors })
+    }
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+      return res.status(409).json({ error: 'A tier with this Etsy charge already exists' })
     }
     console.error('Error creating postage tier:', error)
     res.status(500).json({ error: 'Failed to create postage tier' })

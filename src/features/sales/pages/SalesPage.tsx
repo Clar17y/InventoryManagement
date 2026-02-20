@@ -130,17 +130,15 @@ export default function Sales() {
     isFirstRender.current = false
   }, [])
 
-  // Load postage tiers on mount
+  // Load postage tiers on mount and set default cost
   useEffect(() => {
-    settings.getPostageTiers().then(setPostageTiers).catch(() => {})
+    settings.getPostageTiers().then((tiers) => {
+      setPostageTiers(tiers)
+      if (tiers.length > 0 && tiers[0]) {
+        setPostageCost(Number(tiers[0].actualCost).toFixed(2))
+      }
+    }).catch(() => {})
   }, [])
-
-  // Update default postage cost when tiers load
-  useEffect(() => {
-    if (postageTiers.length > 0 && postageTiers[0]) {
-      setPostageCost(Number(postageTiers[0].actualCost).toFixed(2))
-    }
-  }, [postageTiers])
 
   // Re-fetch when filters change (no loading indicator - data updates in place)
   useEffect(() => {

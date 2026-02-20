@@ -52,6 +52,7 @@ model Product {
   costs           ProductCost[]
   lots            InventoryLot[]
   variantMappings HamperVariantMapping[]
+  suppliers       ProductSupplier[]
 }
 
 model ProductBarcode {
@@ -278,4 +279,37 @@ model EtsyCredentials {
   updatedAt    DateTime @updatedAt
 
   @@index([isDefault])
+}
+
+model PostageTier {
+  id         String   @id @default(cuid())
+  etsyCharge Decimal  @db.Decimal(10, 2)
+  actualCost Decimal  @db.Decimal(10, 2)
+  label      String?
+  isActive   Boolean  @default(true)
+  createdAt  DateTime @default(now())
+
+  @@unique([etsyCharge])
+}
+
+model Supplier {
+  id        String   @id @default(cuid())
+  name      String   @unique
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  products ProductSupplier[]
+}
+
+model ProductSupplier {
+  id         String   @id @default(cuid())
+  productId  String
+  supplierId String
+  product    Product  @relation(fields: [productId], references: [id])
+  supplier   Supplier @relation(fields: [supplierId], references: [id])
+
+  @@unique([productId, supplierId])
+  @@index([productId])
+  @@index([supplierId])
 }

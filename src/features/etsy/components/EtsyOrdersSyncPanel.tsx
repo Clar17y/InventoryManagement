@@ -6,7 +6,7 @@ import {
   LinkIcon,
   XMarkIcon,
 } from '@heroicons/react/24/outline'
-import { etsy, EtsyPendingOrder, EtsyStatus, inventory, type CategoryLot } from '../../../lib/api'
+import { etsy, EtsyPendingOrder, EtsyStatus, inventory, settings, type CategoryLot } from '../../../lib/api'
 import { ApiError } from '../../../lib/api/request'
 import OverrideEditor from '../../sales/components/OverrideEditor'
 import type { LotOverride } from '../../sales/types'
@@ -106,13 +106,27 @@ export default function EtsyOrdersSyncPanel({ isOpen, onClose, onImportComplete 
   const loadPendingOrders = async () => {
     try {
       setError(null)
-      const data = await etsy.getPendingOrders()
-      setPendingOrders(data.orders)
+      const [data, tiers] = await Promise.allSettled([
+        etsy.getPendingOrders(),
+        settings.getPostageTiers(),
+      ])
+
+      if (data.status === 'rejected') {
+        throw data.reason
+      }
+
+      setPendingOrders(data.value.orders)
       setSelectedOrders(new Set())
 
+      const resolvedTiers = tiers.status === 'fulfilled' ? tiers.value : []
       const costs: Record<number, string> = {}
-      data.orders.forEach((order) => {
-        costs[order.receiptId] = order.shippingCost.toFixed(2)
+      data.value.orders.forEach((order) => {
+        const matchingTier = resolvedTiers.find(
+          (t) => Number(t.etsyCharge) === order.shippingCost
+        )
+        costs[order.receiptId] = matchingTier
+          ? Number(matchingTier.actualCost).toFixed(2)
+          : order.shippingCost.toFixed(2)
       })
       setOrderPostageCosts(costs)
     } catch (err) {

@@ -5,6 +5,8 @@ import {
   etsyFeeConfigsResponseSchema,
   packagingOverheadItemResponseSchema,
   packagingOverheadResponseSchema,
+  postageTierResponseSchema,
+  postageTiersResponseSchema,
   type DashboardStatsResponse,
   type EtsyFeeConfigResponse,
   type EtsyFeeCreateBody,
@@ -12,6 +14,9 @@ import {
   type PackagingOverheadItemResponse,
   type PackagingOverheadResponse as ContractPackagingOverheadResponse,
   type PackagingOverheadUpdateBody,
+  type PostageTierCreateBody,
+  type PostageTierResponse,
+  type PostageTierUpdateBody,
 } from '#contracts/routes/settings'
 
 // Dashboard
@@ -24,6 +29,9 @@ export type EtsyFeeCreateData = EtsyFeeCreateBody
 // Packaging Overhead
 export type PackagingOverhead = PackagingOverheadItemResponse
 export type PackagingOverheadResponse = ContractPackagingOverheadResponse
+
+// Postage Tiers
+export type PostageTier = PostageTierResponse
 
 export const settings = {
   dashboardStats: () => requestWithSchema('/settings/dashboard-stats', dashboardStatsResponseSchema),
@@ -49,4 +57,19 @@ export const settings = {
     }),
   deletePackagingOverhead: (id: string) =>
     request<void>(`/settings/packaging-overhead/${id}`, { method: 'DELETE' }),
+  // Postage Tiers
+  getPostageTiers: () =>
+    requestWithSchema('/settings/postage-tiers', postageTiersResponseSchema),
+  createPostageTier: (data: PostageTierCreateBody) =>
+    requestWithSchema('/settings/postage-tiers', postageTierResponseSchema, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+  updatePostageTier: (id: string, data: PostageTierUpdateBody) =>
+    requestWithSchema(`/settings/postage-tiers/${id}`, postageTierResponseSchema, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    }),
+  deletePostageTier: (id: string) =>
+    request<void>(`/settings/postage-tiers/${id}`, { method: 'DELETE' }),
 }

@@ -87,11 +87,18 @@ describe('Layout', () => {
       expect(settingsLink).toHaveAttribute('href', '/settings');
     });
 
-    it('renders all 6 navigation items', () => {
+    it('has Shop link', () => {
+      render(<Layout />);
+
+      const shopLink = screen.getByRole('link', { name: /shop/i });
+      expect(shopLink).toHaveAttribute('href', '/shopping-list');
+    });
+
+    it('renders all 7 navigation items', () => {
       render(<Layout />);
 
       const navLinks = screen.getAllByRole('link');
-      expect(navLinks).toHaveLength(6);
+      expect(navLinks).toHaveLength(7);
     });
   });
 });

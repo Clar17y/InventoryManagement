@@ -167,15 +167,11 @@ export default function Expenses() {
   }
 
   const handleIncVatChange = (value: string) => {
-    setFormData(prev => {
-      const incVat = parseFloat(value) || 0
-      const excVat = incVat / 1.2
-      return {
-        ...prev,
-        amountIncVat: value,
-        amountExcVat: incVat > 0 ? excVat.toFixed(2) : '',
-      }
-    })
+    setFormData(prev => ({ ...prev, amountIncVat: value }))
+  }
+
+  const handleExcVatChange = (value: string) => {
+    setFormData(prev => ({ ...prev, amountExcVat: value }))
   }
 
   if (loading && expenseList.length === 0) {
@@ -210,6 +206,7 @@ export default function Expenses() {
             onCancel={handleCancel}
             setFormData={setFormData}
             onIncVatChange={handleIncVatChange}
+            onExcVatChange={handleExcVatChange}
           />
         </div>
       )}

@@ -170,7 +170,7 @@ describe('Expenses', () => {
       expect(screen.getByText('New Expense')).toBeInTheDocument();
     });
 
-    it('has VAT auto-calculation', async () => {
+    it('allows independent VAT field editing', async () => {
       const user = userEvent.setup();
       render(<Expenses />);
 
@@ -180,12 +180,16 @@ describe('Expenses', () => {
 
       await user.click(screen.getByRole('button', { name: /add/i }));
 
-      const incVatInput = screen.getByPlaceholderText('0.00');
-      await user.type(incVatInput, '120');
+      const [incVatInput, excVatInput] = screen.getAllByPlaceholderText('0.00') as HTMLInputElement[];
 
-      // Exc VAT should be auto-calculated
-      const excVatInput = screen.getByPlaceholderText('Auto-calculated') as HTMLInputElement;
-      expect(excVatInput.value).toBe('100.00');
+      // Typing inc VAT does NOT auto-fill exc VAT
+      await user.type(incVatInput!, '120');
+      expect(incVatInput!.value).toBe('120');
+      expect(excVatInput!.value).toBe('');
+
+      // Exc VAT can be typed independently
+      await user.type(excVatInput!, '100');
+      expect(excVatInput!.value).toBe('100');
     });
 
     it('calls create API on form submit', async () => {
@@ -202,7 +206,7 @@ describe('Expenses', () => {
 
       // Fill required fields
       await user.type(screen.getByPlaceholderText('What was this expense for?'), 'Test expense');
-      await user.type(screen.getByPlaceholderText('0.00'), '100');
+      await user.type(screen.getAllByPlaceholderText('0.00')[0]!, '100');
 
       await user.click(screen.getByRole('button', { name: /create/i }));
 

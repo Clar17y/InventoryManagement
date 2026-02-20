@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from 'react'
 import { MagnifyingGlassIcon, XMarkIcon } from '@heroicons/react/24/outline'
-import { products, categories, Product, Category } from '../../../lib/api'
+import { products, categories, suppliers, Product, Category, Supplier } from '../../../lib/api'
 import { useDebounce } from '../../../hooks/useDebounce'
 import { useScrollToForm } from '../../../hooks/useScrollToForm'
 import ProductCategoryFilter from '../components/ProductCategoryFilter'
@@ -28,6 +28,10 @@ export default function Products() {
   const [newBarcode, setNewBarcode] = useState('')
   const [addingBarcode, setAddingBarcode] = useState(false)
 
+  // Supplier state
+  const [allSuppliers, setAllSuppliers] = useState<Supplier[]>([])
+  const [selectedSupplierIds, setSelectedSupplierIds] = useState<string[]>([])
+
   const { formRef, scrollToForm } = useScrollToForm()
 
   const loadData = async () => {
@@ -51,6 +55,10 @@ export default function Products() {
     loadData()
   }, [filterCategory])
 
+  useEffect(() => {
+    suppliers.list().then(setAllSuppliers).catch((err) => console.error('Failed to load suppliers', err))
+  }, [])
+
   const filteredProducts = useMemo(() => {
     if (!debouncedSearch.trim()) return productList
     const query = debouncedSearch.toLowerCase()
@@ -73,15 +81,33 @@ export default function Products() {
         lowStockThreshold: formData.lowStockThreshold,
       }
 
+      let productId: string
       if (editingId) {
         await products.update(editingId, data)
+        productId = editingId
       } else {
-        await products.create(data)
+        const created = await products.create(data)
+        productId = created.id
+      }
+      try {
+        await suppliers.setProductSuppliers(productId, selectedSupplierIds)
+      } catch (supplierErr) {
+        console.error('Failed to save supplier links', supplierErr)
+        // Product was saved successfully, close form but warn user
+        setShowForm(false)
+        setEditingId(null)
+        setEditingProduct(null)
+        setFormData(emptyForm)
+        setSelectedSupplierIds([])
+        await loadData()
+        setError('Product saved but supplier links failed. Edit the product to retry.')
+        return
       }
       setShowForm(false)
       setEditingId(null)
       setEditingProduct(null)
       setFormData(emptyForm)
+      setSelectedSupplierIds([])
       await loadData()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to save product')
@@ -101,6 +127,10 @@ export default function Products() {
     setEditingProduct(product)
     setShowForm(true)
     scrollToForm()
+    suppliers.getProductSuppliers(product.id).then(setSelectedSupplierIds).catch((err) => {
+      console.error('Failed to load product suppliers', err)
+      setSelectedSupplierIds([])
+    })
   }
 
   const handleDelete = async (id: string) => {
@@ -114,12 +144,21 @@ export default function Products() {
     }
   }
 
+  const handleSupplierToggle = (supplierId: string) => {
+    setSelectedSupplierIds(prev =>
+      prev.includes(supplierId)
+        ? prev.filter(id => id !== supplierId)
+        : [...prev, supplierId]
+    )
+  }
+
   const handleCancel = () => {
     setShowForm(false)
     setEditingId(null)
     setEditingProduct(null)
     setFormData(emptyForm)
     setNewBarcode('')
+    setSelectedSupplierIds([])
     setError(null)
   }
 
@@ -227,6 +266,9 @@ export default function Products() {
             addingBarcode={addingBarcode}
             onAddBarcode={handleAddBarcode}
             onRemoveBarcode={handleRemoveBarcode}
+            allSuppliers={allSuppliers}
+            selectedSupplierIds={selectedSupplierIds}
+            onSupplierToggle={handleSupplierToggle}
           />
         </div>
       )}

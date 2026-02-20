@@ -1,5 +1,5 @@
 import { XMarkIcon } from '@heroicons/react/24/outline'
-import type { Category, Product } from '../../../lib/api'
+import type { Category, Product, Supplier } from '../../../lib/api'
 import type { ProductFormData } from '../types'
 
 interface ProductFormProps {
@@ -16,6 +16,9 @@ interface ProductFormProps {
   addingBarcode: boolean
   onAddBarcode: () => void
   onRemoveBarcode: (barcodeId: string) => void
+  allSuppliers: Supplier[]
+  selectedSupplierIds: string[]
+  onSupplierToggle: (supplierId: string) => void
 }
 
 export default function ProductForm({
@@ -32,6 +35,9 @@ export default function ProductForm({
   addingBarcode,
   onAddBarcode,
   onRemoveBarcode,
+  allSuppliers,
+  selectedSupplierIds,
+  onSupplierToggle,
 }: ProductFormProps) {
   return (
     <form onSubmit={onSubmit} className="card space-y-4">
@@ -96,6 +102,28 @@ export default function ProductForm({
           Alert when stock falls to this level. Set to 0 to disable alerts.
         </p>
       </div>
+
+      {allSuppliers.length > 0 && (
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">Available at</label>
+          <div className="space-y-1">
+            {allSuppliers.map((supplier) => (
+              <label key={supplier.id} className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={selectedSupplierIds.includes(supplier.id)}
+                  onChange={() => onSupplierToggle(supplier.id)}
+                  className="w-4 h-4 text-primary-600 border-gray-300 rounded focus:ring-primary-500"
+                />
+                <span className="text-sm text-gray-700">{supplier.name}</span>
+              </label>
+            ))}
+          </div>
+          <p className="text-xs text-gray-500 mt-1">
+            Select shops where this product can be purchased
+          </p>
+        </div>
+      )}
 
       {editingId && editingProduct && (
         <div>

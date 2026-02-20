@@ -10,6 +10,7 @@ interface ExpenseFormProps {
   onCancel: () => void
   setFormData: React.Dispatch<React.SetStateAction<ExpenseFormData>>
   onIncVatChange: (value: string) => void
+  onExcVatChange: (value: string) => void
 }
 
 export default function ExpenseForm({
@@ -20,6 +21,7 @@ export default function ExpenseForm({
   onCancel,
   setFormData,
   onIncVatChange,
+  onExcVatChange,
 }: ExpenseFormProps) {
   return (
     <form onSubmit={onSubmit} className="card space-y-4">
@@ -95,11 +97,10 @@ export default function ExpenseForm({
             step="0.01"
             min="0"
             value={formData.amountExcVat}
-            onChange={(e) => setFormData({ ...formData, amountExcVat: e.target.value })}
+            onChange={(e) => onExcVatChange(e.target.value)}
             className="input"
-            placeholder="Auto-calculated"
+            placeholder="0.00"
           />
-          <p className="text-xs text-gray-500 mt-1">Auto-fills at 20% VAT</p>
         </div>
       </div>
 

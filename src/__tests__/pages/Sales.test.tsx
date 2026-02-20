@@ -23,16 +23,20 @@ vi.mock('../../lib/api', () => ({
     getPendingOrders: vi.fn(),
     importOrder: vi.fn(),
   },
+  settings: {
+    getPostageTiers: vi.fn(),
+  },
 }));
 
 import Sales from '../../pages/Sales';
-import { sales, hampers, etsy } from '../../lib/api';
+import { sales, hampers, etsy, settings } from '../../lib/api';
 
 const mockSalesList = vi.mocked(sales.list);
 const mockSalesSummary = vi.mocked(sales.summary);
 const mockSalesPreview = vi.mocked(sales.preview);
 const mockHampersList = vi.mocked(hampers.list);
 const mockEtsyGetStatus = vi.mocked(etsy.getStatus);
+const mockGetPostageTiers = vi.mocked(settings.getPostageTiers);
 
 describe('Sales', () => {
   const sampleHampers = [
@@ -125,6 +129,7 @@ describe('Sales', () => {
     mockHampersList.mockResolvedValue(sampleHampers as any);
     mockSalesPreview.mockResolvedValue(samplePreview as any);
     mockEtsyGetStatus.mockResolvedValue({ connected: false });
+    mockGetPostageTiers.mockResolvedValue([]);
   });
 
   describe('loading state', () => {

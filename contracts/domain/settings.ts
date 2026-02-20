@@ -29,3 +29,14 @@ export const packagingOverheadSchema = z.object({
 })
 
 export type PackagingOverhead = z.infer<typeof packagingOverheadSchema>
+
+export const postageTierSchema = z.object({
+  id: cuidSchema,
+  etsyCharge: decimalSchema,
+  actualCost: decimalSchema,
+  label: z.string().nullable(),
+  isActive: z.boolean(),
+  createdAt: isoDateTimeSchema,
+})
+
+export type PostageTier = z.infer<typeof postageTierSchema>

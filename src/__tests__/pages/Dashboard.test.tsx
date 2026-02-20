@@ -219,6 +219,31 @@ describe('Dashboard', () => {
     });
   });
 
+  describe('low stock link', () => {
+    it('Low Stock card links to filtered inventory page', async () => {
+      render(<Dashboard />);
+
+      await waitFor(() => {
+        const links = screen.getAllByRole('link');
+        const lowStockLink = links.find(link => link.getAttribute('href') === '/inventory?filter=low-stock');
+        expect(lowStockLink).toBeDefined();
+        expect(lowStockLink).toHaveAttribute('href', '/inventory?filter=low-stock');
+      });
+    });
+
+    it('low stock alert items link to filtered inventory', async () => {
+      render(<Dashboard />);
+
+      await waitFor(() => {
+        expect(screen.getByText('Dark Chocolate')).toBeInTheDocument();
+      });
+
+      // The alert card items render as Links with href to /inventory?filter=low-stock
+      const darkChocLink = screen.getByText('Dark Chocolate').closest('a');
+      expect(darkChocLink).toHaveAttribute('href', '/inventory?filter=low-stock');
+    });
+  });
+
   describe('API calls', () => {
     it('fetches dashboard stats on mount', async () => {
       render(<Dashboard />);

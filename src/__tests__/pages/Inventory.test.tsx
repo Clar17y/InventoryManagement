@@ -172,6 +172,79 @@ describe('Inventory', () => {
     });
   });
 
+  describe('low stock filter', () => {
+    it('shows all products by default', async () => {
+      render(<Inventory />);
+
+      await waitFor(() => {
+        expect(screen.getByText('Dark Chocolate')).toBeInTheDocument();
+        expect(screen.getByText('Orange Juice')).toBeInTheDocument();
+      });
+
+      // No filter chip should be shown
+      expect(screen.queryByText('Low Stock Only')).not.toBeInTheDocument();
+    });
+
+    it('shows low stock filter chip when URL param set', async () => {
+      window.history.pushState({}, '', '/inventory?filter=low-stock');
+
+      render(<Inventory />);
+
+      await waitFor(() => {
+        expect(screen.getByText('Low Stock Only')).toBeInTheDocument();
+      });
+
+      // Reset URL
+      window.history.pushState({}, '', '/');
+    });
+
+    it('filters to only low stock products when filter active', async () => {
+      window.history.pushState({}, '', '/inventory?filter=low-stock');
+
+      render(<Inventory />);
+
+      await waitFor(() => {
+        // Orange Juice: totalStock=3, lowStockThreshold=5 -> low stock (3 <= 5)
+        expect(screen.getByText('Orange Juice')).toBeInTheDocument();
+      });
+
+      // Dark Chocolate: totalStock=25, lowStockThreshold=10 -> NOT low stock (25 > 10)
+      expect(screen.queryByText('Dark Chocolate')).not.toBeInTheDocument();
+
+      // Reset URL
+      window.history.pushState({}, '', '/');
+    });
+
+    it('removes filter when chip X is clicked', async () => {
+      const user = userEvent.setup();
+      window.history.pushState({}, '', '/inventory?filter=low-stock');
+
+      render(<Inventory />);
+
+      await waitFor(() => {
+        expect(screen.getByText('Low Stock Only')).toBeInTheDocument();
+      });
+
+      // Click the X button on the chip
+      const chip = screen.getByText('Low Stock Only');
+      const closeButton = chip.parentElement!.querySelector('button')!;
+      await user.click(closeButton);
+
+      await waitFor(() => {
+        expect(screen.queryByText('Low Stock Only')).not.toBeInTheDocument();
+      });
+
+      // All products should be visible again
+      await waitFor(() => {
+        expect(screen.getByText('Dark Chocolate')).toBeInTheDocument();
+        expect(screen.getByText('Orange Juice')).toBeInTheDocument();
+      });
+
+      // Reset URL
+      window.history.pushState({}, '', '/');
+    });
+  });
+
   it('shows empty state when load fails', async () => {
     mockProductsList.mockRejectedValueOnce(new Error('Network error'));
 

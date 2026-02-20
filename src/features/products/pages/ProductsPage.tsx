@@ -89,7 +89,20 @@ export default function Products() {
         const created = await products.create(data)
         productId = created.id
       }
-      await suppliers.setProductSuppliers(productId, selectedSupplierIds)
+      try {
+        await suppliers.setProductSuppliers(productId, selectedSupplierIds)
+      } catch (supplierErr) {
+        console.error('Failed to save supplier links', supplierErr)
+        // Product was saved successfully, close form but warn user
+        setShowForm(false)
+        setEditingId(null)
+        setEditingProduct(null)
+        setFormData(emptyForm)
+        setSelectedSupplierIds([])
+        await loadData()
+        setError('Product saved but supplier links failed. Edit the product to retry.')
+        return
+      }
       setShowForm(false)
       setEditingId(null)
       setEditingProduct(null)

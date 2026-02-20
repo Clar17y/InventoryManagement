@@ -34,6 +34,7 @@ export default function ShoppingListPage() {
       })
       .catch((err) => {
         setError(err instanceof Error ? err.message : 'Failed to load shopping list')
+        setLowStockItems([])
         setLoadingItems(false)
       })
   }, [selectedSupplierId])

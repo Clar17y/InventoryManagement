@@ -106,16 +106,22 @@ export default function EtsyOrdersSyncPanel({ isOpen, onClose, onImportComplete 
   const loadPendingOrders = async () => {
     try {
       setError(null)
-      const [data, tiers] = await Promise.all([
+      const [data, tiers] = await Promise.allSettled([
         etsy.getPendingOrders(),
         settings.getPostageTiers(),
       ])
-      setPendingOrders(data.orders)
+
+      if (data.status === 'rejected') {
+        throw data.reason
+      }
+
+      setPendingOrders(data.value.orders)
       setSelectedOrders(new Set())
 
+      const resolvedTiers = tiers.status === 'fulfilled' ? tiers.value : []
       const costs: Record<number, string> = {}
-      data.orders.forEach((order) => {
-        const matchingTier = tiers.find(
+      data.value.orders.forEach((order) => {
+        const matchingTier = resolvedTiers.find(
           (t) => Number(t.etsyCharge) === order.shippingCost
         )
         costs[order.receiptId] = matchingTier

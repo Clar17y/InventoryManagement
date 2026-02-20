@@ -314,12 +314,15 @@ export default function Inventory() {
           <div className="text-xl font-bold text-gray-900">{totalProducts}</div>
           <div className="text-xs text-gray-500">Products</div>
         </div>
-        <div className="card py-2 px-3 text-center">
+        <button
+          onClick={() => setSearchParams(lowStockFilter ? {} : { filter: 'low-stock' })}
+          className={`card py-2 px-3 text-center cursor-pointer transition-shadow ${lowStockFilter ? 'ring-2 ring-amber-400' : 'hover:ring-2 hover:ring-amber-300'}`}
+        >
           <div className={`text-xl font-bold ${lowStockCount > 0 ? 'text-red-600' : 'text-emerald-600'}`}>
             {lowStockCount}
           </div>
           <div className="text-xs text-gray-500">Low Stock</div>
-        </div>
+        </button>
         <div className="card py-2 px-3 text-center">
           <div className={`text-xl font-bold ${expiringCount > 0 ? 'text-amber-600' : 'text-emerald-600'}`}>
             {expiringCount}

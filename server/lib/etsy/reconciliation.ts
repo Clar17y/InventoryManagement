@@ -109,12 +109,13 @@ export function calculateCanMake(
   }
 
   for (const requirement of hamper.requirements) {
-    if (requirement.isOptional) continue;
-
     const qtyNeeded = toNumber(requirement.quantity);
     if (!qtyNeeded) continue;
 
     const categoryMappings = mappingsByCategory.get(requirement.categoryId);
+
+    // Optional requirements: skip only if variant has no mappings for this category
+    if (requirement.isOptional && (!categoryMappings || categoryMappings.length === 0)) continue;
 
     if (categoryMappings && categoryMappings.length > 0) {
       // ALTERNATIVES MODEL: Sum stock across all alternative products

@@ -9,6 +9,21 @@ import SupplierManagementSection from '../components/SupplierManagementSection'
 
 const settingsLinks = [
   {
+    to: '/sales',
+    title: 'Sales',
+    description: 'View and manage sales records',
+  },
+  {
+    to: '/analytics',
+    title: 'Analytics',
+    description: 'Charts and insights on inventory and sales',
+  },
+  {
+    to: '/shopping-list',
+    title: 'Shopping List',
+    description: 'View low-stock products by supplier for restocking trips',
+  },
+  {
     to: '/categories',
     title: 'Categories',
     description: 'Manage component categories (Hand Cream, Chocolate, etc.)',
@@ -22,11 +37,6 @@ const settingsLinks = [
     to: '/expenses',
     title: 'Business Expenses',
     description: 'Track advertising, postage, packaging, and other costs',
-  },
-  {
-    to: '/shopping-list',
-    title: 'Shopping List',
-    description: 'View low-stock products by supplier for restocking trips',
   },
 ]
 
@@ -278,7 +288,7 @@ export default function Settings() {
 
   return (
     <div className="space-y-6">
-      <h2 className="text-xl font-semibold">Settings</h2>
+      <h2 className="text-xl font-semibold">Settings & More</h2>
 
       {error && (
         <div className="alert-danger">{error}</div>

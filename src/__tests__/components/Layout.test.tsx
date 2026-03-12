@@ -66,39 +66,18 @@ describe('Layout', () => {
       expect(hampersLink).toHaveAttribute('href', '/hampers');
     });
 
-    it('has Sales link', () => {
+    it('has More link to settings', () => {
       render(<Layout />);
 
-      const salesLink = screen.getByRole('link', { name: /sales/i });
-      expect(salesLink).toHaveAttribute('href', '/sales');
+      const moreLink = screen.getByRole('link', { name: /more/i });
+      expect(moreLink).toHaveAttribute('href', '/settings');
     });
 
-    it('has Analytics link', () => {
-      render(<Layout />);
-
-      const analyticsLink = screen.getByRole('link', { name: /analytics/i });
-      expect(analyticsLink).toHaveAttribute('href', '/analytics');
-    });
-
-    it('has Settings link', () => {
-      render(<Layout />);
-
-      const settingsLink = screen.getByRole('link', { name: /settings/i });
-      expect(settingsLink).toHaveAttribute('href', '/settings');
-    });
-
-    it('has Shop link', () => {
-      render(<Layout />);
-
-      const shopLink = screen.getByRole('link', { name: /shop/i });
-      expect(shopLink).toHaveAttribute('href', '/shopping-list');
-    });
-
-    it('renders all 7 navigation items', () => {
+    it('renders all 4 navigation items', () => {
       render(<Layout />);
 
       const navLinks = screen.getAllByRole('link');
-      expect(navLinks).toHaveLength(7);
+      expect(navLinks).toHaveLength(4);
     });
   });
 });

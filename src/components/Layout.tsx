@@ -3,10 +3,7 @@ import {
   HomeIcon,
   CubeIcon,
   GiftIcon,
-  CurrencyPoundIcon,
-  ChartBarIcon,
   Cog6ToothIcon,
-  ShoppingCartIcon,
   ArrowRightOnRectangleIcon
 } from '@heroicons/react/24/outline'
 import { useAuth } from '../lib/auth'
@@ -15,10 +12,7 @@ const navItems = [
   { to: '/', icon: HomeIcon, label: 'Home' },
   { to: '/inventory', icon: CubeIcon, label: 'Stock' },
   { to: '/hampers', icon: GiftIcon, label: 'Hampers' },
-  { to: '/sales', icon: CurrencyPoundIcon, label: 'Sales' },
-  { to: '/analytics', icon: ChartBarIcon, label: 'Analytics' },
-  { to: '/shopping-list', icon: ShoppingCartIcon, label: 'Shop' },
-  { to: '/settings', icon: Cog6ToothIcon, label: 'Settings' },
+  { to: '/settings', icon: Cog6ToothIcon, label: 'More' },
 ]
 
 export default function Layout() {

@@ -401,8 +401,8 @@ describe('EtsySyncPanel', () => {
       );
 
       await user.click(await screen.findByText(/Price Sync/));
-      const [, rowCheckbox] = await screen.findAllByRole('checkbox');
-      await user.click(rowCheckbox);
+      const checkboxes = await screen.findAllByRole('checkbox');
+      await user.click(checkboxes[1]!);
       await user.click(screen.getByRole('button', { name: /Pull from Etsy/i }));
 
       await waitFor(() => {
@@ -426,8 +426,8 @@ describe('EtsySyncPanel', () => {
       );
 
       await user.click(await screen.findByText(/Price Sync/));
-      const [, rowCheckbox] = await screen.findAllByRole('checkbox');
-      await user.click(rowCheckbox);
+      const checkboxes = await screen.findAllByRole('checkbox');
+      await user.click(checkboxes[1]!);
       await user.click(screen.getByRole('button', { name: /Push to Etsy/i }));
 
       await waitFor(() => {
@@ -462,8 +462,8 @@ describe('EtsySyncPanel', () => {
       );
 
       await user.click(await screen.findByText(/Price Sync/));
-      const [, rowCheckbox] = await screen.findAllByRole('checkbox');
-      await user.click(rowCheckbox);
+      const checkboxes = await screen.findAllByRole('checkbox');
+      await user.click(checkboxes[1]!);
       await user.click(screen.getByRole('button', { name: /Pull from Etsy/i }));
 
       await waitFor(() => {

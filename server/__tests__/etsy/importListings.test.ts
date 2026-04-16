@@ -137,4 +137,64 @@ describe('syncExistingHamperFromListing', () => {
       details: [],
     })
   })
+
+  it('refreshes Etsy-linked fields when relinking an existing variant after create conflict', async () => {
+    prisma.hamperVariant.findMany.mockResolvedValue([])
+    prisma.hamperVariant.create.mockRejectedValue(new Error('Unique constraint failed'))
+    prisma.hamperVariant.findFirst
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce({
+        id: 'variant-2',
+        hamperId: 'old-hamper',
+        name: 'Old Name',
+        sellingPrice: 30,
+        etsySku: 'OLD-SKU',
+        etsyProductId: 'OLD-PRODUCT',
+        isActive: false,
+      })
+
+    const result = await syncExistingHamperFromListing({
+      prisma: prisma as any,
+      existing: {
+        id: 'hamper-1',
+        name: 'Baby Hamper',
+        sellingPrice: 40,
+        hasVariants: true,
+      },
+      listingIdStr: '123',
+      listingPrice: 40,
+      hasVariants: true,
+      inventoryLoaded: true,
+      variants: [
+        {
+          name: 'Fresh Name',
+          sku: 'FRESH-SKU',
+          productId: '9002',
+          sellingPrice: 55,
+        },
+      ],
+    })
+
+    expect(prisma.hamperVariant.update).toHaveBeenCalledWith({
+      where: { id: 'variant-2' },
+      data: {
+        hamperId: 'hamper-1',
+        name: 'Fresh Name',
+        sellingPrice: 55,
+        etsySku: 'FRESH-SKU',
+        etsyProductId: '9002',
+        isActive: true,
+      },
+    })
+    expect(result).toMatchObject({
+      didUpdate: true,
+      details: [
+        {
+          hamper: 'Baby Hamper',
+          action: 'relinked_variant',
+          variant: 'Fresh Name',
+        },
+      ],
+    })
+  })
 })

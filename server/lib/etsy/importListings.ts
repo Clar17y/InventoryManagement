@@ -187,7 +187,11 @@ export async function syncExistingHamperFromListing({
             if (existingByProductId) {
               await prisma.hamperVariant.update({
                 where: { id: existingByProductId.id },
-                data: { hamperId: existing.id, isActive: true },
+                data: {
+                  ...updateData,
+                  hamperId: existing.id,
+                  isActive: true,
+                },
               })
               didUpdate = true
               details.push({
@@ -234,7 +238,14 @@ export async function syncExistingHamperFromListing({
           if (existingVariant) {
             await prisma.hamperVariant.update({
               where: { id: existingVariant.id },
-              data: { hamperId: existing.id, isActive: true },
+              data: {
+                hamperId: existing.id,
+                name: variant.name,
+                sellingPrice: variant.sellingPrice,
+                etsySku: variant.sku,
+                etsyProductId: variant.productId,
+                isActive: true,
+              },
             })
             didUpdate = true
             details.push({

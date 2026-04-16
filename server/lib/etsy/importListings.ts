@@ -7,10 +7,12 @@ export type ImportedVariant = {
   sellingPrice: number | null
 }
 
+type DecimalLike = number | Prisma.Decimal
+
 type ExistingHamper = {
   id: string
   name: string
-  sellingPrice: number
+  sellingPrice: DecimalLike
   hasVariants: boolean
 }
 
@@ -48,12 +50,27 @@ type LocalVariant = {
   name: string
   etsySku: string | null
   etsyProductId: string | null
-  sellingPrice: number | null
+  sellingPrice: DecimalLike | null
 }
 
 const normalizeName = (name: string | null): string | null => {
   const trimmed = (name ?? '').trim()
   return trimmed.length > 0 ? trimmed.toLowerCase() : null
+}
+
+const PRICE_TOLERANCE = 0.001
+
+const toPriceNumber = (value: DecimalLike | null): number | null => {
+  if (value === null) return null
+  return Number(value)
+}
+
+const pricesDiffer = (left: DecimalLike | null, right: number | null): boolean => {
+  if (left === null || right === null) {
+    return left !== right
+  }
+
+  return Math.abs(Number(left) - right) > PRICE_TOLERANCE
 }
 
 export async function syncExistingHamperFromListing({
@@ -83,7 +100,7 @@ export async function syncExistingHamperFromListing({
     })
   }
 
-  if (!currentHasVariants && existing.sellingPrice !== listingPrice) {
+  if (!currentHasVariants && pricesDiffer(existing.sellingPrice, listingPrice)) {
     await prisma.hamper.update({
       where: { id: existing.id },
       data: { sellingPrice: listingPrice },
@@ -136,8 +153,8 @@ export async function syncExistingHamperFromListing({
           changes.push('set_sku')
         }
 
-        const effectiveSellingPrice = candidate.sellingPrice ?? existing.sellingPrice
-        if (variant.sellingPrice !== null && effectiveSellingPrice !== variant.sellingPrice) {
+        const effectiveSellingPrice = toPriceNumber(candidate.sellingPrice) ?? toPriceNumber(existing.sellingPrice)
+        if (pricesDiffer(effectiveSellingPrice, variant.sellingPrice)) {
           updateData.sellingPrice = variant.sellingPrice
           changes.push('set_price')
         }

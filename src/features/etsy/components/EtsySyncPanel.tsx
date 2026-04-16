@@ -372,12 +372,15 @@ export default function EtsySyncPanel({ isOpen, onClose, onImportComplete }: Ets
               {activeTab === 'prices' && (
                 <EtsyPriceSyncTab
                   pricePushResult={priceSync.pricePushResult}
+                  pricePullResult={priceSync.pricePullResult}
                   showOnlyPriceDiff={priceSync.showOnlyPriceDiff}
                   setShowOnlyPriceDiff={priceSync.setShowOnlyPriceDiff}
                   priceNeedsSyncCount={priceSync.priceNeedsSyncCount}
                   selectAllPriceDiff={priceSync.selectAllPriceDiff}
-                  handleSyncPrices={priceSync.handleSyncPrices}
+                  handlePushPrices={priceSync.handlePushPrices}
+                  handlePullPrices={priceSync.handlePullPrices}
                   pushingPrices={priceSync.pushingPrices}
+                  pullingPrices={priceSync.pullingPrices}
                   pendingPrices={priceSync.pendingPrices}
                   filteredPrices={priceSync.filteredPrices}
                   selectedPriceItems={priceSync.selectedPriceItems}

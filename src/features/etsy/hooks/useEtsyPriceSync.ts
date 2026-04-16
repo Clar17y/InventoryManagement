@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { etsy, type EtsyPendingPriceUpdate } from '../../../lib/api'
+import { etsy, type EtsyPendingPriceUpdate, type EtsyPricePullResult } from '../../../lib/api'
 
 export function useEtsyPriceSync({
   setError,
@@ -9,7 +9,9 @@ export function useEtsyPriceSync({
   const [pendingPrices, setPendingPrices] = useState<EtsyPendingPriceUpdate[]>([])
   const [selectedPriceItems, setSelectedPriceItems] = useState<Set<string>>(new Set())
   const [pushingPrices, setPushingPrices] = useState(false)
+  const [pullingPrices, setPullingPrices] = useState(false)
   const [pricePushResult, setPricePushResult] = useState<{ updated: number; errors: number } | null>(null)
+  const [pricePullResult, setPricePullResult] = useState<EtsyPricePullResult | null>(null)
   const [showOnlyPriceDiff, setShowOnlyPriceDiff] = useState(true)
 
   const loadPendingPrices = async (listingIds?: string[]) => {
@@ -58,11 +60,15 @@ export function useEtsyPriceSync({
     setSelectedPriceItems(newSelected)
   }
 
-  const handleSyncPrices = async () => {
+  const handlePushPrices = async () => {
     if (selectedPriceItems.size === 0) return
 
-    const pricesToPush = pendingPrices
-      .filter((p) => p.needsSync && selectedPriceItems.has(p.variantId) && p.localPrice !== null)
+    const selectedPendingPrices = pendingPrices.filter(
+      (p) => p.needsSync && selectedPriceItems.has(p.variantId)
+    )
+
+    const pricesToPush = selectedPendingPrices
+      .filter((p) => p.localPrice !== null)
       .map((p) => ({
         etsyListingId: p.etsyListingId,
         etsySku: p.etsySku,
@@ -81,6 +87,7 @@ export function useEtsyPriceSync({
     setPushingPrices(true)
     setError(null)
     setPricePushResult(null)
+    setPricePullResult(null)
 
     try {
       const result = await etsy.pushPrices(pricesToPush)
@@ -98,6 +105,50 @@ export function useEtsyPriceSync({
     }
   }
 
+  const handlePullPrices = async () => {
+    if (selectedPriceItems.size === 0) return
+
+    const selectedPendingPrices = pendingPrices.filter(
+      (p) => p.needsSync && selectedPriceItems.has(p.variantId)
+    )
+
+    const pricesToPull = selectedPendingPrices.map((p) => ({
+        hamperId: p.hamperId,
+        variantId: p.variantId,
+        etsyPrice: p.etsyPrice,
+      }))
+
+    if (pricesToPull.length === 0) return
+
+    const listingIds = [
+      ...new Set(selectedPendingPrices.map((p) => p.etsyListingId)),
+    ]
+
+    if (!confirm(`Pull ${pricesToPull.length} Etsy price(s) into local records?`)) {
+      return
+    }
+
+    setPullingPrices(true)
+    setError(null)
+    setPricePullResult(null)
+    setPricePushResult(null)
+
+    try {
+      const result = await etsy.pullPrices(pricesToPull)
+      setPricePullResult(result)
+      if (result.success) {
+        setSelectedPriceItems(new Set())
+        await loadPendingPrices(listingIds)
+      } else {
+        setError(`Some prices failed to pull: ${result.errors} error(s)`)
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to pull prices')
+    } finally {
+      setPullingPrices(false)
+    }
+  }
+
   const priceNeedsSyncCount = pendingPrices.filter((p) => p.needsSync).length
   const filteredPrices = showOnlyPriceDiff ? pendingPrices.filter((p) => p.needsSync) : pendingPrices
 
@@ -106,12 +157,15 @@ export function useEtsyPriceSync({
     filteredPrices,
     selectedPriceItems,
     pushingPrices,
+    pullingPrices,
     pricePushResult,
+    pricePullResult,
     showOnlyPriceDiff,
     setShowOnlyPriceDiff,
     priceNeedsSyncCount,
     loadPendingPrices,
-    handleSyncPrices,
+    handlePushPrices,
+    handlePullPrices,
     togglePriceItem,
     selectAllPriceDiff,
     setPendingPrices,

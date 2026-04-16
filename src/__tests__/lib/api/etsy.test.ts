@@ -484,7 +484,7 @@ describe('etsy API', () => {
     it('calls requestWithSchema with correct endpoint and body', async () => {
       mockRequestWithSchema.mockResolvedValue({ success: true, updated: 1, errors: 0, results: [] })
 
-      const updates = [{ hamperId: 'hamper-1', variantId: 'default:hamper-1', etsyPrice: 42 }]
+      const updates = [{ hamperId: 'hamper-1', variantId: 'default:hamper-1' }]
 
       await etsy.pullPrices(updates)
 

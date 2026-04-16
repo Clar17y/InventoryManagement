@@ -31,9 +31,8 @@ type SyncDetail = {
 }
 
 export type SyncExistingHamperArgs = {
-  prisma: Pick<Prisma.TransactionClient, 'hamper' | 'hamperVariant'> | any
+  prisma: Pick<Prisma.TransactionClient, 'hamper' | 'hamperVariant'>
   existing: ExistingHamper
-  listingIdStr: string
   listingPrice: number
   hasVariants: boolean
   inventoryLoaded: boolean
@@ -51,6 +50,10 @@ type LocalVariant = {
   etsySku: string | null
   etsyProductId: string | null
   sellingPrice: DecimalLike | null
+}
+
+type LinkedVariantConflict = {
+  id: string
 }
 
 const normalizeName = (name: string | null): string | null => {
@@ -73,10 +76,64 @@ const pricesDiffer = (left: DecimalLike | null, right: number | null): boolean =
   return Math.abs(Number(left) - right) > PRICE_TOLERANCE
 }
 
+async function findLinkedVariantConflict(
+  prisma: Pick<Prisma.TransactionClient, 'hamperVariant'>,
+  candidateId: string,
+  productId: string,
+  sku: string | null
+): Promise<LinkedVariantConflict | null> {
+  const existingByProductId = await prisma.hamperVariant.findFirst({
+    where: {
+      etsyProductId: productId,
+      NOT: { id: candidateId },
+    },
+    select: { id: true },
+  })
+
+  if (existingByProductId) {
+    return existingByProductId
+  }
+
+  if (!sku) {
+    return null
+  }
+
+  return prisma.hamperVariant.findFirst({
+    where: {
+      etsySku: sku,
+      NOT: { id: candidateId },
+    },
+    select: { id: true },
+  })
+}
+
+async function retireLinkedVariantConflict(
+  prisma: Pick<Prisma.TransactionClient, 'hamperVariant'>,
+  candidateId: string,
+  productId: string,
+  sku: string | null
+): Promise<boolean> {
+  const linkedVariantConflict = await findLinkedVariantConflict(prisma, candidateId, productId, sku)
+
+  if (!linkedVariantConflict) {
+    return false
+  }
+
+  await prisma.hamperVariant.update({
+    where: { id: linkedVariantConflict.id },
+    data: {
+      etsySku: null,
+      etsyProductId: null,
+      isActive: false,
+    },
+  })
+
+  return true
+}
+
 export async function syncExistingHamperFromListing({
   prisma,
   existing,
-  listingIdStr,
   listingPrice,
   hasVariants,
   inventoryLoaded,
@@ -165,43 +222,39 @@ export async function syncExistingHamperFromListing({
         }
 
         if (Object.keys(updateData).length > 0) {
-          try {
-            await prisma.hamperVariant.update({
-              where: { id: candidate.id },
-              data: updateData,
-            })
-            didUpdate = true
-            for (const change of changes) {
-              details.push({
-                hamper: existing.name,
-                action: change,
-                variant: candidate.name,
-              })
-            }
-          } catch (variantErr) {
-            const existingByProductId = await prisma.hamperVariant.findFirst({
-              where: { etsyProductId: productId },
-              select: { id: true },
-            })
+          const retiredLinkedVariant = await retireLinkedVariantConflict(prisma, candidate.id, productId, sku)
 
-            if (existingByProductId) {
-              await prisma.hamperVariant.update({
-                where: { id: existingByProductId.id },
-                data: {
-                  ...updateData,
-                  hamperId: existing.id,
-                  isActive: true,
-                },
-              })
-              didUpdate = true
-              details.push({
-                hamper: existing.name,
-                action: 'relinked_variant',
-                variant: variant.name,
-              })
-            } else {
-              console.warn(`Failed to update variant "${variant.name}" for listing ${listingIdStr}:`, variantErr)
-            }
+          if (retiredLinkedVariant) {
+            didUpdate = true
+            details.push({
+              hamper: existing.name,
+              action: 'relinked_variant',
+              variant: variant.name,
+            })
+          }
+
+          await prisma.hamperVariant.update({
+            where: { id: candidate.id },
+            data: updateData,
+          })
+          didUpdate = true
+          for (const change of changes) {
+            details.push({
+              hamper: existing.name,
+              action: change,
+              variant: candidate.name,
+            })
+          }
+        } else {
+          const retiredLinkedVariant = await retireLinkedVariantConflict(prisma, candidate.id, productId, sku)
+
+          if (retiredLinkedVariant) {
+            didUpdate = true
+            details.push({
+              hamper: existing.name,
+              action: 'relinked_variant',
+              variant: variant.name,
+            })
           }
         }
       } else {

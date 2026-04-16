@@ -629,7 +629,6 @@ router.post('/import', async (req, res) => {
                     const syncResult = await syncExistingHamperFromListing({
                         prisma,
                         existing,
-                        listingIdStr,
                         listingPrice: price,
                         hasVariants,
                         inventoryLoaded,

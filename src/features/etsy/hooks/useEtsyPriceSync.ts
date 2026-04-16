@@ -125,10 +125,9 @@ export function useEtsyPriceSync({
     )
 
     const pricesToPull = selectedPendingPrices.map((p) => ({
-        hamperId: p.hamperId,
-        variantId: p.variantId,
-        etsyPrice: p.etsyPrice,
-      }))
+      hamperId: p.hamperId,
+      variantId: p.variantId,
+    }))
 
     if (pricesToPull.length === 0) return
 

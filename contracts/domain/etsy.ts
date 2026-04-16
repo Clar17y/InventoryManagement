@@ -307,7 +307,6 @@ export type EtsyPricePushResult = z.infer<typeof etsyPricePushResultSchema>
 export const etsyPricePullUpdateSchema = z.object({
   hamperId: cuidSchema,
   variantId: z.string().min(1),
-  etsyPrice: z.number().finite().nonnegative(),
 })
 
 export type EtsyPricePullUpdate = z.infer<typeof etsyPricePullUpdateSchema>

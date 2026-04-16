@@ -72,12 +72,16 @@ describe('EtsySyncPanel', () => {
       });
     });
 
-    it('shows loading state initially', () => {
+    it('shows loading state initially', async () => {
       render(
         <EtsySyncPanel isOpen={true} onClose={mockOnClose} onImportComplete={mockOnImportComplete} />
       );
 
       expect(screen.getByText('Loading Etsy status...')).toBeInTheDocument();
+
+      await waitFor(() => {
+        expect(mockGetStatus).toHaveBeenCalled();
+      });
     });
 
     it('calls getStatus on open', async () => {
@@ -407,7 +411,7 @@ describe('EtsySyncPanel', () => {
 
       await waitFor(() => {
         expect(mockPullPrices).toHaveBeenCalledWith([
-          { hamperId: 'hamper-1', variantId: 'default:hamper-1', etsyPrice: 42 },
+          { hamperId: 'hamper-1', variantId: 'default:hamper-1' },
         ]);
       });
     });

@@ -1,6 +1,6 @@
 import { Prisma } from '@prisma/client'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { syncExistingHamperFromListing } from '../../lib/etsy/importListings'
+import { syncExistingHamperFromListing, type SyncExistingHamperArgs } from '../../lib/etsy/importListings'
 
 const prisma = {
   hamper: { update: vi.fn() },
@@ -11,6 +11,7 @@ const prisma = {
     create: vi.fn(),
   },
 }
+const prismaClient = prisma as unknown as SyncExistingHamperArgs['prisma']
 
 describe('syncExistingHamperFromListing', () => {
   beforeEach(() => {
@@ -26,9 +27,8 @@ describe('syncExistingHamperFromListing', () => {
     }
 
     const result = await syncExistingHamperFromListing({
-      prisma: prisma as any,
+      prisma: prismaClient,
       existing,
-      listingIdStr: '123',
       listingPrice: 42,
       hasVariants: false,
       variants: [],
@@ -48,14 +48,13 @@ describe('syncExistingHamperFromListing', () => {
 
   it('does not update non-variant hamper price when Decimal local price matches Etsy price', async () => {
     const result = await syncExistingHamperFromListing({
-      prisma: prisma as any,
+      prisma: prismaClient,
       existing: {
         id: 'hamper-1',
         name: 'Luxury Hamper',
         sellingPrice: new Prisma.Decimal('42.00') as any,
         hasVariants: false,
       },
-      listingIdStr: '123',
       listingPrice: 42,
       hasVariants: false,
       variants: [],
@@ -81,14 +80,13 @@ describe('syncExistingHamperFromListing', () => {
     ])
 
     await syncExistingHamperFromListing({
-      prisma: prisma as any,
+      prisma: prismaClient,
       existing: {
         id: 'hamper-1',
         name: 'Baby Hamper',
         sellingPrice: 40,
         hasVariants: true,
       },
-      listingIdStr: '123',
       listingPrice: 40,
       hasVariants: true,
       inventoryLoaded: true,
@@ -115,14 +113,13 @@ describe('syncExistingHamperFromListing', () => {
     ])
 
     const result = await syncExistingHamperFromListing({
-      prisma: prisma as any,
+      prisma: prismaClient,
       existing: {
         id: 'hamper-1',
         name: 'Baby Hamper',
         sellingPrice: new Prisma.Decimal('40.00') as any,
         hasVariants: true,
       },
-      listingIdStr: '123',
       listingPrice: 40,
       hasVariants: true,
       inventoryLoaded: true,
@@ -154,14 +151,13 @@ describe('syncExistingHamperFromListing', () => {
       })
 
     const result = await syncExistingHamperFromListing({
-      prisma: prisma as any,
+      prisma: prismaClient,
       existing: {
         id: 'hamper-1',
         name: 'Baby Hamper',
         sellingPrice: 40,
         hasVariants: true,
       },
-      listingIdStr: '123',
       listingPrice: 40,
       hasVariants: true,
       inventoryLoaded: true,
@@ -196,5 +192,78 @@ describe('syncExistingHamperFromListing', () => {
         },
       ],
     })
+  })
+
+  it('retires orphaned Etsy-linked variants before refreshing the matched local variant', async () => {
+    prisma.hamperVariant.findMany.mockResolvedValue([
+      {
+        id: 'variant-1',
+        name: 'Blue',
+        etsySku: null,
+        etsyProductId: null,
+        sellingPrice: 40,
+      },
+    ])
+    prisma.hamperVariant.findFirst.mockImplementation(async ({ where }: { where?: { etsySku?: string; etsyProductId?: string } }) => {
+      if (where?.etsyProductId === '9001' || where?.etsySku === 'BLUE-1') {
+        return {
+          id: 'variant-2',
+          hamperId: 'old-hamper',
+          name: 'Blue',
+          etsySku: 'BLUE-1',
+          etsyProductId: '9001',
+          sellingPrice: 30,
+          isActive: true,
+        }
+      }
+
+      return null
+    })
+
+    const result = await syncExistingHamperFromListing({
+      prisma: prismaClient,
+      existing: {
+        id: 'hamper-1',
+        name: 'Baby Hamper',
+        sellingPrice: 40,
+        hasVariants: true,
+      },
+      listingPrice: 40,
+      hasVariants: true,
+      inventoryLoaded: true,
+      variants: [
+        {
+          name: 'Blue',
+          sku: 'BLUE-1',
+          productId: '9001',
+          sellingPrice: 45,
+        },
+      ],
+    })
+
+    expect(prisma.hamperVariant.update).toHaveBeenNthCalledWith(1, {
+      where: { id: 'variant-2' },
+      data: {
+        etsySku: null,
+        etsyProductId: null,
+        isActive: false,
+      },
+    })
+    expect(prisma.hamperVariant.update).toHaveBeenNthCalledWith(2, {
+      where: { id: 'variant-1' },
+      data: {
+        etsySku: 'BLUE-1',
+        etsyProductId: '9001',
+        sellingPrice: 45,
+      },
+    })
+    expect(result.didUpdate).toBe(true)
+    expect(result.details).toEqual(expect.arrayContaining([
+      {
+        hamper: 'Baby Hamper',
+        action: 'relinked_variant',
+        variant: 'Blue',
+      },
+    ]))
   })
 })

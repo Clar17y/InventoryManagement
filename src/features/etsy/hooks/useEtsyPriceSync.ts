@@ -92,10 +92,22 @@ export function useEtsyPriceSync({
     try {
       const result = await etsy.pushPrices(pricesToPush)
       setPricePushResult({ updated: result.updated, errors: result.errors })
-      if (result.success) {
-        setSelectedPriceItems(new Set())
+      if (result.updated > 0) {
+        const successfulListingIds = new Set(
+          result.results.filter((item) => item.success).map((item) => item.listingId)
+        )
+        setSelectedPriceItems((prev) => {
+          if (successfulListingIds.size === 0) return prev
+          return new Set(
+            [...prev].filter((variantId) => {
+              const selectedPrice = selectedPendingPrices.find((price) => price.variantId === variantId)
+              return !selectedPrice || !successfulListingIds.has(selectedPrice.etsyListingId)
+            })
+          )
+        })
         await loadPendingPrices(listingIds)
-      } else {
+      }
+      if (!result.success) {
         setError(`Some prices failed to sync: ${result.errors} error(s)`)
       }
     } catch (err) {

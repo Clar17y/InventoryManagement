@@ -437,6 +437,59 @@ describe('EtsySyncPanel', () => {
       });
     });
 
+    it('refreshes affected price rows and keeps failed selections after a partial-success push', async () => {
+      const failedPriceRow = {
+        ...priceDiffRow,
+        hamperId: 'hamper-2',
+        hamperName: 'Starter Hamper',
+        etsyListingId: '456',
+        variantId: 'default:hamper-2',
+        etsyProductId: '9002',
+        localPrice: 18,
+        etsyPrice: 24,
+      };
+
+      mockGetPendingPriceUpdates
+        .mockResolvedValueOnce({
+          updates: [priceDiffRow, failedPriceRow],
+          count: 2,
+          needsSyncCount: 2,
+        })
+        .mockResolvedValueOnce({
+          updates: [failedPriceRow],
+          count: 1,
+          needsSyncCount: 1,
+        });
+      mockPushPrices.mockResolvedValue({
+        success: false,
+        updated: 1,
+        errors: 1,
+        results: [
+          { listingId: '123', success: true },
+          { listingId: '456', success: false, error: 'Out of stock' },
+        ],
+      });
+
+      const user = userEvent.setup();
+      render(
+        <EtsySyncPanel isOpen={true} onClose={mockOnClose} onImportComplete={mockOnImportComplete} />
+      );
+
+      await user.click(await screen.findByText(/Price Sync/));
+      const checkboxes = await screen.findAllByRole('checkbox');
+      await user.click(checkboxes[1]!);
+      await user.click(checkboxes[2]!);
+      await user.click(screen.getByRole('button', { name: /Push to Etsy/i }));
+
+      await waitFor(() => {
+        expect(mockGetPendingPriceUpdates).toHaveBeenLastCalledWith(['123', '456']);
+      });
+
+      expect(await screen.findByText(/Updated 1 price\(s\) on Etsy \(1 error\(s\)\)/i)).toBeInTheDocument();
+      expect(screen.getByText(/Some prices failed to sync: 1 error\(s\)/i)).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /Push to Etsy \(1\)/i })).toBeInTheDocument();
+    });
+
     it('refreshes affected price rows after a partial-success pull', async () => {
       mockGetPendingPriceUpdates
         .mockResolvedValueOnce({

@@ -168,32 +168,21 @@ export async function pullPriceUpdates(updates: PricePullUpdate[]) {
                     data: { sellingPrice: update.etsyPrice },
                 });
             } else {
-                try {
-                    await prisma.hamperVariant.update({
-                        where: { id: update.variantId, hamperId: update.hamperId } as never,
-                        data: { sellingPrice: update.etsyPrice },
-                    });
-                } catch (error) {
-                    if (!isUnsupportedVariantWhereError(error)) {
-                        throw error;
-                    }
+                const variant = await prisma.hamperVariant.findFirst({
+                    where: { id: update.variantId, hamperId: update.hamperId },
+                    select: { id: true },
+                });
 
-                    const variant = await prisma.hamperVariant.findFirst({
-                        where: { id: update.variantId, hamperId: update.hamperId },
-                        select: { id: true },
-                    });
-
-                    if (!variant) {
-                        throw new Error(
-                            `Variant ${update.variantId} does not belong to hamper ${update.hamperId}`
-                        );
-                    }
-
-                    await prisma.hamperVariant.update({
-                        where: { id: variant.id },
-                        data: { sellingPrice: update.etsyPrice },
-                    });
+                if (!variant) {
+                    throw new Error(
+                        `Variant ${update.variantId} does not belong to hamper ${update.hamperId}`
+                    );
                 }
+
+                await prisma.hamperVariant.update({
+                    where: { id: variant.id },
+                    data: { sellingPrice: update.etsyPrice },
+                });
             }
 
             results.push({
@@ -351,14 +340,4 @@ function buildPriceUpdateProducts(
             })),
         };
     });
-}
-
-function isUnsupportedVariantWhereError(error: unknown) {
-    if (!(error instanceof Error)) {
-        return false;
-    }
-
-    return error.message.includes('Unknown arg `hamperId`') ||
-        error.message.includes('Argument `where`') ||
-        error.message.includes('needs at least one of');
 }

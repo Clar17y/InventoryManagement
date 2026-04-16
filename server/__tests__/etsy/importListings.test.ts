@@ -135,6 +135,40 @@ describe('syncExistingHamperFromListing', () => {
     })
   })
 
+  it('does not clear a local variant price when Etsy does not provide one', async () => {
+    prisma.hamperVariant.findMany.mockResolvedValue([
+      {
+        id: 'variant-1',
+        name: 'Blue',
+        etsySku: 'BLUE-1',
+        etsyProductId: '9001',
+        sellingPrice: 45,
+      },
+    ])
+
+    const result = await syncExistingHamperFromListing({
+      prisma: prismaClient,
+      existing: {
+        id: 'hamper-1',
+        name: 'Baby Hamper',
+        sellingPrice: 40,
+        hasVariants: true,
+      },
+      listingPrice: 40,
+      hasVariants: true,
+      inventoryLoaded: true,
+      variants: [
+        { name: 'Blue', sku: 'BLUE-1', productId: '9001', sellingPrice: null },
+      ],
+    })
+
+    expect(prisma.hamperVariant.update).not.toHaveBeenCalled()
+    expect(result).toMatchObject({
+      didUpdate: false,
+      details: [],
+    })
+  })
+
   it('refreshes Etsy-linked fields when relinking an existing variant after create conflict', async () => {
     prisma.hamperVariant.findMany.mockResolvedValue([])
     prisma.hamperVariant.create.mockRejectedValue(new Error('Unique constraint failed'))
@@ -263,6 +297,77 @@ describe('syncExistingHamperFromListing', () => {
         hamper: 'Baby Hamper',
         action: 'relinked_variant',
         variant: 'Blue',
+      },
+    ]))
+  })
+
+  it('skips a variant when the direct candidate update fails', async () => {
+    prisma.hamperVariant.findMany.mockResolvedValue([
+      {
+        id: 'variant-1',
+        name: 'Variant 1',
+        etsySku: 'BLUE-1',
+        etsyProductId: '9001',
+        sellingPrice: 40,
+      },
+      {
+        id: 'variant-2',
+        name: 'Green',
+        etsySku: 'GREEN-1',
+        etsyProductId: '9002',
+        sellingPrice: 35,
+      },
+    ])
+    prisma.hamperVariant.findFirst.mockResolvedValue(null)
+    prisma.hamperVariant.update
+      .mockRejectedValueOnce(new Error('Unique constraint failed'))
+      .mockResolvedValueOnce({})
+
+    const result = await syncExistingHamperFromListing({
+      prisma: prismaClient,
+      existing: {
+        id: 'hamper-1',
+        name: 'Baby Hamper',
+        sellingPrice: 40,
+        hasVariants: true,
+      },
+      listingPrice: 40,
+      hasVariants: true,
+      inventoryLoaded: true,
+      variants: [
+        { name: 'Blue Renamed', sku: 'BLUE-1', productId: '9001', sellingPrice: 45 },
+        { name: 'Green', sku: 'GREEN-1', productId: '9002', sellingPrice: 36 },
+      ],
+    })
+
+    expect(prisma.hamperVariant.update).toHaveBeenNthCalledWith(1, {
+      where: { id: 'variant-1' },
+      data: {
+        sellingPrice: 45,
+        name: 'Blue Renamed',
+      },
+    })
+    expect(prisma.hamperVariant.update).toHaveBeenNthCalledWith(2, {
+      where: { id: 'variant-2' },
+      data: {
+        sellingPrice: 36,
+      },
+    })
+    expect(result).toMatchObject({
+      didUpdate: true,
+    })
+    expect(result.details).toEqual(expect.arrayContaining([
+      {
+        hamper: 'Baby Hamper',
+        action: 'set_price',
+        variant: 'Green',
+      },
+    ]))
+    expect(result.details).not.toEqual(expect.arrayContaining([
+      {
+        hamper: 'Baby Hamper',
+        action: 'renamed_variant',
+        variant: 'Variant 1',
       },
     ]))
   })

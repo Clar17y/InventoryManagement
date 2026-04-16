@@ -211,7 +211,7 @@ export async function syncExistingHamperFromListing({
         }
 
         const effectiveSellingPrice = toPriceNumber(candidate.sellingPrice) ?? toPriceNumber(existing.sellingPrice)
-        if (pricesDiffer(effectiveSellingPrice, variant.sellingPrice)) {
+        if (variant.sellingPrice !== null && pricesDiffer(effectiveSellingPrice, variant.sellingPrice)) {
           updateData.sellingPrice = variant.sellingPrice
           changes.push('set_price')
         }
@@ -222,28 +222,32 @@ export async function syncExistingHamperFromListing({
         }
 
         if (Object.keys(updateData).length > 0) {
-          const retiredLinkedVariant = await retireLinkedVariantConflict(prisma, candidate.id, productId, sku)
+          try {
+            const retiredLinkedVariant = await retireLinkedVariantConflict(prisma, candidate.id, productId, sku)
 
-          if (retiredLinkedVariant) {
+            if (retiredLinkedVariant) {
+              didUpdate = true
+              details.push({
+                hamper: existing.name,
+                action: 'relinked_variant',
+                variant: variant.name,
+              })
+            }
+
+            await prisma.hamperVariant.update({
+              where: { id: candidate.id },
+              data: updateData,
+            })
             didUpdate = true
-            details.push({
-              hamper: existing.name,
-              action: 'relinked_variant',
-              variant: variant.name,
-            })
-          }
-
-          await prisma.hamperVariant.update({
-            where: { id: candidate.id },
-            data: updateData,
-          })
-          didUpdate = true
-          for (const change of changes) {
-            details.push({
-              hamper: existing.name,
-              action: change,
-              variant: candidate.name,
-            })
+            for (const change of changes) {
+              details.push({
+                hamper: existing.name,
+                action: change,
+                variant: candidate.name,
+              })
+            }
+          } catch (variantErr) {
+            console.warn(`Skipping variant ${variant.name}: ${variantErr instanceof Error ? variantErr.message : variantErr}`)
           }
         } else {
           const retiredLinkedVariant = await retireLinkedVariantConflict(prisma, candidate.id, productId, sku)

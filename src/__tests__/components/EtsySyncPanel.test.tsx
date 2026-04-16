@@ -35,6 +35,7 @@ const mockImportListings = vi.mocked(etsy.importListings);
 const mockGetPendingOrders = vi.mocked(etsy.getPendingOrders);
 const mockGetPendingSkus = vi.mocked(etsy.getPendingSkus);
 const mockGetPendingPriceUpdates = vi.mocked(etsy.getPendingPriceUpdates);
+const mockPushPrices = vi.mocked(etsy.pushPrices);
 const mockPullPrices = vi.mocked(etsy.pullPrices);
 
 describe('EtsySyncPanel', () => {
@@ -300,6 +301,19 @@ describe('EtsySyncPanel', () => {
       mockGetStatus.mockResolvedValue({ connected: true, shopId: '123', shopName: 'Shop' });
     });
 
+    const priceDiffRow = {
+      hamperId: 'hamper-1',
+      hamperName: 'Luxury Hamper',
+      etsyListingId: '123',
+      variantId: 'default:hamper-1',
+      variantName: 'Default',
+      etsySku: null,
+      etsyProductId: '9001',
+      localPrice: 35,
+      etsyPrice: 42,
+      needsSync: true,
+    };
+
     it('shows inventory sync tab by default', async () => {
       render(
         <EtsySyncPanel isOpen={true} onClose={mockOnClose} onImportComplete={mockOnImportComplete} />
@@ -357,20 +371,7 @@ describe('EtsySyncPanel', () => {
 
     it('shows explicit push and pull buttons on the Price Sync tab', async () => {
       mockGetPendingPriceUpdates.mockResolvedValue({
-        updates: [
-          {
-            hamperId: 'hamper-1',
-            hamperName: 'Luxury Hamper',
-            etsyListingId: '123',
-            variantId: 'default:hamper-1',
-            variantName: 'Default',
-            etsySku: null,
-            etsyProductId: '9001',
-            localPrice: 35,
-            etsyPrice: 42,
-            needsSync: true,
-          },
-        ],
+        updates: [priceDiffRow],
         count: 1,
         needsSyncCount: 1,
       });
@@ -388,20 +389,7 @@ describe('EtsySyncPanel', () => {
 
     it('pulls selected Etsy prices into local records', async () => {
       mockGetPendingPriceUpdates.mockResolvedValue({
-        updates: [
-          {
-            hamperId: 'hamper-1',
-            hamperName: 'Luxury Hamper',
-            etsyListingId: '123',
-            variantId: 'default:hamper-1',
-            variantName: 'Default',
-            etsySku: null,
-            etsyProductId: '9001',
-            localPrice: 35,
-            etsyPrice: 42,
-            needsSync: true,
-          },
-        ],
+        updates: [priceDiffRow],
         count: 1,
         needsSyncCount: 1,
       });
@@ -422,6 +410,68 @@ describe('EtsySyncPanel', () => {
           { hamperId: 'hamper-1', variantId: 'default:hamper-1', etsyPrice: 42 },
         ]);
       });
+    });
+
+    it('pushes selected local prices to Etsy through the explicit push action', async () => {
+      mockGetPendingPriceUpdates.mockResolvedValue({
+        updates: [priceDiffRow],
+        count: 1,
+        needsSyncCount: 1,
+      });
+      mockPushPrices.mockResolvedValue({ success: true, updated: 1, errors: 0, results: [] });
+
+      const user = userEvent.setup();
+      render(
+        <EtsySyncPanel isOpen={true} onClose={mockOnClose} onImportComplete={mockOnImportComplete} />
+      );
+
+      await user.click(await screen.findByText(/Price Sync/));
+      const [, rowCheckbox] = await screen.findAllByRole('checkbox');
+      await user.click(rowCheckbox);
+      await user.click(screen.getByRole('button', { name: /Push to Etsy/i }));
+
+      await waitFor(() => {
+        expect(mockPushPrices).toHaveBeenCalledWith([
+          { etsyListingId: '123', etsySku: null, etsyProductId: '9001', price: 35 },
+        ]);
+      });
+    });
+
+    it('refreshes affected price rows after a partial-success pull', async () => {
+      mockGetPendingPriceUpdates
+        .mockResolvedValueOnce({
+          updates: [priceDiffRow],
+          count: 1,
+          needsSyncCount: 1,
+        })
+        .mockResolvedValueOnce({
+          updates: [],
+          count: 0,
+          needsSyncCount: 0,
+        });
+      mockPullPrices.mockResolvedValue({
+        success: false,
+        updated: 1,
+        errors: 1,
+        results: [{ hamperId: 'hamper-1', variantId: 'default:hamper-1', success: true }],
+      });
+
+      const user = userEvent.setup();
+      render(
+        <EtsySyncPanel isOpen={true} onClose={mockOnClose} onImportComplete={mockOnImportComplete} />
+      );
+
+      await user.click(await screen.findByText(/Price Sync/));
+      const [, rowCheckbox] = await screen.findAllByRole('checkbox');
+      await user.click(rowCheckbox);
+      await user.click(screen.getByRole('button', { name: /Pull from Etsy/i }));
+
+      await waitFor(() => {
+        expect(mockGetPendingPriceUpdates).toHaveBeenLastCalledWith(['123']);
+      });
+
+      expect(await screen.findByText(/Pulled 1 price\(s\) into local records/i)).toBeInTheDocument();
+      expect(screen.getByText(/Some prices failed to pull: 1 error\(s\)/i)).toBeInTheDocument();
     });
   });
 

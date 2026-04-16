@@ -28,6 +28,12 @@ export interface PriceUpdate {
     price: number;
 }
 
+export interface PricePullUpdate {
+    hamperId: string;
+    variantId: string;
+    etsyPrice: number;
+}
+
 /**
  * Get variants that have price differences between local and Etsy
  * Logic adapted for PUSH sync (Local -> Etsy):
@@ -144,6 +150,73 @@ export async function getPendingPriceUpdates(listingIds?: string[]) {
         console.error('Error getting pending price updates:', error);
         throw error;
     }
+}
+
+export async function pullPriceUpdates(updates: PricePullUpdate[]) {
+    const results: Array<{
+        hamperId: string;
+        variantId: string;
+        success: boolean;
+        error?: string;
+    }> = [];
+
+    for (const update of updates) {
+        try {
+            if (update.variantId === `default:${update.hamperId}`) {
+                await prisma.hamper.update({
+                    where: { id: update.hamperId },
+                    data: { sellingPrice: update.etsyPrice },
+                });
+            } else {
+                try {
+                    await prisma.hamperVariant.update({
+                        where: { id: update.variantId, hamperId: update.hamperId } as never,
+                        data: { sellingPrice: update.etsyPrice },
+                    });
+                } catch (error) {
+                    if (!isUnsupportedVariantWhereError(error)) {
+                        throw error;
+                    }
+
+                    const variant = await prisma.hamperVariant.findFirst({
+                        where: { id: update.variantId, hamperId: update.hamperId },
+                        select: { id: true },
+                    });
+
+                    if (!variant) {
+                        throw new Error(
+                            `Variant ${update.variantId} does not belong to hamper ${update.hamperId}`
+                        );
+                    }
+
+                    await prisma.hamperVariant.update({
+                        where: { id: variant.id },
+                        data: { sellingPrice: update.etsyPrice },
+                    });
+                }
+            }
+
+            results.push({
+                hamperId: update.hamperId,
+                variantId: update.variantId,
+                success: true,
+            });
+        } catch (error) {
+            results.push({
+                hamperId: update.hamperId,
+                variantId: update.variantId,
+                success: false,
+                error: error instanceof Error ? error.message : String(error),
+            });
+        }
+    }
+
+    return {
+        success: results.every((result) => result.success),
+        updated: results.filter((result) => result.success).length,
+        errors: results.filter((result) => !result.success).length,
+        results,
+    };
 }
 
 /**
@@ -278,4 +351,14 @@ function buildPriceUpdateProducts(
             })),
         };
     });
+}
+
+function isUnsupportedVariantWhereError(error: unknown) {
+    if (!(error instanceof Error)) {
+        return false;
+    }
+
+    return error.message.includes('Unknown arg `hamperId`') ||
+        error.message.includes('Argument `where`') ||
+        error.message.includes('needs at least one of');
 }

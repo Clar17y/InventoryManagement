@@ -5,24 +5,30 @@ import { formatCurrency } from '../../../lib/formatting'
 
 export default function EtsyPriceSyncTab({
   pricePushResult,
+  pricePullResult,
   showOnlyPriceDiff,
   setShowOnlyPriceDiff,
   priceNeedsSyncCount,
   selectAllPriceDiff,
-  handleSyncPrices,
+  handlePushPrices,
+  handlePullPrices,
   pushingPrices,
+  pullingPrices,
   pendingPrices,
   filteredPrices,
   selectedPriceItems,
   togglePriceItem,
 }: {
   pricePushResult: { updated: number; errors: number } | null
+  pricePullResult: { updated: number; errors: number } | null
   showOnlyPriceDiff: boolean
   setShowOnlyPriceDiff: (value: boolean) => void
   priceNeedsSyncCount: number
   selectAllPriceDiff: () => void
-  handleSyncPrices: () => void
+  handlePushPrices: () => void
+  handlePullPrices: () => void
   pushingPrices: boolean
+  pullingPrices: boolean
   pendingPrices: EtsyPendingPriceUpdate[]
   filteredPrices: EtsyPendingPriceUpdate[]
   selectedPriceItems: Set<string>
@@ -40,6 +46,19 @@ export default function EtsyPriceSyncTab({
           <CheckCircleIcon className="h-5 w-5 inline mr-2" />
           Updated {pricePushResult.updated} price(s) on Etsy
           {pricePushResult.errors > 0 && ` (${pricePushResult.errors} error(s))`}
+        </div>
+      )}
+
+      {/* Price Pull Result */}
+      {pricePullResult && (
+        <div
+          className={`p-3 rounded-lg text-sm ${
+            pricePullResult.errors > 0 ? 'bg-yellow-50 text-yellow-800' : 'bg-green-50 text-green-800'
+          }`}
+        >
+          <CheckCircleIcon className="h-5 w-5 inline mr-2" />
+          Pulled {pricePullResult.updated} price(s) into local records
+          {pricePullResult.errors > 0 && ` (${pricePullResult.errors} error(s))`}
         </div>
       )}
 
@@ -79,12 +98,20 @@ export default function EtsyPriceSyncTab({
             Export
           </button>
           <button
-            onClick={handleSyncPrices}
-            disabled={pushingPrices || selectedPriceItems.size === 0}
+            onClick={handlePushPrices}
+            disabled={pushingPrices || pullingPrices || selectedPriceItems.size === 0}
             className="btn-primary text-sm py-1 flex items-center gap-1"
           >
             <ArrowUpTrayIcon className="h-4 w-4" />
-            {pushingPrices ? 'Syncing...' : `Sync Selected (${selectedPriceItems.size})`}
+            {pushingPrices ? 'Pushing...' : `Push to Etsy (${selectedPriceItems.size})`}
+          </button>
+          <button
+            onClick={handlePullPrices}
+            disabled={pullingPrices || pushingPrices || selectedPriceItems.size === 0}
+            className="btn-secondary text-sm py-1 flex items-center gap-1"
+          >
+            <ArrowDownTrayIcon className="h-4 w-4" />
+            {pullingPrices ? 'Pulling...' : `Pull from Etsy (${selectedPriceItems.size})`}
           </button>
         </div>
       </div>

@@ -17,6 +17,7 @@ import {
   etsyOrderImportResponseSchema,
   etsyPendingOrdersResponseSchema,
   etsyPricesPendingResponseSchema,
+  etsyPricesPullResponseSchema,
   etsyPricesPushResponseSchema,
   etsySkusPendingResponseSchema,
   etsySkusPushResponseSchema,
@@ -473,6 +474,21 @@ describe('etsy API', () => {
       await etsy.pushPrices(updates)
 
       expect(mockRequestWithSchema).toHaveBeenCalledWith('/etsy/sync/prices/push', etsyPricesPushResponseSchema, {
+        method: 'POST',
+        body: JSON.stringify({ updates }),
+      })
+    })
+  })
+
+  describe('pullPrices', () => {
+    it('calls requestWithSchema with correct endpoint and body', async () => {
+      mockRequestWithSchema.mockResolvedValue({ success: true, updated: 1, errors: 0, results: [] })
+
+      const updates = [{ hamperId: 'hamper-1', variantId: 'default:hamper-1' }]
+
+      await etsy.pullPrices(updates)
+
+      expect(mockRequestWithSchema).toHaveBeenCalledWith('/etsy/sync/prices/pull', etsyPricesPullResponseSchema, {
         method: 'POST',
         body: JSON.stringify({ updates }),
       })

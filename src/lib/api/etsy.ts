@@ -11,6 +11,7 @@ import type {
   EtsyPendingOrderItem as ContractEtsyPendingOrderItem,
   EtsyPendingPriceUpdate as ContractEtsyPendingPriceUpdate,
   EtsyPendingSku as ContractEtsyPendingSku,
+  EtsyPricePullResult as ContractEtsyPricePullResult,
   EtsyProduct as ContractEtsyProduct,
   EtsyProductOffering as ContractEtsyProductOffering,
   EtsyProvisionalUser as ContractEtsyProvisionalUser,
@@ -35,6 +36,7 @@ import {
   etsyOrdersBulkImportResponseSchema,
   etsyPendingOrdersResponseSchema,
   etsyPricesPendingResponseSchema,
+  etsyPricesPullResponseSchema,
   etsyPricesPushResponseSchema,
   etsySkusPendingResponseSchema,
   etsySkusPushResponseSchema,
@@ -43,6 +45,7 @@ import {
   etsySyncPushResponseSchema,
   type EtsyOrderImportBody,
   type EtsyOrdersBulkImportBody,
+  type EtsyPricesPullBody,
   type EtsyPricesPushBody,
   type EtsySyncPushBody,
 } from '#contracts/routes/etsySync'
@@ -74,6 +77,7 @@ export type EtsyPendingSku = ContractEtsyPendingSku
 export type EtsySkuPushResult = ContractEtsySkuPushResult
 
 export type EtsyPendingPriceUpdate = ContractEtsyPendingPriceUpdate
+export type EtsyPricePullResult = ContractEtsyPricePullResult
 
 export type EtsyAccount = ContractEtsyAccount
 export type EtsyProvisionalUser = ContractEtsyProvisionalUser
@@ -135,6 +139,11 @@ export const etsy = {
     ),
   pushPrices: (updates: EtsyPricesPushBody['updates']) =>
     requestWithSchema('/etsy/sync/prices/push', etsyPricesPushResponseSchema, {
+      method: 'POST',
+      body: JSON.stringify({ updates }),
+    }),
+  pullPrices: (updates: EtsyPricesPullBody['updates']) =>
+    requestWithSchema('/etsy/sync/prices/pull', etsyPricesPullResponseSchema, {
       method: 'POST',
       body: JSON.stringify({ updates }),
     }),

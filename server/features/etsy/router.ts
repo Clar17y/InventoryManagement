@@ -1,10 +1,10 @@
 import { Router } from 'express';
 import crypto from 'crypto';
 import { z } from 'zod'
-import type { Prisma } from '@prisma/client';
 import { prisma } from '../../lib/prisma';
 import { etsyClient, etsyAuth } from '../../lib/etsyClient';
 import { MOCK_SHOP } from '../../lib/etsy/fixtures';
+import { syncExistingHamperFromListing } from '../../lib/etsy/importListings';
 import { fetchAllActiveListings } from '../../lib/etsy/pagination';
 import { etsyAddProvisionalUserBodySchema } from '#contracts/routes/etsy'
 
@@ -626,170 +626,18 @@ router.post('/import', async (req, res) => {
                     results.created++;
                     results.details.push({ hamper: listing.title, action: 'created_hamper' });
                 } else {
-                    hamperId = existing.id;
+                    const syncResult = await syncExistingHamperFromListing({
+                        prisma,
+                        existing,
+                        listingPrice: price,
+                        hasVariants,
+                        inventoryLoaded,
+                        variants,
+                    });
 
-                    // If we could load inventory, refresh hasVariants and ensure variants exist.
-                    // Never touches local requirements/mappings.
-                    let didUpdate = false;
-
-                    if (inventoryLoaded && existing.hasVariants !== hasVariants) {
-                        await prisma.hamper.update({
-                            where: { id: existing.id },
-                            data: { hasVariants },
-                        });
-                        didUpdate = true;
-                        results.details.push({
-                            hamper: existing.name,
-                            action: 'toggled_has_variants',
-                            info: `${existing.hasVariants} → ${hasVariants}`,
-                        });
-                    }
-
-                    if (inventoryLoaded && variants.length > 0) {
-                        const localVariants = await prisma.hamperVariant.findMany({
-                            where: { hamperId: existing.id, isActive: true },
-                            select: {
-                                id: true,
-                                name: true,
-                                etsySku: true,
-                                etsyProductId: true,
-                                sellingPrice: true,
-                            },
-                        });
-
-                        const normalizeName = (name: string | null): string | null => {
-                            const trimmed = (name ?? '').trim();
-                            return trimmed.length > 0 ? trimmed.toLowerCase() : null;
-                        };
-
-                        for (const v of variants) {
-                            const productId = v.productId;
-                            const sku = v.sku;
-                            const nameKey = normalizeName(v.name);
-
-                            const candidate =
-                                localVariants.find(lv => lv.etsyProductId === productId) ??
-                                (sku ? localVariants.find(lv => lv.etsySku === sku) : undefined) ??
-                                (nameKey
-                                    ? (() => {
-                                        const matches = localVariants.filter(lv => normalizeName(lv.name) === nameKey);
-                                        return matches.length === 1 ? matches[0] : undefined;
-                                    })()
-                                    : undefined);
-
-                            if (candidate) {
-                                const updateData: Prisma.HamperVariantUpdateInput = {};
-                                const changes: string[] = [];
-
-                                if (candidate.etsyProductId !== productId) {
-                                    updateData.etsyProductId = productId;
-                                    changes.push('linked_product_id');
-                                }
-                                if (!candidate.etsySku && sku) {
-                                    updateData.etsySku = sku;
-                                    changes.push('set_sku');
-                                }
-                                if (candidate.sellingPrice === null && v.sellingPrice !== null) {
-                                    updateData.sellingPrice = v.sellingPrice;
-                                    changes.push('set_price');
-                                }
-
-                                // If this looks like an auto placeholder name, update it to Etsy's name.
-                                if (/^Variant\s+\d+$/i.test(candidate.name) && candidate.name !== v.name) {
-                                    updateData.name = v.name;
-                                    changes.push('renamed_variant');
-                                }
-
-                                if (Object.keys(updateData).length > 0) {
-                                    try {
-                                        await prisma.hamperVariant.update({
-                                            where: { id: candidate.id },
-                                            data: updateData,
-                                        });
-                                        didUpdate = true;
-                                        for (const change of changes) {
-                                            results.details.push({
-                                                hamper: existing.name,
-                                                action: change as 'linked_product_id' | 'set_sku' | 'set_price' | 'renamed_variant',
-                                                variant: candidate.name,
-                                            });
-                                        }
-                                    } catch (variantErr) {
-                                        // If we hit a unique constraint (e.g., productId already linked elsewhere), fall back to re-linking that variant.
-                                        const existingByProductId = await prisma.hamperVariant.findFirst({
-                                            where: { etsyProductId: productId },
-                                            select: { id: true },
-                                        });
-
-                                        if (existingByProductId) {
-                                            await prisma.hamperVariant.update({
-                                                where: { id: existingByProductId.id },
-                                                data: { hamperId: existing.id, isActive: true },
-                                            });
-                                            didUpdate = true;
-                                            results.details.push({
-                                                hamper: existing.name,
-                                                action: 'relinked_variant',
-                                                variant: v.name,
-                                            });
-                                        } else {
-                                            console.warn(`Failed to update variant "${v.name}" for listing ${listingIdStr}:`, variantErr);
-                                        }
-                                    }
-                                }
-                            } else {
-                                try {
-                                    await prisma.hamperVariant.create({
-                                        data: {
-                                            hamperId: existing.id,
-                                            name: v.name,
-                                            sellingPrice: v.sellingPrice,
-                                            etsySku: v.sku,
-                                            etsyProductId: v.productId,
-                                            isActive: true,
-                                        },
-                                    });
-                                    didUpdate = true;
-                                    results.details.push({
-                                        hamper: existing.name,
-                                        action: 'created_variant',
-                                        variant: v.name,
-                                    });
-                                } catch (variantErr) {
-                                    const existingBySku = v.sku
-                                        ? await prisma.hamperVariant.findFirst({
-                                            where: { etsySku: v.sku },
-                                        })
-                                        : null;
-                                    const existingByProductId = v.productId
-                                        ? await prisma.hamperVariant.findFirst({
-                                            where: { etsyProductId: v.productId },
-                                        })
-                                        : null;
-                                    const existingVariant = existingByProductId ?? existingBySku;
-
-                                    if (existingVariant) {
-                                        // Update orphaned variant to point to this hamper
-                                        await prisma.hamperVariant.update({
-                                            where: { id: existingVariant.id },
-                                            data: { hamperId: existing.id, isActive: true },
-                                        });
-                                        didUpdate = true;
-                                        results.details.push({
-                                            hamper: existing.name,
-                                            action: 'relinked_variant',
-                                            variant: v.name,
-                                        });
-                                    } else {
-                                        console.warn(`Skipping variant ${v.name}: ${variantErr instanceof Error ? variantErr.message : variantErr}`);
-                                    }
-                                }
-                            }
-                        }
-                    }
-
-                    if (didUpdate) {
+                    if (syncResult.didUpdate) {
                         results.updated++;
+                        results.details.push(...syncResult.details);
                     } else {
                         results.skipped++;
                     }

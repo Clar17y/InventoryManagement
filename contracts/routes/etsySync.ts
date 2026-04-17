@@ -6,6 +6,8 @@ import {
   etsyPendingOrderSchema,
   etsyPendingPriceUpdateSchema,
   etsyPendingSkuSchema,
+  etsyPricePullResultSchema,
+  etsyPricePullUpdateSchema,
   etsyPricePushResultSchema,
   etsySkuGenerateResultSchema,
   etsySkuPushResultSchema,
@@ -119,6 +121,12 @@ export const etsyPricesPushBodySchema = z.object({
 
 export const etsyPricesPushResponseSchema = etsyPricePushResultSchema
 
+export const etsyPricesPullBodySchema = z.object({
+  updates: z.array(etsyPricePullUpdateSchema).min(1),
+})
+
+export const etsyPricesPullResponseSchema = etsyPricePullResultSchema
+
 export type EtsySyncListingIdsQuery = z.input<typeof etsySyncListingIdsQuerySchema>
 export type EtsySyncComparisonResponse = z.infer<typeof etsySyncComparisonResponseSchema>
 export type EtsySyncPushBody = z.input<typeof etsySyncPushBodySchema>
@@ -135,3 +143,5 @@ export type EtsySkusPushResponse = z.infer<typeof etsySkusPushResponseSchema>
 export type EtsyPricesPendingResponse = z.infer<typeof etsyPricesPendingResponseSchema>
 export type EtsyPricesPushBody = z.input<typeof etsyPricesPushBodySchema>
 export type EtsyPricesPushResponse = z.infer<typeof etsyPricesPushResponseSchema>
+export type EtsyPricesPullBody = z.input<typeof etsyPricesPullBodySchema>
+export type EtsyPricesPullResponse = z.infer<typeof etsyPricesPullResponseSchema>

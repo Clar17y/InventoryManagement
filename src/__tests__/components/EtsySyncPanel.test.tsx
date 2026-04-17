@@ -20,6 +20,7 @@ vi.mock('../../lib/api', () => ({
     pushSkus: vi.fn(),
     getPendingPriceUpdates: vi.fn(),
     pushPrices: vi.fn(),
+    pullPrices: vi.fn(),
   },
 }));
 
@@ -34,6 +35,8 @@ const mockImportListings = vi.mocked(etsy.importListings);
 const mockGetPendingOrders = vi.mocked(etsy.getPendingOrders);
 const mockGetPendingSkus = vi.mocked(etsy.getPendingSkus);
 const mockGetPendingPriceUpdates = vi.mocked(etsy.getPendingPriceUpdates);
+const mockPushPrices = vi.mocked(etsy.pushPrices);
+const mockPullPrices = vi.mocked(etsy.pullPrices);
 
 describe('EtsySyncPanel', () => {
   const mockOnClose = vi.fn();
@@ -69,12 +72,16 @@ describe('EtsySyncPanel', () => {
       });
     });
 
-    it('shows loading state initially', () => {
+    it('shows loading state initially', async () => {
       render(
         <EtsySyncPanel isOpen={true} onClose={mockOnClose} onImportComplete={mockOnImportComplete} />
       );
 
       expect(screen.getByText('Loading Etsy status...')).toBeInTheDocument();
+
+      await waitFor(() => {
+        expect(mockGetStatus).toHaveBeenCalled();
+      });
     });
 
     it('calls getStatus on open', async () => {
@@ -298,6 +305,19 @@ describe('EtsySyncPanel', () => {
       mockGetStatus.mockResolvedValue({ connected: true, shopId: '123', shopName: 'Shop' });
     });
 
+    const priceDiffRow = {
+      hamperId: 'hamper-1',
+      hamperName: 'Luxury Hamper',
+      etsyListingId: '123',
+      variantId: 'default:hamper-1',
+      variantName: 'Default',
+      etsySku: null,
+      etsyProductId: '9001',
+      localPrice: 35,
+      etsyPrice: 42,
+      needsSync: true,
+    };
+
     it('shows inventory sync tab by default', async () => {
       render(
         <EtsySyncPanel isOpen={true} onClose={mockOnClose} onImportComplete={mockOnImportComplete} />
@@ -351,6 +371,164 @@ describe('EtsySyncPanel', () => {
       await waitFor(() => {
         expect(mockGetPendingPriceUpdates).toHaveBeenCalled();
       });
+    });
+
+    it('shows explicit push and pull buttons on the Price Sync tab', async () => {
+      mockGetPendingPriceUpdates.mockResolvedValue({
+        updates: [priceDiffRow],
+        count: 1,
+        needsSyncCount: 1,
+      });
+
+      const user = userEvent.setup();
+      render(
+        <EtsySyncPanel isOpen={true} onClose={mockOnClose} onImportComplete={mockOnImportComplete} />
+      );
+
+      await user.click(await screen.findByText(/Price Sync/));
+
+      expect(await screen.findByRole('button', { name: /Push to Etsy/i })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /Pull from Etsy/i })).toBeInTheDocument();
+    });
+
+    it('pulls selected Etsy prices into local records', async () => {
+      mockGetPendingPriceUpdates.mockResolvedValue({
+        updates: [priceDiffRow],
+        count: 1,
+        needsSyncCount: 1,
+      });
+      mockPullPrices.mockResolvedValue({ success: true, updated: 1, errors: 0, results: [] });
+
+      const user = userEvent.setup();
+      render(
+        <EtsySyncPanel isOpen={true} onClose={mockOnClose} onImportComplete={mockOnImportComplete} />
+      );
+
+      await user.click(await screen.findByText(/Price Sync/));
+      const checkboxes = await screen.findAllByRole('checkbox');
+      await user.click(checkboxes[1]!);
+      await user.click(screen.getByRole('button', { name: /Pull from Etsy/i }));
+
+      await waitFor(() => {
+        expect(mockPullPrices).toHaveBeenCalledWith([
+          { hamperId: 'hamper-1', variantId: 'default:hamper-1' },
+        ]);
+      });
+    });
+
+    it('pushes selected local prices to Etsy through the explicit push action', async () => {
+      mockGetPendingPriceUpdates.mockResolvedValue({
+        updates: [priceDiffRow],
+        count: 1,
+        needsSyncCount: 1,
+      });
+      mockPushPrices.mockResolvedValue({ success: true, updated: 1, errors: 0, results: [] });
+
+      const user = userEvent.setup();
+      render(
+        <EtsySyncPanel isOpen={true} onClose={mockOnClose} onImportComplete={mockOnImportComplete} />
+      );
+
+      await user.click(await screen.findByText(/Price Sync/));
+      const checkboxes = await screen.findAllByRole('checkbox');
+      await user.click(checkboxes[1]!);
+      await user.click(screen.getByRole('button', { name: /Push to Etsy/i }));
+
+      await waitFor(() => {
+        expect(mockPushPrices).toHaveBeenCalledWith([
+          { etsyListingId: '123', etsySku: null, etsyProductId: '9001', price: 35 },
+        ]);
+      });
+    });
+
+    it('refreshes affected price rows and keeps failed selections after a partial-success push', async () => {
+      const failedPriceRow = {
+        ...priceDiffRow,
+        hamperId: 'hamper-2',
+        hamperName: 'Starter Hamper',
+        etsyListingId: '456',
+        variantId: 'default:hamper-2',
+        etsyProductId: '9002',
+        localPrice: 18,
+        etsyPrice: 24,
+      };
+
+      mockGetPendingPriceUpdates
+        .mockResolvedValueOnce({
+          updates: [priceDiffRow, failedPriceRow],
+          count: 2,
+          needsSyncCount: 2,
+        })
+        .mockResolvedValueOnce({
+          updates: [failedPriceRow],
+          count: 1,
+          needsSyncCount: 1,
+        });
+      mockPushPrices.mockResolvedValue({
+        success: false,
+        updated: 1,
+        errors: 1,
+        results: [
+          { listingId: '123', success: true },
+          { listingId: '456', success: false, error: 'Out of stock' },
+        ],
+      });
+
+      const user = userEvent.setup();
+      render(
+        <EtsySyncPanel isOpen={true} onClose={mockOnClose} onImportComplete={mockOnImportComplete} />
+      );
+
+      await user.click(await screen.findByText(/Price Sync/));
+      const checkboxes = await screen.findAllByRole('checkbox');
+      await user.click(checkboxes[1]!);
+      await user.click(checkboxes[2]!);
+      await user.click(screen.getByRole('button', { name: /Push to Etsy/i }));
+
+      await waitFor(() => {
+        expect(mockGetPendingPriceUpdates).toHaveBeenLastCalledWith(['123', '456']);
+      });
+
+      expect(await screen.findByText(/Updated 1 price\(s\) on Etsy \(1 error\(s\)\)/i)).toBeInTheDocument();
+      expect(screen.getByText(/Some prices failed to sync: 1 error\(s\)/i)).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /Push to Etsy \(1\)/i })).toBeInTheDocument();
+    });
+
+    it('refreshes affected price rows after a partial-success pull', async () => {
+      mockGetPendingPriceUpdates
+        .mockResolvedValueOnce({
+          updates: [priceDiffRow],
+          count: 1,
+          needsSyncCount: 1,
+        })
+        .mockResolvedValueOnce({
+          updates: [],
+          count: 0,
+          needsSyncCount: 0,
+        });
+      mockPullPrices.mockResolvedValue({
+        success: false,
+        updated: 1,
+        errors: 1,
+        results: [{ hamperId: 'hamper-1', variantId: 'default:hamper-1', success: true }],
+      });
+
+      const user = userEvent.setup();
+      render(
+        <EtsySyncPanel isOpen={true} onClose={mockOnClose} onImportComplete={mockOnImportComplete} />
+      );
+
+      await user.click(await screen.findByText(/Price Sync/));
+      const checkboxes = await screen.findAllByRole('checkbox');
+      await user.click(checkboxes[1]!);
+      await user.click(screen.getByRole('button', { name: /Pull from Etsy/i }));
+
+      await waitFor(() => {
+        expect(mockGetPendingPriceUpdates).toHaveBeenLastCalledWith(['123']);
+      });
+
+      expect(await screen.findByText(/Pulled 1 price\(s\) into local records/i)).toBeInTheDocument();
+      expect(screen.getByText(/Some prices failed to pull: 1 error\(s\)/i)).toBeInTheDocument();
     });
   });
 

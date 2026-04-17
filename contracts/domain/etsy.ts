@@ -304,6 +304,29 @@ export const etsyPricePushResultSchema = z.object({
 
 export type EtsyPricePushResult = z.infer<typeof etsyPricePushResultSchema>
 
+export const etsyPricePullUpdateSchema = z.object({
+  hamperId: cuidSchema,
+  variantId: z.string().min(1),
+})
+
+export type EtsyPricePullUpdate = z.infer<typeof etsyPricePullUpdateSchema>
+
+export const etsyPricePullResultSchema = z.object({
+  success: z.boolean(),
+  updated: z.number().int().nonnegative(),
+  errors: z.number().int().nonnegative(),
+  results: z.array(
+    z.object({
+      hamperId: cuidSchema,
+      variantId: z.string(),
+      success: z.boolean(),
+      error: z.string().optional(),
+    })
+  ),
+})
+
+export type EtsyPricePullResult = z.infer<typeof etsyPricePullResultSchema>
+
 export const etsyAccountSchema = z.object({
   userId: z.string(),
   shopId: z.string(),

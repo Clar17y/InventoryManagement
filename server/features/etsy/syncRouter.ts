@@ -6,11 +6,12 @@ import { generateReconciliationReport } from '../../lib/etsy/reconciliation';
 import { getSyncComparison, pushSyncUpdates } from '../../lib/etsy/sync/inventory';
 import { getPendingOrders, importOrder, importOrdersBulk } from '../../lib/etsy/sync/orders';
 import { generateSkus, getPendingSkus, pushSkus } from '../../lib/etsy/sync/skus';
-import { getPendingPriceUpdates, pushPriceUpdates } from '../../lib/etsy/sync/prices';
+import { getPendingPriceUpdates, pullPriceUpdates, pushPriceUpdates } from '../../lib/etsy/sync/prices';
 import { SyncHttpError } from '../../lib/etsy/sync/errors';
 import {
     etsyOrderImportBodySchema,
     etsyOrdersBulkImportBodySchema,
+    etsyPricesPullBodySchema,
     etsyPricesPushBodySchema,
     etsySkusPushBodySchema,
     etsySyncListingIdsQuerySchema,
@@ -216,6 +217,23 @@ router.get('/prices/pending', async (req, res) => {
             return res.status(400).json({ error: 'Validation failed', details: error.errors })
         }
         res.status(500).json({ error: 'Failed to get pending price updates' });
+    }
+});
+
+/**
+ * POST /api/etsy/sync/prices/pull
+ * Pull Etsy prices into local hamper and variant prices
+ */
+router.post('/prices/pull', async (req, res) => {
+    try {
+        const { updates } = etsyPricesPullBodySchema.parse(req.body)
+        const result = await pullPriceUpdates(updates)
+        res.json(result)
+    } catch (error) {
+        if (error instanceof z.ZodError) {
+            return res.status(400).json({ error: 'Validation failed', details: error.errors })
+        }
+        res.status(500).json({ error: 'Failed to pull prices from Etsy' })
     }
 });
 

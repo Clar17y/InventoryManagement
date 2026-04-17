@@ -28,6 +28,20 @@ export interface PriceUpdate {
     price: number;
 }
 
+export interface PricePullUpdate {
+    hamperId: string;
+    variantId: string;
+}
+
+interface PricePullTarget {
+    hamperId: string;
+    variantId: string;
+    etsyListingId: string;
+    etsySku: string | null;
+    etsyProductId: string | null;
+    isDefault: boolean;
+}
+
 /**
  * Get variants that have price differences between local and Etsy
  * Logic adapted for PUSH sync (Local -> Etsy):
@@ -144,6 +158,159 @@ export async function getPendingPriceUpdates(listingIds?: string[]) {
         console.error('Error getting pending price updates:', error);
         throw error;
     }
+}
+
+async function resolvePricePullTarget(update: PricePullUpdate): Promise<PricePullTarget> {
+    if (update.variantId === `default:${update.hamperId}`) {
+        const hamper = await prisma.hamper.findUnique({
+            where: { id: update.hamperId },
+            select: { id: true, etsyListingId: true },
+        });
+
+        if (!hamper?.etsyListingId) {
+            throw new Error(`Hamper ${update.hamperId} is not linked to an Etsy listing`);
+        }
+
+        return {
+            hamperId: update.hamperId,
+            variantId: update.variantId,
+            etsyListingId: hamper.etsyListingId,
+            etsySku: null,
+            etsyProductId: null,
+            isDefault: true,
+        };
+    }
+
+    const variant = await prisma.hamperVariant.findFirst({
+        where: { id: update.variantId, hamperId: update.hamperId },
+        select: {
+            id: true,
+            etsySku: true,
+            etsyProductId: true,
+            hamper: {
+                select: { etsyListingId: true },
+            },
+        },
+    });
+
+    if (!variant?.hamper.etsyListingId) {
+        throw new Error(
+            `Variant ${update.variantId} does not belong to a hamper linked to Etsy`
+        );
+    }
+
+    return {
+        hamperId: update.hamperId,
+        variantId: update.variantId,
+        etsyListingId: variant.hamper.etsyListingId,
+        etsySku: variant.etsySku,
+        etsyProductId: variant.etsyProductId,
+        isDefault: false,
+    };
+}
+
+function getAuthoritativeEtsyPrice(
+    target: PricePullTarget,
+    inventory: EtsyInventory
+): number {
+    const product = target.isDefault
+        ? inventory.products[0]
+        : findEtsyProductByIdentifiers(inventory.products, {
+            etsySku: target.etsySku,
+            etsyProductId: target.etsyProductId,
+        });
+
+    if (!product) {
+        throw new Error(
+            `Unable to match Etsy product for variant ${target.variantId} on listing ${target.etsyListingId}`
+        );
+    }
+
+    const offering = product.offerings?.[0];
+    if (!offering) {
+        throw new Error(
+            `Etsy listing ${target.etsyListingId} has no price offering for variant ${target.variantId}`
+        );
+    }
+
+    return offering.price.amount / offering.price.divisor;
+}
+
+export async function pullPriceUpdates(updates: PricePullUpdate[]) {
+    const results: Array<{
+        hamperId: string;
+        variantId: string;
+        success: boolean;
+        error?: string;
+    }> = [];
+    const targets: PricePullTarget[] = [];
+
+    for (const update of updates) {
+        try {
+            targets.push(await resolvePricePullTarget(update));
+        } catch (error) {
+            results.push({
+                hamperId: update.hamperId,
+                variantId: update.variantId,
+                success: false,
+                error: error instanceof Error ? error.message : String(error),
+            });
+        }
+    }
+
+    const listingIds = [...new Set(
+        targets.map((target) => parseInt(target.etsyListingId, 10))
+    )];
+
+    for (const listingId of listingIds) {
+        invalidateListingInventory(listingId);
+    }
+
+    const inventoryMap = await getListingInventoriesBatched(listingIds);
+
+    for (const target of targets) {
+        try {
+            const listingId = parseInt(target.etsyListingId, 10);
+            const inventory = inventoryMap.get(listingId);
+            if (!inventory) {
+                throw new Error(`Unable to load Etsy inventory for listing ${target.etsyListingId}`);
+            }
+
+            const etsyPrice = getAuthoritativeEtsyPrice(target, inventory);
+
+            if (target.isDefault) {
+                await prisma.hamper.update({
+                    where: { id: target.hamperId },
+                    data: { sellingPrice: etsyPrice },
+                });
+            } else {
+                await prisma.hamperVariant.update({
+                    where: { id: target.variantId },
+                    data: { sellingPrice: etsyPrice },
+                });
+            }
+
+            results.push({
+                hamperId: target.hamperId,
+                variantId: target.variantId,
+                success: true,
+            });
+        } catch (error) {
+            results.push({
+                hamperId: target.hamperId,
+                variantId: target.variantId,
+                success: false,
+                error: error instanceof Error ? error.message : String(error),
+            });
+        }
+    }
+
+    return {
+        success: results.every((result) => result.success),
+        updated: results.filter((result) => result.success).length,
+        errors: results.filter((result) => !result.success).length,
+        results,
+    };
 }
 
 /**

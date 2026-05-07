@@ -19,6 +19,8 @@ import {
   etsyPricesPendingResponseSchema,
   etsyPricesPullResponseSchema,
   etsyPricesPushResponseSchema,
+  etsyDuplicateSkusRepairResponseSchema,
+  etsyDuplicateSkusResponseSchema,
   etsySkusPendingResponseSchema,
   etsySkusPushResponseSchema,
   etsySkuGenerateResponseSchema,
@@ -30,6 +32,8 @@ import {
   etsy,
   EtsyAccount,
   EtsyBulkImportResult,
+  EtsyDuplicateSkuRepairResult,
+  EtsyDuplicateSkuReport,
   EtsyImportResult,
   EtsyListing,
   EtsyOrderImportResult,
@@ -447,6 +451,99 @@ describe('etsy API', () => {
       expect(mockRequestWithSchema).toHaveBeenCalledWith('/etsy/sync/skus/push', etsySkusPushResponseSchema, {
         method: 'POST',
         body: JSON.stringify({ listingIds: ['123'] }),
+      })
+    })
+  })
+
+  describe('getDuplicateSkus', () => {
+    const sample: EtsyDuplicateSkuReport = {
+      summary: {
+        scannedListings: 1,
+        listingsWithDuplicateSkus: 1,
+        duplicateSkuGroups: 1,
+        productsInDuplicateGroups: 2,
+      },
+      listings: [
+        {
+          etsyListingId: '123',
+          hamperId: 'clx0q2p1w0000s1l1n4m9n9n9',
+          hamperName: 'Test Hamper',
+          duplicateGroups: [
+            {
+              sku: 'DUP-SKU',
+              count: 2,
+              products: [
+                {
+                  etsyProductId: '1',
+                  variantName: 'Grey Marble / Boy',
+                  sku: 'DUP-SKU',
+                  localVariantId: null,
+                  localVariantName: null,
+                },
+                {
+                  etsyProductId: '2',
+                  variantName: 'Mustard Star / Boy',
+                  sku: 'DUP-SKU',
+                  localVariantId: 'clx0q2p1w0000s1l1n4m9n9n8',
+                  localVariantName: 'Mustard Star / Boy',
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    }
+
+    it('calls requestWithSchema with correct endpoint', async () => {
+      mockRequestWithSchema.mockResolvedValue(sample)
+
+      await etsy.getDuplicateSkus(['123'])
+
+      expect(mockRequestWithSchema).toHaveBeenCalledWith(
+        '/etsy/sync/skus/duplicates?listingIds=123',
+        etsyDuplicateSkusResponseSchema,
+      )
+    })
+  })
+
+  describe('repairDuplicateSkus', () => {
+    const sample: EtsyDuplicateSkuRepairResult = {
+      success: true,
+      dryRun: true,
+      totalListings: 1,
+      totalWouldChange: 1,
+      totalUpdated: 0,
+      errors: 0,
+      results: [
+        {
+          etsyListingId: '123',
+          hamperName: 'Test Hamper',
+          success: true,
+          dryRun: true,
+          changed: 1,
+          updated: 0,
+          changes: [
+            {
+              etsyProductId: '1',
+              variantName: 'Grey Marble / Boy',
+              oldSku: 'DUP-SKU',
+              newSku: 'TEST-123-GMB',
+              localVariantId: null,
+            },
+          ],
+        },
+      ],
+    }
+
+    it('calls requestWithSchema with correct endpoint and body', async () => {
+      const body = { listingIds: ['123'], dryRun: true }
+      mockRequestWithSchema.mockResolvedValue(sample)
+
+      await etsy.repairDuplicateSkus(body)
+
+      expect(mockRequestWithSchema).toHaveBeenCalledWith('/etsy/sync/skus/repair-duplicates', etsyDuplicateSkusRepairResponseSchema, {
+        method: 'POST',
+        body: JSON.stringify(body),
       })
     })
   })

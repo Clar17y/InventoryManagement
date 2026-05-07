@@ -5,7 +5,13 @@ import { etsyClient } from '../../lib/etsyClient';
 import { generateReconciliationReport } from '../../lib/etsy/reconciliation';
 import { getSyncComparison, pushSyncUpdates } from '../../lib/etsy/sync/inventory';
 import { getPendingOrders, importOrder, importOrdersBulk } from '../../lib/etsy/sync/orders';
-import { generateSkus, getPendingSkus, pushSkus } from '../../lib/etsy/sync/skus';
+import {
+    generateSkus,
+    getDuplicateSkuReport,
+    getPendingSkus,
+    pushSkus,
+    repairDuplicateSkus,
+} from '../../lib/etsy/sync/skus';
 import { getPendingPriceUpdates, pullPriceUpdates, pushPriceUpdates } from '../../lib/etsy/sync/prices';
 import { SyncHttpError } from '../../lib/etsy/sync/errors';
 import {
@@ -13,6 +19,7 @@ import {
     etsyOrdersBulkImportBodySchema,
     etsyPricesPullBodySchema,
     etsyPricesPushBodySchema,
+    etsyDuplicateSkusRepairBodySchema,
     etsySkusPushBodySchema,
     etsySyncListingIdsQuerySchema,
     etsySyncPushBodySchema,
@@ -184,6 +191,24 @@ router.get('/skus/pending', async (req, res) => {
 });
 
 /**
+ * GET /api/etsy/sync/skus/duplicates
+ * Report live Etsy duplicate SKUs before any repair is pushed.
+ * Query: ?listingIds=id1,id2 - optional filter to specific listings
+ */
+router.get('/skus/duplicates', async (req, res) => {
+    try {
+        const { listingIds } = etsySyncListingIdsQuerySchema.parse(req.query)
+        const result = await getDuplicateSkuReport(listingIds);
+        res.json(result);
+    } catch (error) {
+        if (error instanceof z.ZodError) {
+            return res.status(400).json({ error: 'Validation failed', details: error.errors })
+        }
+        res.status(500).json({ error: 'Failed to get duplicate SKU report' });
+    }
+});
+
+/**
  * POST /api/etsy/sync/skus/push
  * Push local SKUs to Etsy for variants where they differ
  *
@@ -199,6 +224,25 @@ router.post('/skus/push', async (req, res) => {
             return res.status(400).json({ error: 'Validation failed', details: error.errors })
         }
         res.status(500).json({ error: 'Failed to push SKUs to Etsy' });
+    }
+});
+
+/**
+ * POST /api/etsy/sync/skus/repair-duplicates
+ * Generate unique SKUs for live Etsy duplicate SKU groups.
+ * Body: { listingIds?: string[], dryRun?: boolean }
+ * dryRun defaults to true.
+ */
+router.post('/skus/repair-duplicates', async (req, res) => {
+    try {
+        const options = etsyDuplicateSkusRepairBodySchema.parse(req.body)
+        const result = await repairDuplicateSkus(options);
+        res.json(result);
+    } catch (error) {
+        if (error instanceof z.ZodError) {
+            return res.status(400).json({ error: 'Validation failed', details: error.errors })
+        }
+        res.status(500).json({ error: 'Failed to repair duplicate SKUs' });
     }
 });
 

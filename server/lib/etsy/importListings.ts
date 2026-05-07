@@ -7,6 +7,11 @@ export type ImportedVariant = {
   sellingPrice: number | null
 }
 
+export type PreparedImportedVariant = ImportedVariant & {
+  skuForStorage: string | null
+  skuIsAmbiguous: boolean
+}
+
 type DecimalLike = number | Prisma.Decimal
 
 type ExistingHamper = {
@@ -74,6 +79,37 @@ const pricesDiffer = (left: DecimalLike | null, right: number | null): boolean =
   }
 
   return Math.abs(Number(left) - right) > PRICE_TOLERANCE
+}
+
+function getDuplicateSkus(variants: ImportedVariant[]): Set<string> {
+  const counts = new Map<string, number>()
+
+  for (const variant of variants) {
+    if (!variant.sku) continue
+    counts.set(variant.sku, (counts.get(variant.sku) ?? 0) + 1)
+  }
+
+  return new Set(
+    [...counts.entries()]
+      .filter(([, count]) => count > 1)
+      .map(([sku]) => sku)
+  )
+}
+
+export function prepareImportedVariantsForStorage(
+  variants: ImportedVariant[]
+): PreparedImportedVariant[] {
+  const duplicateImportedSkus = getDuplicateSkus(variants)
+
+  return variants.map((variant) => {
+    const skuIsAmbiguous = !!variant.sku && duplicateImportedSkus.has(variant.sku)
+
+    return {
+      ...variant,
+      skuForStorage: skuIsAmbiguous ? null : variant.sku,
+      skuIsAmbiguous,
+    }
+  })
 }
 
 async function findLinkedVariantConflict(
@@ -171,6 +207,7 @@ export async function syncExistingHamperFromListing({
   }
 
   if (inventoryLoaded && variants.length > 0) {
+    const preparedVariants = prepareImportedVariantsForStorage(variants)
     const localVariants: LocalVariant[] = await prisma.hamperVariant.findMany({
       where: { hamperId: existing.id, isActive: true },
       select: {
@@ -182,14 +219,15 @@ export async function syncExistingHamperFromListing({
       },
     })
 
-    for (const variant of variants) {
+    for (const variant of preparedVariants) {
       const productId = variant.productId
       const sku = variant.sku
+      const { skuForStorage, skuIsAmbiguous } = variant
       const nameKey = normalizeName(variant.name)
 
       const candidate =
         localVariants.find(localVariant => localVariant.etsyProductId === productId) ??
-        (sku ? localVariants.find(localVariant => localVariant.etsySku === sku) : undefined) ??
+        (!skuIsAmbiguous && sku ? localVariants.find(localVariant => localVariant.etsySku === sku) : undefined) ??
         (nameKey
           ? (() => {
               const matches = localVariants.filter(localVariant => normalizeName(localVariant.name) === nameKey)
@@ -205,8 +243,8 @@ export async function syncExistingHamperFromListing({
           updateData.etsyProductId = productId
           changes.push('linked_product_id')
         }
-        if (!candidate.etsySku && sku) {
-          updateData.etsySku = sku
+        if (!candidate.etsySku && skuForStorage) {
+          updateData.etsySku = skuForStorage
           changes.push('set_sku')
         }
 
@@ -223,7 +261,7 @@ export async function syncExistingHamperFromListing({
 
         if (Object.keys(updateData).length > 0) {
           try {
-            const retiredLinkedVariant = await retireLinkedVariantConflict(prisma, candidate.id, productId, sku)
+            const retiredLinkedVariant = await retireLinkedVariantConflict(prisma, candidate.id, productId, skuForStorage)
 
             if (retiredLinkedVariant) {
               didUpdate = true
@@ -250,7 +288,7 @@ export async function syncExistingHamperFromListing({
             console.warn(`Skipping variant ${variant.name}: ${variantErr instanceof Error ? variantErr.message : variantErr}`)
           }
         } else {
-          const retiredLinkedVariant = await retireLinkedVariantConflict(prisma, candidate.id, productId, sku)
+          const retiredLinkedVariant = await retireLinkedVariantConflict(prisma, candidate.id, productId, skuForStorage)
 
           if (retiredLinkedVariant) {
             didUpdate = true
@@ -268,7 +306,7 @@ export async function syncExistingHamperFromListing({
               hamperId: existing.id,
               name: variant.name,
               sellingPrice: variant.sellingPrice,
-              etsySku: variant.sku,
+              etsySku: skuForStorage,
               etsyProductId: variant.productId,
               isActive: true,
             },
@@ -278,11 +316,14 @@ export async function syncExistingHamperFromListing({
             hamper: existing.name,
             action: 'created_variant',
             variant: variant.name,
+            ...(skuIsAmbiguous && {
+              info: 'etsy SKU omitted because it is duplicated on Etsy',
+            }),
           })
         } catch (variantErr) {
-          const existingBySku = variant.sku
+          const existingBySku = skuForStorage
             ? await prisma.hamperVariant.findFirst({
-                where: { etsySku: variant.sku },
+                where: { etsySku: skuForStorage },
               })
             : null
           const existingByProductId = variant.productId
@@ -299,7 +340,7 @@ export async function syncExistingHamperFromListing({
                 hamperId: existing.id,
                 name: variant.name,
                 sellingPrice: variant.sellingPrice,
-                etsySku: variant.sku,
+                etsySku: skuForStorage,
                 etsyProductId: variant.productId,
                 isActive: true,
               },
@@ -309,6 +350,9 @@ export async function syncExistingHamperFromListing({
               hamper: existing.name,
               action: 'relinked_variant',
               variant: variant.name,
+              ...(skuIsAmbiguous && {
+                info: 'etsy SKU omitted because it is duplicated on Etsy',
+              }),
             })
           } else {
             console.warn(`Skipping variant ${variant.name}: ${variantErr instanceof Error ? variantErr.message : variantErr}`)

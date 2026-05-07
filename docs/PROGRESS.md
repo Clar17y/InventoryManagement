@@ -286,6 +286,8 @@ npm run test:server:run   # Single run (server only)
 | 2026-01-12 | Codex CLI | Sync UX polish + caching plan doc + string normalization | Done | feature/real-etsy-integration |
 | 2026-01-19 | Codex CLI | Architecture refactor v2 (contracts + feature structure) | In Progress | refactor/arch-v2 |
 | 2026-01-26 | Codex CLI | Neon pooled runtime + Prisma idle disconnect | Done | feature/alternative-products |
+| 2026-05-07 | Codex | Etsy API throttling safeguards | Done | codex/etsy-api-throttle |
+| 2026-05-07 | Codex | Etsy duplicate SKU safety + repair | Done | codex/etsy-api-throttle |
 
 
 ---
@@ -294,9 +296,12 @@ npm run test:server:run   # Single run (server only)
 
 > Leave notes here when ending a session so the next agent knows where you left off
 
-**Last Updated:** 2026-01-19
+**Last Updated:** 2026-05-07
 
 **Current State:**
+- **Etsy duplicate SKU safety + repair added** (worktree: `D:\Code\InventoryManager-etsy-throttle`, branch: `codex/etsy-api-throttle`): Etsy matching now prefers `etsyProductId`; SKU fallback is only used when unambiguous. Import creates product-id-linked variants without storing duplicate Etsy SKUs, inventory/price pushes reject ambiguous SKU-only updates, and duplicate SKU report/repair APIs were added under `/api/etsy/sync/skus/duplicates` and `/api/etsy/sync/skus/repair-duplicates`.
+- **Code review follow-up completed**: new-listing import now uses the same duplicate-SKU-safe storage path as existing-listing sync, 429 `Retry-After` cooldown is applied before the next queued Etsy request can start, duplicate SKU repair fetches fresh listing inventory, repair no longer reuses a local SKU already occupied by another Etsy product, and order import skips SKU fallback when Etsy reports duplicate SKUs.
+- **Etsy API throttling safeguards added** (worktree: `D:\Code\InventoryManager-etsy-throttle`, branch: `codex/etsy-api-throttle`): global serialized Etsy request limiter, `Retry-After` cooldown handling, deduplicated token refresh, and UI duplicate-refresh guards on Etsy sync panels.
 - **v1.0.0 Released**: Project marked as stable and ready for use.
 - **Automated test suite complete**: 34 files / 480 tests passing (`npm run test:run`).
 - **Architecture refactor v2 started** (branch: `refactor/arch-v2`): shared `contracts/` scaffold + `#contracts/*` alias wiring + client API response validation (`VITE_VALIDATE_API`).
@@ -304,7 +309,21 @@ npm run test:server:run   # Single run (server only)
 - Phase 1E: Polished and ready.
 - Etsy integration supports mock + real API: OAuth, listing import, reconciliation, inventory/SKU/price sync, and pending orders -> sales import.
 - Automated DB backups run daily via GitHub Actions.
-- Current branch: `refactor/arch-v2`
+- Current worktree branch: `codex/etsy-api-throttle`
+
+**Testing (2026-05-07):**
+- Dry-run duplicate SKU repair checked live Etsy data for listings `4389575255` and `1321323373`: 2 listings, 21 proposed SKU changes, 0 writes to Etsy.
+- Passed: `npm run build`
+- Passed after code review fixes: focused regression suite (`server/__tests__/etsy/importListings.test.ts`, `server/__tests__/etsy/realClient.test.ts`, `server/__tests__/etsy/skus.test.ts`, `server/__tests__/etsy/orderImport.test.ts`) - 32 tests
+- Passed: focused Etsy duplicate SKU tests (`server/__tests__/etsy/matching.test.ts`, `importListings.test.ts`, `safety.test.ts`, `skus.test.ts`, `prices.test.ts`, `orderImport.test.ts`)
+- Passed: focused Etsy API client test (`src/__tests__/lib/api/etsy.test.ts`)
+- Passed: focused Etsy server tests for limiter/client/sync safety (`server/__tests__/etsy/rateLimiter.test.ts`, `realClient.test.ts`, `safety.test.ts`, `skus.test.ts`, `prices.test.ts`)
+- Passed: focused Etsy sync panel client tests (`src/__tests__/components/EtsySyncPanel.test.tsx`, `EtsyOrdersSyncPanel.test.tsx`)
+- Passed: repository TypeScript check (`npx tsc -p tsconfig.json --noEmit`) and focused per-file TypeScript checks
+- Passed: focused ESLint over touched Etsy files
+- Simplify cleanup pass completed: Etsy panel refresh callbacks are stable and duplicate-refresh guards now expose explicit loading state without hook dependency warnings.
+- Full `npm run lint` still has pre-existing unrelated errors in untouched files (`server/features/hampers/router.ts`, `server/lib/etsy/debugLogger.ts`, `server/lib/etsy/inventoryCache.ts`, `server/lib/etsy/mockClient.ts`, `src/lib/api/request.ts`)
+- Full `npm run test:run` still has unrelated/environment failures: Prisma client generation/env setup and `Prisma.Decimal is not a constructor` in existing import-listings tests
 
 **Testing (2026-01-12):**
 - `vitest.config.ts` - Workspace config with client/server projects

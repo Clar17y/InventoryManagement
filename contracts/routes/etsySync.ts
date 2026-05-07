@@ -3,6 +3,8 @@ import { cuidSchema } from '../http/primitives'
 import {
   etsyOrdersBulkImportResultSchema,
   etsyOrderImportResultSchema,
+  etsyDuplicateSkuRepairResultSchema,
+  etsyDuplicateSkuReportSchema,
   etsyPendingOrderSchema,
   etsyPendingPriceUpdateSchema,
   etsyPendingSkuSchema,
@@ -99,6 +101,15 @@ export const etsySkusPushBodySchema = z.object({
 
 export const etsySkusPushResponseSchema = etsySkuPushResultSchema
 
+export const etsyDuplicateSkusResponseSchema = etsyDuplicateSkuReportSchema
+
+export const etsyDuplicateSkusRepairBodySchema = z.object({
+  listingIds: z.array(z.string().min(1)).optional(),
+  dryRun: z.boolean().optional(),
+})
+
+export const etsyDuplicateSkusRepairResponseSchema = etsyDuplicateSkuRepairResultSchema
+
 export const etsyPricesPendingResponseSchema = z.object({
   updates: z.array(etsyPendingPriceUpdateSchema),
   count: z.number().int().nonnegative(),
@@ -140,6 +151,9 @@ export type EtsySkuGenerateResponse = z.infer<typeof etsySkuGenerateResponseSche
 export type EtsySkusPendingResponse = z.infer<typeof etsySkusPendingResponseSchema>
 export type EtsySkusPushBody = z.input<typeof etsySkusPushBodySchema>
 export type EtsySkusPushResponse = z.infer<typeof etsySkusPushResponseSchema>
+export type EtsyDuplicateSkusResponse = z.infer<typeof etsyDuplicateSkusResponseSchema>
+export type EtsyDuplicateSkusRepairBody = z.input<typeof etsyDuplicateSkusRepairBodySchema>
+export type EtsyDuplicateSkusRepairResponse = z.infer<typeof etsyDuplicateSkusRepairResponseSchema>
 export type EtsyPricesPendingResponse = z.infer<typeof etsyPricesPendingResponseSchema>
 export type EtsyPricesPushBody = z.input<typeof etsyPricesPushBodySchema>
 export type EtsyPricesPushResponse = z.infer<typeof etsyPricesPushResponseSchema>

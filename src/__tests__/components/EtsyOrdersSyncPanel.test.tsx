@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { screen, waitFor } from '@testing-library/react'
+import { act, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { render } from '../utils/test-utils'
 
@@ -19,6 +19,20 @@ vi.mock('../../lib/api', () => ({
   },
   settings: {
     getPostageTiers: vi.fn(),
+  },
+}))
+
+vi.mock('../../lib/api/request', () => ({
+  ApiError: class ApiError extends Error {
+    status: number
+    body: unknown
+
+    constructor(message: string, status: number, body: unknown) {
+      super(message)
+      this.name = 'ApiError'
+      this.status = status
+      this.body = body
+    }
   },
 }))
 
@@ -110,6 +124,53 @@ describe('EtsyOrdersSyncPanel', () => {
 
     await waitFor(() => {
       expect(screen.getByText('Order #12345')).toBeInTheDocument()
+    })
+  })
+
+  it('shows the active Etsy login when status includes account details', async () => {
+    mockGetStatus.mockResolvedValue({
+      connected: true,
+      shopId: '123',
+      shopName: 'Shop',
+      loginName: 'savvy_owner',
+      isDefault: true,
+    })
+
+    render(
+      <EtsyOrdersSyncPanel isOpen={true} onClose={mockOnClose} onImportComplete={mockOnImportComplete} />
+    )
+
+    await waitFor(() => {
+      expect(screen.getByText('Account: savvy_owner (default)')).toBeInTheDocument()
+    })
+  })
+
+  it('ignores refresh clicks while pending orders are already loading', async () => {
+    const user = userEvent.setup()
+
+    mockGetStatus.mockResolvedValue({ connected: true, shopId: '123', shopName: 'Shop' })
+    mockGetPendingOrders.mockResolvedValueOnce({ orders: [] })
+
+    render(
+      <EtsyOrdersSyncPanel isOpen={true} onClose={mockOnClose} onImportComplete={mockOnImportComplete} />
+    )
+
+    const refreshButton = await screen.findByRole('button', { name: 'Refresh' })
+
+    let resolvePendingOrders: (value: { orders: [] }) => void = () => {}
+    mockGetPendingOrders.mockReturnValue(
+      new Promise((resolve) => {
+        resolvePendingOrders = resolve
+      })
+    )
+
+    await user.click(refreshButton)
+    await user.click(refreshButton)
+
+    expect(mockGetPendingOrders).toHaveBeenCalledTimes(2)
+
+    await act(async () => {
+      resolvePendingOrders({ orders: [] })
     })
   })
 

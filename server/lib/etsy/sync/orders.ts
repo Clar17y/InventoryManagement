@@ -12,10 +12,44 @@ import {
   endLogSession,
 } from '../debugLogger';
 import { SyncHttpError } from './errors';
+import { getListingInventoryCached } from '../inventoryCache';
+import { hasDuplicateEtsySku } from '../matching';
+import type { EtsyTransaction } from '../types';
 import { decodeHtmlEntities } from '../utils';
 
 type AllocationOverride = Array<{ lotId: string; quantity: number }>
 type AllocationOverridesByNeedKey = Record<string, AllocationOverride>
+type SkuFallbackSafetyCache = Map<string, Promise<boolean>>
+
+async function canUseSkuFallbackForTransaction(
+  tx: Pick<EtsyTransaction, 'listing_id' | 'sku'>,
+  cache: SkuFallbackSafetyCache
+): Promise<boolean> {
+  const sku = tx.sku?.trim()
+  if (!sku) return false
+
+  const key = `${tx.listing_id}:${sku}`
+  let lookup = cache.get(key)
+  if (!lookup) {
+    lookup = (async () => {
+      try {
+        const inventory = await getListingInventoryCached(tx.listing_id)
+        const products = inventory.products.filter((product) => !product.is_deleted)
+        return !hasDuplicateEtsySku(products, sku)
+      } catch (error) {
+        logWorkflow('IMPORT:PHASE1', 'Skipping SKU variant lookup because Etsy inventory could not be verified', {
+          listingId: tx.listing_id,
+          sku,
+          error: error instanceof Error ? error.message : String(error),
+        })
+        return false
+      }
+    })()
+    cache.set(key, lookup)
+  }
+
+  return lookup
+}
 
 function buildNeedKey(categoryId: string, variantId: string | null): string {
   return `${categoryId}-${variantId || 'all'}`;
@@ -318,6 +352,7 @@ export async function importOrder(
     const lineMetas: LineMeta[] = [];
     const missingMappings: string[] = [];
     const variantFallbackWarnings: string[] = [];
+    const skuFallbackSafetyCache: SkuFallbackSafetyCache = new Map();
 
     const aggregatedNeeds = new Map<
       string,
@@ -382,26 +417,7 @@ export async function importOrder(
       if (hamper.hasVariants) {
         let variant = null;
 
-        if (tx.sku) {
-          variant = await prisma.hamperVariant.findFirst({
-            where: { hamperId: hamper.id, etsySku: tx.sku },
-          });
-          logWorkflow('IMPORT:PHASE1', `Variant lookup by SKU "${tx.sku}"`, {
-            hamperId: hamper.id,
-            sku: tx.sku,
-            found: !!variant,
-            variant: variant
-              ? {
-                id: variant.id,
-                name: variant.name,
-                etsySku: variant.etsySku,
-                etsyProductId: variant.etsyProductId,
-              }
-              : null,
-          });
-        }
-
-        if (!variant && tx.product_id) {
+        if (tx.product_id) {
           variant = await prisma.hamperVariant.findFirst({
             where: { hamperId: hamper.id, etsyProductId: String(tx.product_id) },
           });
@@ -422,6 +438,31 @@ export async function importOrder(
                 : null,
             }
           );
+        }
+
+        if (!variant && tx.sku && await canUseSkuFallbackForTransaction(tx, skuFallbackSafetyCache)) {
+          variant = await prisma.hamperVariant.findFirst({
+            where: { hamperId: hamper.id, etsySku: tx.sku },
+          });
+          logWorkflow('IMPORT:PHASE1', `Variant lookup by SKU "${tx.sku}"`, {
+            hamperId: hamper.id,
+            sku: tx.sku,
+            found: !!variant,
+            variant: variant
+              ? {
+                id: variant.id,
+                name: variant.name,
+                etsySku: variant.etsySku,
+                etsyProductId: variant.etsyProductId,
+              }
+              : null,
+          });
+        } else if (!variant && tx.sku) {
+          logWorkflow('IMPORT:PHASE1', `Skipped variant lookup by duplicate or unverified SKU "${tx.sku}"`, {
+            hamperId: hamper.id,
+            listingId: tx.listing_id,
+            sku: tx.sku,
+          });
         }
 
         if (variant) {
@@ -1118,6 +1159,7 @@ async function processReceiptImport(
 
   const lineMetas: LineMeta[] = [];
   const missingMappings: string[] = [];
+  const skuFallbackSafetyCache: SkuFallbackSafetyCache = new Map();
 
   for (const tx of receipt.transactions) {
     const hamper = await prisma.hamper.findFirst({
@@ -1136,14 +1178,20 @@ async function processReceiptImport(
     let variantId: string | null = null;
     if (hamper.hasVariants) {
       let variant = null;
-      if (tx.sku) {
+      if (tx.product_id) {
+        variant = await prisma.hamperVariant.findFirst({
+          where: { hamperId: hamper.id, etsyProductId: String(tx.product_id) },
+        });
+      }
+      if (!variant && tx.sku && await canUseSkuFallbackForTransaction(tx, skuFallbackSafetyCache)) {
         variant = await prisma.hamperVariant.findFirst({
           where: { hamperId: hamper.id, etsySku: tx.sku },
         });
-      }
-      if (!variant && tx.product_id) {
-        variant = await prisma.hamperVariant.findFirst({
-          where: { hamperId: hamper.id, etsyProductId: String(tx.product_id) },
+      } else if (!variant && tx.sku) {
+        logWorkflow('BULK_IMPORT', `Skipped variant lookup by duplicate or unverified SKU "${tx.sku}"`, {
+          hamperId: hamper.id,
+          listingId: tx.listing_id,
+          sku: tx.sku,
         });
       }
       if (variant) {

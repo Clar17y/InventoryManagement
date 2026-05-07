@@ -1,6 +1,10 @@
 import { Prisma } from '@prisma/client'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { syncExistingHamperFromListing, type SyncExistingHamperArgs } from '../../lib/etsy/importListings'
+import {
+  prepareImportedVariantsForStorage,
+  syncExistingHamperFromListing,
+  type SyncExistingHamperArgs,
+} from '../../lib/etsy/importListings'
 
 const prisma = {
   hamper: { update: vi.fn() },
@@ -226,6 +230,80 @@ describe('syncExistingHamperFromListing', () => {
         },
       ],
     })
+  })
+
+  it('marks duplicate imported Etsy SKUs as unsafe to store locally', () => {
+    const variants = prepareImportedVariantsForStorage([
+      { name: 'Grey Marble / Boy', sku: 'DUP-SKU', productId: 'etsy-product-1', sellingPrice: 28 },
+      { name: 'Mustard Star / Boy', sku: 'DUP-SKU', productId: 'etsy-product-2', sellingPrice: 34 },
+      { name: 'Blue Star / Boy', sku: 'UNIQUE-SKU', productId: 'etsy-product-3', sellingPrice: 30 },
+    ])
+
+    expect(variants).toEqual([
+      expect.objectContaining({ name: 'Grey Marble / Boy', skuForStorage: null, skuIsAmbiguous: true }),
+      expect.objectContaining({ name: 'Mustard Star / Boy', skuForStorage: null, skuIsAmbiguous: true }),
+      expect.objectContaining({ name: 'Blue Star / Boy', skuForStorage: 'UNIQUE-SKU', skuIsAmbiguous: false }),
+    ])
+  })
+
+  it('creates a new product-id-linked variant without storing an ambiguous duplicate Etsy SKU', async () => {
+    prisma.hamperVariant.findMany.mockResolvedValue([
+      {
+        id: 'variant-mustard',
+        name: 'Mustard Star / Boy',
+        etsySku: 'NPSK-5255-MSB',
+        etsyProductId: '28320178626',
+        sellingPrice: 34,
+      },
+    ])
+    prisma.hamperVariant.findFirst.mockResolvedValue(null)
+    prisma.hamperVariant.create.mockResolvedValue({})
+
+    const result = await syncExistingHamperFromListing({
+      prisma: prismaClient,
+      existing: {
+        id: 'hamper-1',
+        name: 'New Parent Survival Kit - Medium',
+        sellingPrice: 34,
+        hasVariants: true,
+      },
+      listingPrice: 34,
+      hasVariants: true,
+      inventoryLoaded: true,
+      variants: [
+        {
+          name: 'Grey Marble / Boy',
+          sku: 'NPSK-5255-MSB',
+          productId: '31699776426',
+          sellingPrice: 28,
+        },
+        {
+          name: 'Mustard Star / Boy',
+          sku: 'NPSK-5255-MSB',
+          productId: '28320178626',
+          sellingPrice: 34,
+        },
+      ],
+    })
+
+    expect(prisma.hamperVariant.create).toHaveBeenCalledWith({
+      data: {
+        hamperId: 'hamper-1',
+        name: 'Grey Marble / Boy',
+        sellingPrice: 28,
+        etsySku: null,
+        etsyProductId: '31699776426',
+        isActive: true,
+      },
+    })
+    expect(result.details).toEqual(expect.arrayContaining([
+      {
+        hamper: 'New Parent Survival Kit - Medium',
+        action: 'created_variant',
+        variant: 'Grey Marble / Boy',
+        info: 'etsy SKU omitted because it is duplicated on Etsy',
+      },
+    ]))
   })
 
   it('retires orphaned Etsy-linked variants before refreshing the matched local variant', async () => {

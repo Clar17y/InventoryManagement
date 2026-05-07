@@ -1,9 +1,6 @@
 import { prisma } from '../../prisma';
 import { etsyClient } from '../../etsyClient';
-import {
-    ThrottleManager,
-    isDryRunEnabled,
-} from '../safety';
+import { isDryRunEnabled } from '../safety';
 import {
     logWorkflow,
     startLogSession,
@@ -13,6 +10,7 @@ import {
     findEtsyProductByIdentifiers,
     findEtsyProductByVariantName,
     findItemByEtsyProduct,
+    hasDuplicateEtsySku,
 } from '../matching';
 import { EtsyInventory, EtsyInventoryUpdateProduct } from '../types';
 import {
@@ -352,14 +350,8 @@ export async function pushPriceUpdates(
             error?: string;
         }> = [];
 
-        const throttle = new ThrottleManager();
-
         for (const [listingId, listingUpdates] of updatesByListing) {
             try {
-                if (!dryRun) {
-                    await throttle.waitForSlot();
-                }
-
                 const currentInventory = await getListingInventoryCached(
                     parseInt(listingId)
                 );
@@ -420,9 +412,16 @@ function buildPriceUpdateProducts(
 ): EtsyInventoryUpdateProduct[] {
     const defaultVariantUpdate = updates.find((u) => u.etsySku === null && u.etsyProductId === null);
 
+    for (const update of updates) {
+        if (!update.etsyProductId && hasDuplicateEtsySku(currentInventory.products, update.etsySku)) {
+            throw new Error(
+                `Cannot update listing ${currentInventory.listing_id} by duplicate Etsy SKU "${update.etsySku}". Use etsyProductId for this variant.`
+            );
+        }
+    }
+
     return currentInventory.products.map((product) => {
-        // Match by SKU first, then product_id
-        const productUpdate = findItemByEtsyProduct(updates, product);
+        const productUpdate = findItemByEtsyProduct(updates, product, currentInventory.products);
 
         // Determine new price: Update > Default Update > Existing
         // Note: Offerings usually share same price in simple variations, 

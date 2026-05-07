@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   ArrowPathIcon,
   CheckCircleIcon,
@@ -31,15 +31,19 @@ type InsufficientStockErrorBody = {
   shortages: InsufficientStockShortage[]
 }
 
+function isObjectRecord(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === 'object'
+}
+
 function isInsufficientStockErrorBody(body: unknown): body is InsufficientStockErrorBody {
-  if (!body || typeof body !== 'object') return false
-  const shortages = (body as any).shortages
+  if (!isObjectRecord(body)) return false
+  const shortages = body.shortages
   if (!Array.isArray(shortages) || shortages.length === 0) return false
 
-  return shortages.every((s: any) => {
+  return shortages.every((s) => {
+    if (!isObjectRecord(s)) return false
+
     return (
-      s &&
-      typeof s === 'object' &&
       typeof s.key === 'string' &&
       typeof s.categoryId === 'string' &&
       typeof s.categoryName === 'string' &&
@@ -66,6 +70,8 @@ export default function EtsyOrdersSyncPanel({ isOpen, onClose, onImportComplete 
   const [lastImport, setLastImport] = useState<{ receiptId: number; saleId: string } | null>(null)
   const [bulkImportResult, setBulkImportResult] = useState<{ imported: number; failed: number } | null>(null)
   const [isHistorical, setIsHistorical] = useState(false)
+  const pendingOrdersLoadingRef = useRef(false)
+  const [pendingOrdersLoading, setPendingOrdersLoading] = useState(false)
 
   const [insufficientStock, setInsufficientStock] = useState<{
     receiptId: number
@@ -87,7 +93,7 @@ export default function EtsyOrdersSyncPanel({ isOpen, onClose, onImportComplete 
 
   const pendingCount = pendingOrders.length
 
-  const loadStatus = async () => {
+  const loadStatus = useCallback(async () => {
     try {
       setLoading(true)
       setError(null)
@@ -101,9 +107,13 @@ export default function EtsyOrdersSyncPanel({ isOpen, onClose, onImportComplete 
     } finally {
       setLoading(false)
     }
-  }
+  }, [])
 
-  const loadPendingOrders = async () => {
+  const loadPendingOrders = useCallback(async () => {
+    if (pendingOrdersLoadingRef.current) return
+
+    pendingOrdersLoadingRef.current = true
+    setPendingOrdersLoading(true)
     try {
       setError(null)
       const [data, tiers] = await Promise.allSettled([
@@ -132,8 +142,11 @@ export default function EtsyOrdersSyncPanel({ isOpen, onClose, onImportComplete 
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load pending orders')
       setPendingOrders([])
+    } finally {
+      pendingOrdersLoadingRef.current = false
+      setPendingOrdersLoading(false)
     }
-  }
+  }, [])
 
   useEffect(() => {
     if (!isOpen) return
@@ -143,17 +156,18 @@ export default function EtsyOrdersSyncPanel({ isOpen, onClose, onImportComplete 
     setSubstitutionOverrides({})
     setEditingSubstitution(null)
 
-      ; (async () => {
-        const statusData = await loadStatus()
-        if (statusData?.connected) {
-          await loadPendingOrders()
-        }
-      })()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isOpen])
+    void (async () => {
+      const statusData = await loadStatus()
+      if (statusData?.connected) {
+        await loadPendingOrders()
+      }
+    })()
+  }, [isOpen, loadPendingOrders, loadStatus])
+
+  const editingCategoryId = editingSubstitution?.categoryId
 
   useEffect(() => {
-    if (!editingSubstitution) {
+    if (!editingCategoryId) {
       setAvailableLots([])
       return
     }
@@ -161,7 +175,7 @@ export default function EtsyOrdersSyncPanel({ isOpen, onClose, onImportComplete 
     const fetchLots = async () => {
       setLotsLoading(true)
       try {
-        const lots = await inventory.lotsByCategory(editingSubstitution.categoryId)
+        const lots = await inventory.lotsByCategory(editingCategoryId)
         setAvailableLots(lots)
       } catch (err) {
         console.error('Failed to load lots for substitution', err)
@@ -171,8 +185,8 @@ export default function EtsyOrdersSyncPanel({ isOpen, onClose, onImportComplete 
       }
     }
 
-    fetchLots()
-  }, [editingSubstitution?.categoryId])
+    void fetchLots()
+  }, [editingCategoryId])
 
   const handleConnect = async () => {
     try {
@@ -558,6 +572,12 @@ export default function EtsyOrdersSyncPanel({ isOpen, onClose, onImportComplete 
                 <div>
                   <div className="font-medium text-gray-900">{status.shopName}</div>
                   <div className="text-xs text-gray-500">Shop ID: {status.shopId}</div>
+                  {(status.loginName || status.userId) && (
+                    <div className="text-xs text-gray-500">
+                      Account: {status.loginName || status.userId}
+                      {status.isDefault ? ' (default)' : ''}
+                    </div>
+                  )}
                 </div>
                 <button
                   onClick={handleDisconnect}
@@ -582,6 +602,7 @@ export default function EtsyOrdersSyncPanel({ isOpen, onClose, onImportComplete 
                 <div className="flex gap-2">
                   <button
                     onClick={loadPendingOrders}
+                    disabled={pendingOrdersLoading}
                     className="btn-secondary flex items-center gap-2"
                   >
                     <ArrowPathIcon className="h-4 w-4" />

@@ -4,7 +4,6 @@ import {
   isDryRunEnabled,
   computeDiff,
   shouldSkipUpdate,
-  ThrottleManager,
   buildInventoryUpdateProducts,
   groupUpdatesByListing,
 } from '../safety';
@@ -183,14 +182,8 @@ export async function pushSyncUpdates(
     error?: string;
   }> = [];
 
-  const throttle = new ThrottleManager();
-
   for (const [listingId, listingUpdates] of updatesByListing) {
     try {
-      if (!dryRun) {
-        await throttle.waitForSlot();
-      }
-
       const currentInventory = await getListingInventoryCached(
         parseInt(listingId)
       );

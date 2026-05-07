@@ -6,7 +6,7 @@ import {
   ThrottleConfig,
   ThrottleDeps,
 } from './types';
-import { findItemByEtsyProduct } from './matching';
+import { findItemByEtsyProduct, hasDuplicateEtsySku } from './matching';
 
 // =============================================================================
 // Dry Run Mode
@@ -287,9 +287,16 @@ export function buildInventoryUpdateProducts(
     );
   }
 
+  for (const update of updates) {
+    if (!update.etsyProductId && hasDuplicateEtsySku(currentInventory.products, update.etsySku)) {
+      throw new Error(
+        `Cannot update listing ${currentInventory.listing_id} by duplicate Etsy SKU "${update.etsySku}". Use etsyProductId for this variant.`
+      );
+    }
+  }
+
   return currentInventory.products.map((product) => {
-    // Match by SKU first (preferred), then fall back to product_id
-    const productUpdate = findItemByEtsyProduct(updates, product);
+    const productUpdate = findItemByEtsyProduct(updates, product, currentInventory.products);
 
     return {
       sku: product.sku,

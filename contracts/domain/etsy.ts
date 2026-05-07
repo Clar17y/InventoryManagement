@@ -5,6 +5,9 @@ export const etsyStatusSchema = z.object({
   connected: z.boolean(),
   shopId: z.string().optional(),
   shopName: z.string().optional(),
+  userId: z.string().optional(),
+  loginName: z.string().nullable().optional(),
+  isDefault: z.boolean().optional(),
   expiresAt: isoDateTimeSchema.optional(),
   mockMode: z.boolean().optional(),
 })
@@ -273,6 +276,70 @@ export const etsySkuPushResultSchema = z.object({
 })
 
 export type EtsySkuPushResult = z.infer<typeof etsySkuPushResultSchema>
+
+export const etsyDuplicateSkuProductSchema = z.object({
+  etsyProductId: z.string(),
+  variantName: z.string(),
+  sku: z.string(),
+  localVariantId: cuidSchema.nullable(),
+  localVariantName: z.string().nullable(),
+})
+
+export const etsyDuplicateSkuGroupSchema = z.object({
+  sku: z.string(),
+  count: z.number().int().positive(),
+  products: z.array(etsyDuplicateSkuProductSchema),
+})
+
+export const etsyDuplicateSkuListingSchema = z.object({
+  etsyListingId: z.string(),
+  hamperId: cuidSchema,
+  hamperName: z.string(),
+  duplicateGroups: z.array(etsyDuplicateSkuGroupSchema),
+})
+
+export const etsyDuplicateSkuReportSchema = z.object({
+  summary: z.object({
+    scannedListings: z.number().int().nonnegative(),
+    listingsWithDuplicateSkus: z.number().int().nonnegative(),
+    duplicateSkuGroups: z.number().int().nonnegative(),
+    productsInDuplicateGroups: z.number().int().nonnegative(),
+  }),
+  listings: z.array(etsyDuplicateSkuListingSchema),
+})
+
+export type EtsyDuplicateSkuReport = z.infer<typeof etsyDuplicateSkuReportSchema>
+
+export const etsyDuplicateSkuRepairChangeSchema = z.object({
+  etsyProductId: z.string(),
+  variantName: z.string(),
+  oldSku: z.string(),
+  newSku: z.string(),
+  localVariantId: cuidSchema.nullable(),
+})
+
+export const etsyDuplicateSkuRepairResultSchema = z.object({
+  success: z.boolean(),
+  dryRun: z.boolean(),
+  totalListings: z.number().int().nonnegative(),
+  totalWouldChange: z.number().int().nonnegative(),
+  totalUpdated: z.number().int().nonnegative(),
+  errors: z.number().int().nonnegative(),
+  results: z.array(
+    z.object({
+      etsyListingId: z.string(),
+      hamperName: z.string(),
+      success: z.boolean(),
+      dryRun: z.boolean(),
+      changed: z.number().int().nonnegative(),
+      updated: z.number().int().nonnegative(),
+      changes: z.array(etsyDuplicateSkuRepairChangeSchema),
+      error: z.string().optional(),
+    })
+  ),
+})
+
+export type EtsyDuplicateSkuRepairResult = z.infer<typeof etsyDuplicateSkuRepairResultSchema>
 
 export const etsyPendingPriceUpdateSchema = z.object({
   hamperId: cuidSchema,

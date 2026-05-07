@@ -7,6 +7,8 @@ import type {
   EtsyListingMoney as ContractEtsyListingMoney,
   EtsyOrderImportResult as ContractEtsyOrderImportResult,
   EtsyOrdersBulkImportResult as ContractEtsyOrdersBulkImportResult,
+  EtsyDuplicateSkuRepairResult as ContractEtsyDuplicateSkuRepairResult,
+  EtsyDuplicateSkuReport as ContractEtsyDuplicateSkuReport,
   EtsyPendingOrder as ContractEtsyPendingOrder,
   EtsyPendingOrderItem as ContractEtsyPendingOrderItem,
   EtsyPendingPriceUpdate as ContractEtsyPendingPriceUpdate,
@@ -38,6 +40,8 @@ import {
   etsyPricesPendingResponseSchema,
   etsyPricesPullResponseSchema,
   etsyPricesPushResponseSchema,
+  etsyDuplicateSkusRepairResponseSchema,
+  etsyDuplicateSkusResponseSchema,
   etsySkusPendingResponseSchema,
   etsySkusPushResponseSchema,
   etsySkuGenerateResponseSchema,
@@ -47,6 +51,7 @@ import {
   type EtsyOrdersBulkImportBody,
   type EtsyPricesPullBody,
   type EtsyPricesPushBody,
+  type EtsyDuplicateSkusRepairBody,
   type EtsySyncPushBody,
 } from '#contracts/routes/etsySync'
 
@@ -75,6 +80,8 @@ export type EtsyBulkImportResult = ContractEtsyOrdersBulkImportResult
 
 export type EtsyPendingSku = ContractEtsyPendingSku
 export type EtsySkuPushResult = ContractEtsySkuPushResult
+export type EtsyDuplicateSkuReport = ContractEtsyDuplicateSkuReport
+export type EtsyDuplicateSkuRepairResult = ContractEtsyDuplicateSkuRepairResult
 
 export type EtsyPendingPriceUpdate = ContractEtsyPendingPriceUpdate
 export type EtsyPricePullResult = ContractEtsyPricePullResult
@@ -128,6 +135,18 @@ export const etsy = {
     requestWithSchema('/etsy/sync/skus/push', etsySkusPushResponseSchema, {
       method: 'POST',
       body: JSON.stringify({ listingIds }),
+    }),
+  getDuplicateSkus: (listingIds?: string[]) =>
+    requestWithSchema(
+      listingIds && listingIds.length > 0
+        ? `/etsy/sync/skus/duplicates?listingIds=${listingIds.join(',')}`
+        : '/etsy/sync/skus/duplicates',
+      etsyDuplicateSkusResponseSchema,
+    ),
+  repairDuplicateSkus: (options: EtsyDuplicateSkusRepairBody = {}) =>
+    requestWithSchema('/etsy/sync/skus/repair-duplicates', etsyDuplicateSkusRepairResponseSchema, {
+      method: 'POST',
+      body: JSON.stringify(options),
     }),
 
   getPendingPriceUpdates: (listingIds?: string[]) =>

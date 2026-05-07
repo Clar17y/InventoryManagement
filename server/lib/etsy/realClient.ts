@@ -18,16 +18,24 @@ import {
   logApiError,
   logDebug,
 } from './debugLogger';
+import { EtsyRequestLimiter, globalEtsyRequestLimiter } from './rateLimiter';
 
 const ETSY_API_BASE = 'https://api.etsy.com/v3';
+
+interface RealEtsyClientOptions {
+  requestLimiter?: EtsyRequestLimiter;
+}
 
 export class RealEtsyClient implements IEtsyClient {
   private apiKey: string;
   private sharedSecret: string;
+  private requestLimiter: EtsyRequestLimiter;
+  private refreshInFlight = new Map<string, Promise<EtsyCredentialsRecord>>();
 
-  constructor() {
+  constructor(options: RealEtsyClientOptions = {}) {
     this.apiKey = process.env.ETSY_API_KEY || '';
     this.sharedSecret = process.env.ETSY_SHARED_SECRET || '';
+    this.requestLimiter = options.requestLimiter ?? globalEtsyRequestLimiter;
     if (!this.apiKey) {
       console.warn('ETSY_API_KEY not set - Etsy integration will not work');
     }
@@ -64,7 +72,7 @@ export class RealEtsyClient implements IEtsyClient {
     const refreshBuffer = 5 * 60 * 1000; // 5 minutes
 
     if (now.getTime() + refreshBuffer > expiresAt.getTime()) {
-      return this.refreshTokens(credentials.id, credentials.refreshToken);
+      return this.refreshTokensOnce(credentials.id, credentials.refreshToken);
     }
 
     return credentials;
@@ -87,6 +95,22 @@ export class RealEtsyClient implements IEtsyClient {
         data: { isDefault: true },
       }),
     ]);
+  }
+
+  private async refreshTokensOnce(
+    credentialsId: string,
+    refreshToken: string
+  ): Promise<EtsyCredentialsRecord> {
+    const existing = this.refreshInFlight.get(credentialsId);
+    if (existing) {
+      return existing;
+    }
+
+    const refresh = this.refreshTokens(credentialsId, refreshToken).finally(() => {
+      this.refreshInFlight.delete(credentialsId);
+    });
+    this.refreshInFlight.set(credentialsId, refresh);
+    return refresh;
   }
 
   private async refreshTokens(
@@ -151,53 +175,60 @@ export class RealEtsyClient implements IEtsyClient {
     // Log the request
     logApiRequest(method, endpoint, options.body ? JSON.parse(options.body as string) : undefined);
 
-    const response = await fetch(`${ETSY_API_BASE}${endpoint}`, {
-      ...options,
-      headers: {
-        // accessToken already includes userId prefix (format: userId.token)
-        Authorization: `Bearer ${credentials.accessToken}`,
-        'x-api-key': this.getApiKeyHeader(),
-        'Content-Type': 'application/json',
-        ...options.headers,
-      },
-    });
+    return this.requestLimiter.run(async () => {
+      const response = await fetch(`${ETSY_API_BASE}${endpoint}`, {
+        ...options,
+        headers: {
+          // accessToken already includes userId prefix (format: userId.token)
+          Authorization: `Bearer ${credentials.accessToken}`,
+          'x-api-key': this.getApiKeyHeader(),
+          'Content-Type': 'application/json',
+          ...options.headers,
+        },
+      });
 
-    const durationMs = Date.now() - startTime;
+      const durationMs = Date.now() - startTime;
 
-    if (!response.ok) {
-      const errorText = await response.text();
-      let details: unknown;
-      try {
-        details = JSON.parse(errorText);
-      } catch {
-        details = errorText;
+      if (!response.ok) {
+        const errorText = await response.text();
+        let details: unknown;
+        try {
+          details = JSON.parse(errorText);
+        } catch {
+          details = errorText;
+        }
+
+        // Log the error
+        logApiError(method, endpoint, response.status, {
+          errorText,
+          details,
+        }, durationMs);
+
+        const retryAfter = (() => {
+          if (response.status !== 429) return undefined;
+          const parsed = parseInt(response.headers.get('Retry-After') || '60', 10);
+          return Number.isFinite(parsed) && parsed > 0 ? parsed : 60;
+        })();
+
+        if (response.status === 429) {
+          this.requestLimiter.applyRetryAfter(retryAfter);
+        }
+
+        throw new EtsyApiError(
+          response.status,
+          `Etsy API error: ${response.status}`,
+          retryAfter,
+          details
+        );
       }
 
-      // Log the error
-      logApiError(method, endpoint, response.status, {
-        errorText,
-        details,
-      }, durationMs);
+      const data = await response.json();
 
-      const retryAfter =
-        response.status === 429
-          ? parseInt(response.headers.get('Retry-After') || '60', 10)
-          : undefined;
+      // Log successful response
+      logApiResponse(method, endpoint, response.status, data, durationMs);
 
-      throw new EtsyApiError(
-        response.status,
-        `Etsy API error: ${response.status}`,
-        retryAfter,
-        details
-      );
-    }
-
-    const data = await response.json();
-
-    // Log successful response
-    logApiResponse(method, endpoint, response.status, data, durationMs);
-
-    return data;
+      return data;
+    });
   }
 
   async getShop(): Promise<EtsyShop> {

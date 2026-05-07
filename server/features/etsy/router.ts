@@ -4,7 +4,7 @@ import { z } from 'zod'
 import { prisma } from '../../lib/prisma';
 import { etsyClient, etsyAuth } from '../../lib/etsyClient';
 import { MOCK_SHOP } from '../../lib/etsy/fixtures';
-import { syncExistingHamperFromListing } from '../../lib/etsy/importListings';
+import { prepareImportedVariantsForStorage, syncExistingHamperFromListing } from '../../lib/etsy/importListings';
 import { fetchAllActiveListings } from '../../lib/etsy/pagination';
 import { etsyAddProvisionalUserBodySchema } from '#contracts/routes/etsy'
 
@@ -53,6 +53,9 @@ router.get('/status', async (req, res) => {
             connected: true,
             shopId: credentials.shopId,
             shopName: credentials.shopName,
+            userId: credentials.userId,
+            loginName: credentials.loginName,
+            isDefault: credentials.isDefault,
             expiresAt: credentials.expiresAt,
         });
     } catch (error) {
@@ -647,14 +650,14 @@ router.post('/import', async (req, res) => {
 
                 // Create variants one by one to handle unique constraint errors gracefully
                 if (variants.length > 0) {
-                    for (const v of variants) {
+                    for (const v of prepareImportedVariantsForStorage(variants)) {
                         try {
                             await prisma.hamperVariant.create({
                                 data: {
                                     hamperId,
                                     name: v.name,
                                     sellingPrice: v.sellingPrice,
-                                    etsySku: v.sku,
+                                    etsySku: v.skuForStorage,
                                     etsyProductId: v.productId,
                                     isActive: true,
                                 },
@@ -663,31 +666,44 @@ router.post('/import', async (req, res) => {
                                 hamper: listing.title,
                                 action: 'created_variant',
                                 variant: v.name,
+                                ...(v.skuIsAmbiguous && {
+                                    info: 'etsy SKU omitted because it is duplicated on Etsy',
+                                }),
                             });
                         } catch (variantErr) {
                             // If unique constraint fails, try to find and update existing variant
-                            const existingBySku = v.sku
-                                ? await prisma.hamperVariant.findFirst({
-                                    where: { etsySku: v.sku },
-                                })
-                                : null;
                             const existingByProductId = v.productId
                                 ? await prisma.hamperVariant.findFirst({
                                     where: { etsyProductId: v.productId },
                                 })
                                 : null;
-                            const existingVariant = existingBySku ?? existingByProductId;
+                            const existingBySku = v.skuForStorage
+                                ? await prisma.hamperVariant.findFirst({
+                                    where: { etsySku: v.skuForStorage },
+                                })
+                                : null;
+                            const existingVariant = existingByProductId ?? existingBySku;
 
                             if (existingVariant) {
                                 // Update orphaned variant to point to new hamper
                                 await prisma.hamperVariant.update({
                                     where: { id: existingVariant.id },
-                                    data: { hamperId },
+                                    data: {
+                                        hamperId,
+                                        name: v.name,
+                                        sellingPrice: v.sellingPrice,
+                                        etsySku: v.skuForStorage,
+                                        etsyProductId: v.productId,
+                                        isActive: true,
+                                    },
                                 });
                                 results.details.push({
                                     hamper: listing.title,
                                     action: 'relinked_variant',
                                     variant: v.name,
+                                    ...(v.skuIsAmbiguous && {
+                                        info: 'etsy SKU omitted because it is duplicated on Etsy',
+                                    }),
                                 });
                             } else {
                                 console.warn(`Skipping variant ${v.name}: ${variantErr instanceof Error ? variantErr.message : variantErr}`);

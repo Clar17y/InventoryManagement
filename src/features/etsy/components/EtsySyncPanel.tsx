@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   ArrowDownTrayIcon,
   ArrowPathIcon,
@@ -37,11 +37,30 @@ export default function EtsySyncPanel({ isOpen, onClose, onImportComplete }: Ets
   const [importResult, setImportResult] = useState<EtsyImportResult | null>(null)
   const [showOnlyDiff, setShowOnlyDiff] = useState(true)
   const [activeTab, setActiveTab] = useState<'inventory' | 'skus' | 'prices'>('inventory')
+  const comparisonLoadingRef = useRef(false)
+  const [comparisonLoading, setComparisonLoading] = useState(false)
 
   const skuSync = useEtsySkuSync({ setError })
   const priceSync = useEtsyPriceSync({ setError })
 
-  const loadStatus = async () => {
+  const loadComparison = useCallback(async () => {
+    if (comparisonLoadingRef.current) return
+
+    comparisonLoadingRef.current = true
+    setComparisonLoading(true)
+    try {
+      const data = await etsy.getComparison()
+      setComparisons(data.comparisons)
+    } catch (err) {
+      console.warn('Failed to load comparison:', err)
+      setComparisons([])
+    } finally {
+      comparisonLoadingRef.current = false
+      setComparisonLoading(false)
+    }
+  }, [])
+
+  const loadStatus = useCallback(async () => {
     try {
       setLoading(true)
       const statusData = await etsy.getStatus()
@@ -55,23 +74,13 @@ export default function EtsySyncPanel({ isOpen, onClose, onImportComplete }: Ets
     } finally {
       setLoading(false)
     }
-  }
-
-  const loadComparison = async () => {
-    try {
-      const data = await etsy.getComparison()
-      setComparisons(data.comparisons)
-    } catch (err) {
-      console.warn('Failed to load comparison:', err)
-      setComparisons([])
-    }
-  }
+  }, [loadComparison])
 
   useEffect(() => {
     if (isOpen) {
       void loadStatus()
     }
-  }, [isOpen])
+  }, [isOpen, loadStatus])
 
   const handleConnect = async () => {
     try {
@@ -258,6 +267,12 @@ export default function EtsySyncPanel({ isOpen, onClose, onImportComplete }: Ets
                 <div>
                   <div className="font-medium text-gray-900">{status.shopName}</div>
                   <div className="text-xs text-gray-500">Shop ID: {status.shopId}</div>
+                  {(status.loginName || status.userId) && (
+                    <div className="text-xs text-gray-500">
+                      Account: {status.loginName || status.userId}
+                      {status.isDefault ? ' (default)' : ''}
+                    </div>
+                  )}
                 </div>
                 <button onClick={handleDisconnect} className="text-sm text-red-600 hover:text-red-700">
                   Disconnect
@@ -311,7 +326,11 @@ export default function EtsySyncPanel({ isOpen, onClose, onImportComplete }: Ets
                   <ArrowDownTrayIcon className="h-4 w-4" />
                   {importing ? 'Importing...' : 'Import from Etsy'}
                 </button>
-                <button onClick={loadComparison} className="btn-secondary flex items-center gap-2">
+                <button
+                  onClick={loadComparison}
+                  disabled={comparisonLoading}
+                  className="btn-secondary flex items-center gap-2"
+                >
                   <ArrowPathIcon className="h-4 w-4" />
                   Refresh
                 </button>

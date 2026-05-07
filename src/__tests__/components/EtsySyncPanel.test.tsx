@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { screen, waitFor } from '@testing-library/react';
+import { act, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { render } from '../utils/test-utils';
 
@@ -192,6 +192,24 @@ describe('EtsySyncPanel', () => {
       });
     });
 
+    it('shows the active Etsy login when status includes account details', async () => {
+      mockGetStatus.mockResolvedValue({
+        connected: true,
+        shopId: '12345',
+        shopName: 'Test Shop',
+        loginName: 'savvy_owner',
+        isDefault: true,
+      });
+
+      render(
+        <EtsySyncPanel isOpen={true} onClose={mockOnClose} onImportComplete={mockOnImportComplete} />
+      );
+
+      await waitFor(() => {
+        expect(screen.getByText('Account: savvy_owner (default)')).toBeInTheDocument();
+      });
+    });
+
     it('shows disconnect button', async () => {
       render(
         <EtsySyncPanel isOpen={true} onClose={mockOnClose} onImportComplete={mockOnImportComplete} />
@@ -219,6 +237,33 @@ describe('EtsySyncPanel', () => {
 
       await waitFor(() => {
         expect(screen.getByRole('button', { name: 'Refresh' })).toBeInTheDocument();
+      });
+    });
+
+    it('ignores refresh clicks while an inventory comparison request is already running', async () => {
+      const user = userEvent.setup();
+      mockGetComparison.mockResolvedValueOnce({ comparisons: [] });
+
+      render(
+        <EtsySyncPanel isOpen={true} onClose={mockOnClose} onImportComplete={mockOnImportComplete} />
+      );
+
+      const refreshButton = await screen.findByRole('button', { name: 'Refresh' });
+
+      let resolveComparison: (value: { comparisons: [] }) => void = () => {};
+      mockGetComparison.mockReturnValue(
+        new Promise((resolve) => {
+          resolveComparison = resolve;
+        })
+      );
+
+      await user.click(refreshButton);
+      await user.click(refreshButton);
+
+      expect(mockGetComparison).toHaveBeenCalledTimes(2);
+
+      await act(async () => {
+        resolveComparison({ comparisons: [] });
       });
     });
 

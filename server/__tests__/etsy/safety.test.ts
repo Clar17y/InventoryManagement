@@ -288,4 +288,41 @@ describe('buildInventoryUpdateProducts', () => {
     expect(products[1].offerings[0].quantity).toBe(5);
     expect(products[2].offerings[0].quantity).toBe(3);
   });
+
+  it('rejects SKU-only updates when the Etsy SKU is duplicated in the listing', () => {
+    const inventoryWithDuplicateSkus = {
+      ...MULTI_VARIANT_INVENTORY,
+      products: MULTI_VARIANT_INVENTORY.products.map((product, index) => ({
+        ...product,
+        sku: index < 2 ? 'DUP-SKU' : product.sku,
+      })),
+    };
+
+    expect(() =>
+      buildInventoryUpdateProducts(inventoryWithDuplicateSkus, [
+        { etsySku: 'DUP-SKU', etsyProductId: null, quantity: 20 },
+      ])
+    ).toThrow(/duplicate Etsy SKU/i);
+  });
+
+  it('allows product-id updates when the Etsy SKU is duplicated in the listing', () => {
+    const inventoryWithDuplicateSkus = {
+      ...MULTI_VARIANT_INVENTORY,
+      products: MULTI_VARIANT_INVENTORY.products.map((product, index) => ({
+        ...product,
+        sku: index < 2 ? 'DUP-SKU' : product.sku,
+      })),
+    };
+
+    const products = buildInventoryUpdateProducts(inventoryWithDuplicateSkus, [
+      {
+        etsySku: 'DUP-SKU',
+        etsyProductId: String(inventoryWithDuplicateSkus.products[1].product_id),
+        quantity: 20,
+      },
+    ]);
+
+    expect(products[0].offerings[0].quantity).toBe(MULTI_VARIANT_INVENTORY.products[0].offerings[0].quantity);
+    expect(products[1].offerings[0].quantity).toBe(20);
+  });
 });

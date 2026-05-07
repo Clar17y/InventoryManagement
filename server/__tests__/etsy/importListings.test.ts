@@ -173,6 +173,100 @@ describe('syncExistingHamperFromListing', () => {
     })
   })
 
+  it('updates variant Etsy visibility when the matched Etsy offering is disabled', async () => {
+    prisma.hamperVariant.findMany.mockResolvedValue([
+      {
+        id: 'variant-1',
+        name: 'Squirrel Medium Suitcase',
+        etsySku: 'SQUIRREL-MEDIUM',
+        etsyProductId: '9001',
+        sellingPrice: 45,
+        etsyIsEnabled: true,
+      },
+    ])
+
+    await syncExistingHamperFromListing({
+      prisma: prismaClient,
+      existing: {
+        id: 'hamper-1',
+        name: 'Baby Hamper',
+        sellingPrice: 40,
+        hasVariants: true,
+      },
+      listingPrice: 40,
+      hasVariants: true,
+      inventoryLoaded: true,
+      variants: [
+        {
+          name: 'Squirrel Medium Suitcase',
+          sku: 'SQUIRREL-MEDIUM',
+          productId: '9001',
+          sellingPrice: 45,
+          etsyIsEnabled: false,
+        },
+      ],
+    })
+
+    expect(prisma.hamperVariant.update).toHaveBeenCalledWith({
+      where: { id: 'variant-1' },
+      data: { etsyIsEnabled: false },
+    })
+  })
+
+  it('marks Etsy-linked local variants hidden when they are missing from the latest Etsy inventory', async () => {
+    prisma.hamperVariant.findMany.mockResolvedValue([
+      {
+        id: 'variant-blue',
+        name: 'Blue Suitcase',
+        etsySku: 'BLUE-SUITCASE',
+        etsyProductId: '9001',
+        sellingPrice: 45,
+        etsyIsEnabled: true,
+      },
+      {
+        id: 'variant-squirrel',
+        name: 'Squirrel Medium Suitcase',
+        etsySku: 'SQUIRREL-MEDIUM',
+        etsyProductId: '9002',
+        sellingPrice: 45,
+        etsyIsEnabled: true,
+      },
+    ])
+
+    const result = await syncExistingHamperFromListing({
+      prisma: prismaClient,
+      existing: {
+        id: 'hamper-1',
+        name: 'Baby Hamper',
+        sellingPrice: 40,
+        hasVariants: true,
+      },
+      listingPrice: 40,
+      hasVariants: true,
+      inventoryLoaded: true,
+      variants: [
+        {
+          name: 'Blue Suitcase',
+          sku: 'BLUE-SUITCASE',
+          productId: '9001',
+          sellingPrice: 45,
+          etsyIsEnabled: true,
+        },
+      ],
+    })
+
+    expect(prisma.hamperVariant.update).toHaveBeenCalledWith({
+      where: { id: 'variant-squirrel' },
+      data: { etsyIsEnabled: false },
+    })
+    expect(result.details).toContainEqual({
+      hamper: 'Baby Hamper',
+      action: 'set_visibility',
+      variant: 'Squirrel Medium Suitcase',
+      info: 'missing from Etsy import',
+    })
+  })
+
   it('refreshes Etsy-linked fields when relinking an existing variant after create conflict', async () => {
     prisma.hamperVariant.findMany.mockResolvedValue([])
     prisma.hamperVariant.create.mockRejectedValue(new Error('Unique constraint failed'))
@@ -217,6 +311,7 @@ describe('syncExistingHamperFromListing', () => {
         sellingPrice: 55,
         etsySku: 'FRESH-SKU',
         etsyProductId: '9002',
+        etsyIsEnabled: true,
         isActive: true,
       },
     })
@@ -293,6 +388,7 @@ describe('syncExistingHamperFromListing', () => {
         sellingPrice: 28,
         etsySku: null,
         etsyProductId: '31699776426',
+        etsyIsEnabled: true,
         isActive: true,
       },
     })

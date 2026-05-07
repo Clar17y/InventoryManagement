@@ -288,6 +288,9 @@ npm run test:server:run   # Single run (server only)
 | 2026-01-26 | Codex CLI | Neon pooled runtime + Prisma idle disconnect | Done | feature/alternative-products |
 | 2026-05-07 | Codex | Etsy API throttling safeguards | Done | codex/etsy-api-throttle |
 | 2026-05-07 | Codex | Etsy duplicate SKU safety + repair | Done | codex/etsy-api-throttle |
+| 2026-05-07 | Codex | Etsy visibility flag + hidden-by-default UI toggle | Done | feature/etsy-visibility-toggle |
+| 2026-05-07 | Codex | Simplify cleanup for Etsy visibility feature | Done | feature/etsy-visibility-toggle |
+| 2026-05-07 | Codex | Mark missing Etsy variants hidden on import | Done | feature/etsy-visibility-toggle |
 
 
 ---
@@ -299,6 +302,9 @@ npm run test:server:run   # Single run (server only)
 **Last Updated:** 2026-05-07
 
 **Current State:**
+- **Etsy visibility flag + hidden-by-default UI toggle added** (branch: `feature/etsy-visibility-toggle`): `Hamper` and `HamperVariant` now store `etsyIsEnabled` from Etsy offering `is_enabled`. Etsy import/sync preserves disabled visibility instead of re-enabling hidden variants during quantity pushes. Hampers UI hides Etsy-hidden hampers and hidden variants by default, with a persisted `Hide Etsy hidden` toggle and manual `Enabled on Etsy` controls in hamper/variant editing.
+- **Missing Etsy variants are now hidden on import**: when a local active variant still has an Etsy SKU/product id but is absent from the latest fetched Etsy inventory for that listing, import marks that local variant `etsyIsEnabled = false` rather than leaving old removed options visible.
+- **Simplify cleanup completed for Etsy visibility feature**: centralized the blank variant form state, reused filtered expanded variants in the hamper list, named the backend variant availability summary type, and removed an unnecessary test cast.
 - **Etsy duplicate SKU safety + repair added** (worktree: `D:\Code\InventoryManager-etsy-throttle`, branch: `codex/etsy-api-throttle`): Etsy matching now prefers `etsyProductId`; SKU fallback is only used when unambiguous. Import creates product-id-linked variants without storing duplicate Etsy SKUs, inventory/price pushes reject ambiguous SKU-only updates, and duplicate SKU report/repair APIs were added under `/api/etsy/sync/skus/duplicates` and `/api/etsy/sync/skus/repair-duplicates`.
 - **Code review follow-up completed**: new-listing import now uses the same duplicate-SKU-safe storage path as existing-listing sync, 429 `Retry-After` cooldown is applied before the next queued Etsy request can start, duplicate SKU repair fetches fresh listing inventory, repair no longer reuses a local SKU already occupied by another Etsy product, and order import skips SKU fallback when Etsy reports duplicate SKUs.
 - **PR review follow-up completed**: duplicate-SKU matching now ignores deleted Etsy inventory products so deleted rows do not block safe SKU-only matching for a single active product.
@@ -310,9 +316,13 @@ npm run test:server:run   # Single run (server only)
 - Phase 1E: Polished and ready.
 - Etsy integration supports mock + real API: OAuth, listing import, reconciliation, inventory/SKU/price sync, and pending orders -> sales import.
 - Automated DB backups run daily via GitHub Actions.
-- Current worktree branch: `codex/etsy-api-throttle`
+- Current worktree branch: `feature/etsy-visibility-toggle`
 
 **Testing (2026-05-07):**
+- Passed for Etsy visibility feature after code review fix: `npm run db:generate`, `npx tsc -p tsconfig.json --noEmit`, `npx tsc -p server/tsconfig.json --noEmit --rootDir .`, focused client tests (`src/__tests__/components/EtsySyncPanel.test.tsx`, `src/__tests__/pages/Hampers.test.tsx`, `src/__tests__/lib/api/hampers.test.ts`, `src/__tests__/lib/api/etsy.test.ts`) - 94 tests, focused server tests (`server/__tests__/etsy/importListings.test.ts`, `server/__tests__/etsy/safety.test.ts`) - 33 tests, focused ESLint on touched files, and `npm run build`.
+- Passed after simplify cleanup: `npx tsc -p tsconfig.json --noEmit`, `npx tsc -p server/tsconfig.json --noEmit --rootDir .`, focused ESLint on cleanup-touched files, `npm run test:client:run -- src/__tests__/pages/Hampers.test.tsx` - 21 tests, `npm run test:server:run -- server/__tests__/etsy/importListings.test.ts` - 11 tests, `npm run build`, and `git diff --check` (CRLF warnings only).
+- Passed after missing-variant import fix: TDD red confirmed with `npm run test:server:run -- server/__tests__/etsy/importListings.test.ts` failing before production change, then passing after fix - 12 tests. Also passed `npx tsc -p server/tsconfig.json --noEmit --rootDir .`, `npx tsc -p tsconfig.json --noEmit`, focused ESLint on import files, `npm run build`, and `git diff --check` (CRLF warnings only).
+- Full `npm run lint` still has unrelated existing errors in untouched files (`server/lib/etsy/debugLogger.ts`, `server/lib/etsy/inventoryCache.ts`, `server/lib/etsy/mockClient.ts`, `src/lib/api/request.ts`) plus existing warnings in test-utils/filter/products/sales/auth files.
 - Dry-run duplicate SKU repair checked live Etsy data for listings `4389575255` and `1321323373`: 2 listings, 21 proposed SKU changes, 0 writes to Etsy.
 - Passed: `npm run build`
 - Passed after code review fixes: focused regression suite (`server/__tests__/etsy/importListings.test.ts`, `server/__tests__/etsy/realClient.test.ts`, `server/__tests__/etsy/skus.test.ts`, `server/__tests__/etsy/orderImport.test.ts`) - 32 tests

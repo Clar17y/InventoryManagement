@@ -16,8 +16,9 @@ import { useDebounce } from '../../../hooks/useDebounce'
 import HamperForm from '../components/HamperForm'
 import HampersHeader from '../components/HampersHeader'
 import HampersListView from '../components/HampersListView'
-import { DEFAULT_HAMPERS_SORT, emptyHamperForm } from '../constants'
+import { DEFAULT_HAMPERS_SORT, emptyHamperForm, emptyVariantForm } from '../constants'
 import type { HamperFormData, HamperSortOption } from '../types'
+import { isEtsyEnabled } from '../utils'
 
 export default function Hampers() {
   const formRef = useRef<HTMLFormElement | null>(null)
@@ -36,12 +37,15 @@ export default function Hampers() {
   const [variantLoading, setVariantLoading] = useState(false)
   const [showVariantForm, setShowVariantForm] = useState(false)
   const [editingVariantId, setEditingVariantId] = useState<string | null>(null)
-  const [variantFormData, setVariantFormData] = useState<HamperVariantCreateData>({ name: '', mappings: [] })
+  const [variantFormData, setVariantFormData] = useState<HamperVariantCreateData>(emptyVariantForm)
   const [sortBy, setSortBy] = useState<HamperSortOption>(
     () => (localStorage.getItem('hampers-sort') as HamperSortOption) || DEFAULT_HAMPERS_SORT
   )
   const [showEtsyPanel, setShowEtsyPanel] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
+  const [hideEtsyHidden, setHideEtsyHidden] = useState(
+    () => localStorage.getItem('hampers-hide-etsy-hidden') !== 'false'
+  )
   const debouncedSearch = useDebounce(searchQuery, 300)
 
   const loadData = async () => {
@@ -72,15 +76,37 @@ export default function Hampers() {
   }, [sortBy])
 
   useEffect(() => {
+    localStorage.setItem('hampers-hide-etsy-hidden', String(hideEtsyHidden))
+  }, [hideEtsyHidden])
+
+  useEffect(() => {
     if (!showForm) return
     formRef.current?.scrollIntoView?.({ behavior: 'smooth', block: 'start' })
   }, [showForm, editingId])
 
   const sortedHampers = useMemo(() => {
-    let filtered = hamperList
+    let filtered = hideEtsyHidden
+      ? hamperList
+          .filter((hamper) => isEtsyEnabled(hamper.etsyIsEnabled))
+          .map((hamper) => {
+            if (!hamper.hasVariants || !hamper.variantAvailability) return hamper
+            return {
+              ...hamper,
+              variantAvailability: hamper.variantAvailability.filter((variant) =>
+                isEtsyEnabled(variant.etsyIsEnabled)
+              ),
+            }
+          })
+          .filter((hamper) =>
+            !hamper.hasVariants ||
+            !hamper.variantAvailability ||
+            hamper.variantAvailability.length > 0
+          )
+      : hamperList
+
     if (debouncedSearch.trim()) {
       const query = debouncedSearch.toLowerCase()
-      filtered = hamperList.filter((h) => h.name.toLowerCase().includes(query))
+      filtered = filtered.filter((h) => h.name.toLowerCase().includes(query))
     }
 
     const sorted = [...filtered]
@@ -117,7 +143,7 @@ export default function Hampers() {
         break
     }
     return sorted
-  }, [hamperList, sortBy, debouncedSearch])
+  }, [hamperList, sortBy, debouncedSearch, hideEtsyHidden])
 
   const handleExpand = async (id: string) => {
     if (expandedId === id) {
@@ -161,6 +187,7 @@ export default function Hampers() {
         name: formData.name,
         sellingPrice: parseFloat(formData.sellingPrice),
         etsyListingId: formData.etsyListingId || undefined,
+        etsyIsEnabled: formData.etsyIsEnabled,
         indicativeQuantity: formData.hasVariants ? undefined : (formData.indicativeQuantity ? parseInt(formData.indicativeQuantity, 10) : null),
         hasVariants: formData.hasVariants,
         requirements,
@@ -188,6 +215,7 @@ export default function Hampers() {
       name: hamper.name,
       sellingPrice: String(hamper.sellingPrice),
       etsyListingId: hamper.etsyListingId || '',
+      etsyIsEnabled: isEtsyEnabled(hamper.etsyIsEnabled),
       indicativeQuantity: hamper.indicativeQuantity ? String(hamper.indicativeQuantity) : '',
       hasVariants: hamper.hasVariants || false,
       requirements:
@@ -234,7 +262,7 @@ export default function Hampers() {
     setEditingVariants([])
     setShowVariantForm(false)
     setEditingVariantId(null)
-    setVariantFormData({ name: '', mappings: [] })
+    setVariantFormData(emptyVariantForm)
     setError(null)
   }
 
@@ -254,7 +282,7 @@ export default function Hampers() {
       setEditingVariants(detail.variants || [])
       setShowVariantForm(false)
       setEditingVariantId(null)
-      setVariantFormData({ name: '', mappings: [] })
+      setVariantFormData(emptyVariantForm)
       await loadData()
     } catch (err) {
       setError(err instanceof Error ? err.message : `Failed to ${editingVariantId ? 'update' : 'add'} variant`)
@@ -269,6 +297,7 @@ export default function Hampers() {
       name: variant.name,
       sellingPrice: variant.sellingPrice ?? null,
       etsySku: variant.etsySku || '',
+      etsyIsEnabled: isEtsyEnabled(variant.etsyIsEnabled),
       indicativeQuantity: variant.indicativeQuantity ?? null,
       mappings: variant.mappings?.map((m) => ({
         categoryId: m.categoryId,
@@ -339,6 +368,8 @@ export default function Hampers() {
           debouncedSearch={debouncedSearch}
           searchQuery={searchQuery}
           setSearchQuery={setSearchQuery}
+          hideEtsyHidden={hideEtsyHidden}
+          setHideEtsyHidden={setHideEtsyHidden}
           sortBy={sortBy}
           setSortBy={setSortBy}
           expandedId={expandedId}

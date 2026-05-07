@@ -38,6 +38,7 @@ export const hamperVariantSchema = z.object({
   name: z.string().min(1).max(100),
   sellingPrice: decimalSchema.nullable().optional(),
   etsySku: z.string().max(50).nullable(),
+  etsyIsEnabled: z.boolean(),
   indicativeQuantity: z.number().int().nonnegative().nullable().optional(),
   isActive: z.boolean(),
   createdAt: isoDateTimeSchema,
@@ -53,6 +54,7 @@ export const hamperVariantAvailabilitySchema = z.object({
   name: z.string().min(1).max(100),
   etsySku: z.string().max(50).nullable(),
   sellingPrice: decimalSchema.nullable(),
+  etsyIsEnabled: z.boolean(),
   indicativeQuantity: z.number().int().nonnegative().nullable().optional(),
   canMake: z.number().int().nonnegative(),
   mappings: z
@@ -72,6 +74,7 @@ export const hamperBaseSchema = z.object({
   name: z.string().min(1).max(200),
   sellingPrice: decimalSchema,
   etsyListingId: z.string().max(50).nullable(),
+  etsyIsEnabled: z.boolean(),
   indicativeQuantity: z.number().int().nonnegative().nullable().optional(),
   hasVariants: z.boolean(),
   isActive: z.boolean(),

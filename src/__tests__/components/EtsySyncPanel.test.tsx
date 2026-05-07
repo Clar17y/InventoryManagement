@@ -32,6 +32,7 @@ const mockInitiateAuth = vi.mocked(etsy.initiateAuth);
 const mockDisconnect = vi.mocked(etsy.disconnect);
 const mockGetComparison = vi.mocked(etsy.getComparison);
 const mockImportListings = vi.mocked(etsy.importListings);
+const mockPushUpdates = vi.mocked(etsy.pushUpdates);
 const mockGetPendingOrders = vi.mocked(etsy.getPendingOrders);
 const mockGetPendingSkus = vi.mocked(etsy.getPendingSkus);
 const mockGetPendingPriceUpdates = vi.mocked(etsy.getPendingPriceUpdates);
@@ -381,6 +382,64 @@ describe('EtsySyncPanel', () => {
       await waitFor(() => {
         expect(screen.getByText(/SKU Sync/)).toBeInTheDocument();
         expect(screen.getByText(/Price Sync/)).toBeInTheDocument();
+      });
+    });
+
+    it('pushes inventory quantity updates without changing Etsy visibility', async () => {
+      mockGetComparison.mockResolvedValue({
+        comparisons: [
+          {
+            etsyListingId: '123',
+            title: 'Variant Hamper',
+            hamperName: 'Variant Hamper',
+            hamperId: 'clx0q2p1w0000s1l1n4m9n9n9',
+            variants: [
+              {
+                etsySku: 'SQUIRREL-MEDIUM',
+                etsyProductId: '9001',
+                variantId: 'clx0q2p1w0000s1l1n4m9n9a1',
+                variantName: 'Squirrel Medium Suitcase',
+                etsyQuantity: 0,
+                inventoryQuantity: 3,
+                indicativeQuantity: null,
+                etsyIsEnabled: false,
+                isIndicative: false,
+                difference: 3,
+                needsSync: true,
+              },
+            ],
+          },
+        ],
+      });
+      mockPushUpdates.mockResolvedValue({
+        success: true,
+        dryRun: false,
+        updated: 1,
+        skipped: 0,
+        errors: 0,
+        results: [],
+      });
+
+      const user = userEvent.setup();
+      render(
+        <EtsySyncPanel isOpen={true} onClose={mockOnClose} onImportComplete={mockOnImportComplete} />
+      );
+
+      const checkboxes = await screen.findAllByRole('checkbox');
+      await user.click(checkboxes[1]!);
+      await user.click(screen.getByRole('button', { name: /Sync Selected/i }));
+
+      await waitFor(() => {
+        expect(mockPushUpdates).toHaveBeenCalledWith({
+          updates: [
+            {
+              etsyListingId: '123',
+              etsySku: 'SQUIRREL-MEDIUM',
+              etsyProductId: '9001',
+              quantity: 3,
+            },
+          ],
+        });
       });
     });
 

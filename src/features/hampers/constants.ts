@@ -1,3 +1,4 @@
+import type { HamperVariantCreateData } from '../../lib/api'
 import type { HamperFormData, HamperSortOption } from './types'
 
 export const HAMPER_SORT_OPTIONS: { value: HamperSortOption; label: string }[] = [
@@ -19,7 +20,14 @@ export const emptyHamperForm: HamperFormData = {
   name: '',
   sellingPrice: '',
   etsyListingId: '',
+  etsyIsEnabled: true,
   indicativeQuantity: '',
   hasVariants: false,
   requirements: [],
+}
+
+export const emptyVariantForm: HamperVariantCreateData = {
+  name: '',
+  etsyIsEnabled: true,
+  mappings: [],
 }

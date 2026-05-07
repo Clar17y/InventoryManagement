@@ -4,6 +4,10 @@ export function getAvailabilityColor(canMake: number): string {
   return 'bg-red-100 text-red-800'
 }
 
+export function isEtsyEnabled(value?: boolean | null): boolean {
+  return value !== false
+}
+
 // Returns display value and whether it's indicative (higher than actual)
 export function getDisplayAvailability(
   canMake: number,

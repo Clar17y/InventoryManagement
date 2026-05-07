@@ -5,6 +5,7 @@ export type ImportedVariant = {
   sku: string | null
   productId: string
   sellingPrice: number | null
+  etsyIsEnabled?: boolean
 }
 
 export type PreparedImportedVariant = ImportedVariant & {
@@ -19,6 +20,7 @@ type ExistingHamper = {
   name: string
   sellingPrice: DecimalLike
   hasVariants: boolean
+  etsyIsEnabled?: boolean
 }
 
 type SyncDetail = {
@@ -30,6 +32,7 @@ type SyncDetail = {
     | 'renamed_variant'
     | 'set_price'
     | 'set_sku'
+    | 'set_visibility'
     | 'toggled_has_variants'
   variant?: string
   info?: string
@@ -54,11 +57,16 @@ type LocalVariant = {
   name: string
   etsySku: string | null
   etsyProductId: string | null
+  etsyIsEnabled?: boolean
   sellingPrice: DecimalLike | null
 }
 
 type LinkedVariantConflict = {
   id: string
+}
+
+const isEtsyLinkedVariant = (variant: LocalVariant): boolean => {
+  return !!variant.etsyProductId || !!variant.etsySku
 }
 
 const normalizeName = (name: string | null): string | null => {
@@ -178,6 +186,22 @@ export async function syncExistingHamperFromListing({
   const details: SyncDetail[] = []
   let didUpdate = false
   let currentHasVariants = existing.hasVariants
+  const listingIsEnabled = variants.length > 0
+    ? variants.some((variant) => variant.etsyIsEnabled ?? true)
+    : true
+
+  if (inventoryLoaded && (existing.etsyIsEnabled ?? true) !== listingIsEnabled) {
+    await prisma.hamper.update({
+      where: { id: existing.id },
+      data: { etsyIsEnabled: listingIsEnabled },
+    })
+    didUpdate = true
+    details.push({
+      hamper: existing.name,
+      action: 'set_visibility',
+      info: listingIsEnabled ? 'enabled' : 'disabled',
+    })
+  }
 
   if (inventoryLoaded && existing.hasVariants !== hasVariants) {
     await prisma.hamper.update({
@@ -215,9 +239,11 @@ export async function syncExistingHamperFromListing({
         name: true,
         etsySku: true,
         etsyProductId: true,
+        etsyIsEnabled: true,
         sellingPrice: true,
       },
     })
+    const matchedLocalVariantIds = new Set<string>()
 
     for (const variant of preparedVariants) {
       const productId = variant.productId
@@ -236,8 +262,9 @@ export async function syncExistingHamperFromListing({
           : undefined)
 
       if (candidate) {
+        matchedLocalVariantIds.add(candidate.id)
         const updateData: Prisma.HamperVariantUpdateInput = {}
-        const changes: Array<'linked_product_id' | 'set_sku' | 'set_price' | 'renamed_variant'> = []
+        const changes: Array<'linked_product_id' | 'set_sku' | 'set_price' | 'set_visibility' | 'renamed_variant'> = []
 
         if (candidate.etsyProductId !== productId) {
           updateData.etsyProductId = productId
@@ -246,6 +273,11 @@ export async function syncExistingHamperFromListing({
         if (!candidate.etsySku && skuForStorage) {
           updateData.etsySku = skuForStorage
           changes.push('set_sku')
+        }
+        const variantEtsyIsEnabled = variant.etsyIsEnabled ?? true
+        if ((candidate.etsyIsEnabled ?? true) !== variantEtsyIsEnabled) {
+          updateData.etsyIsEnabled = variantEtsyIsEnabled
+          changes.push('set_visibility')
         }
 
         const effectiveSellingPrice = toPriceNumber(candidate.sellingPrice) ?? toPriceNumber(existing.sellingPrice)
@@ -308,6 +340,7 @@ export async function syncExistingHamperFromListing({
               sellingPrice: variant.sellingPrice,
               etsySku: skuForStorage,
               etsyProductId: variant.productId,
+              etsyIsEnabled: variant.etsyIsEnabled ?? true,
               isActive: true,
             },
           })
@@ -342,6 +375,7 @@ export async function syncExistingHamperFromListing({
                 sellingPrice: variant.sellingPrice,
                 etsySku: skuForStorage,
                 etsyProductId: variant.productId,
+                etsyIsEnabled: variant.etsyIsEnabled ?? true,
                 isActive: true,
               },
             })
@@ -359,6 +393,28 @@ export async function syncExistingHamperFromListing({
           }
         }
       }
+    }
+
+    for (const localVariant of localVariants) {
+      if (
+        matchedLocalVariantIds.has(localVariant.id) ||
+        !isEtsyLinkedVariant(localVariant) ||
+        localVariant.etsyIsEnabled === false
+      ) {
+        continue
+      }
+
+      await prisma.hamperVariant.update({
+        where: { id: localVariant.id },
+        data: { etsyIsEnabled: false },
+      })
+      didUpdate = true
+      details.push({
+        hamper: existing.name,
+        action: 'set_visibility',
+        variant: localVariant.name,
+        info: 'missing from Etsy import',
+      })
     }
   }
 

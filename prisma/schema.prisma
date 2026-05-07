@@ -99,6 +99,7 @@ model Hamper {
   id                 String   @id @default(cuid())
   name               String
   etsyListingId      String?  @unique
+  etsyIsEnabled      Boolean  @default(true)
   sellingPrice       Decimal  @db.Decimal(10, 2)
   indicativeQuantity Int?
   hasVariants        Boolean  @default(false)
@@ -134,6 +135,7 @@ model HamperVariant {
   sellingPrice       Decimal? @db.Decimal(10, 2) // Override price for this variant (null = use hamper price)
   etsySku            String?  @unique // For future Etsy sync: "LPH-GS"
   etsyProductId      String?  @unique // Etsy's product_id for variant matching
+  etsyIsEnabled      Boolean  @default(true)
   indicativeQuantity Int?
   isActive           Boolean  @default(true)
   createdAt          DateTime @default(now())

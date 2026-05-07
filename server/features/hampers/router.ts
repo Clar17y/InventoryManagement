@@ -10,6 +10,16 @@ import {
 
 const router = Router()
 
+type VariantAvailabilitySummary = {
+  variantId: string
+  name: string
+  etsySku: string | null
+  sellingPrice: number | null
+  etsyIsEnabled: boolean
+  indicativeQuantity: number | null
+  canMake: number
+}
+
 // Calculate how many hampers can be made based on stock (aggregated across category)
 async function calculateAvailability(hamperId: string): Promise<number> {
   const hamper = await prisma.hamper.findUnique({
@@ -154,7 +164,7 @@ async function calculateVariantAvailability(variantId: string): Promise<number> 
 }
 
 // Get variant availability for all variants of a hamper
-async function getVariantAvailabilities(hamperId: string): Promise<{ variantId: string; name: string; etsySku: string | null; sellingPrice: number | null; indicativeQuantity: number | null; canMake: number }[]> {
+async function getVariantAvailabilities(hamperId: string): Promise<VariantAvailabilitySummary[]> {
   const variants = await prisma.hamperVariant.findMany({
     where: { hamperId, isActive: true },
     orderBy: { name: 'asc' },
@@ -166,6 +176,7 @@ async function getVariantAvailabilities(hamperId: string): Promise<{ variantId: 
       name: v.name,
       etsySku: v.etsySku,
       sellingPrice: v.sellingPrice ? Number(v.sellingPrice) : null,
+      etsyIsEnabled: v.etsyIsEnabled,
       indicativeQuantity: v.indicativeQuantity,
       canMake: await calculateVariantAvailability(v.id),
     }))
@@ -312,6 +323,7 @@ router.get('/:id', async (req, res) => {
           name: v.name,
           etsySku: v.etsySku,
           sellingPrice: v.sellingPrice ? Number(v.sellingPrice) : null,
+          etsyIsEnabled: v.etsyIsEnabled,
           indicativeQuantity: v.indicativeQuantity,
           canMake: await calculateVariantAvailability(v.id),
           mappings: v.mappings.map((m) => {
@@ -356,6 +368,7 @@ router.post('/', async (req, res) => {
         name: data.name,
         sellingPrice: data.sellingPrice,
         etsyListingId: data.etsyListingId,
+        etsyIsEnabled: data.etsyIsEnabled,
         indicativeQuantity: data.indicativeQuantity,
         hasVariants: data.hasVariants,
         requirements: {
@@ -401,6 +414,7 @@ router.put('/:id', async (req, res) => {
         ...(data.name && { name: data.name }),
         ...(data.sellingPrice && { sellingPrice: data.sellingPrice }),
         ...(data.etsyListingId !== undefined && { etsyListingId: data.etsyListingId }),
+        ...(data.etsyIsEnabled !== undefined && { etsyIsEnabled: data.etsyIsEnabled }),
         ...(data.indicativeQuantity !== undefined && { indicativeQuantity: data.indicativeQuantity }),
         ...(data.hasVariants !== undefined && { hasVariants: data.hasVariants }),
         ...(data.requirements && data.requirements.length > 0 && {
@@ -551,7 +565,7 @@ router.post('/:id/variants', async (req, res) => {
 
     // Normalize priorities to 1..n per category
     const normalizedMappings: { categoryId: string; productId: string; priority: number }[] = []
-    for (const [catId, catMappings] of mappingsByCategory) {
+    for (const catMappings of mappingsByCategory.values()) {
       const sorted = [...catMappings].sort((a, b) => (a.priority ?? 1) - (b.priority ?? 1))
       sorted.forEach((m, i) => normalizedMappings.push({
         categoryId: m.categoryId,
@@ -566,6 +580,7 @@ router.post('/:id/variants', async (req, res) => {
         name: data.name,
         sellingPrice: data.sellingPrice,
         etsySku: data.etsySku,
+        etsyIsEnabled: data.etsyIsEnabled,
         indicativeQuantity: data.indicativeQuantity,
         mappings: {
           create: normalizedMappings,
@@ -665,7 +680,7 @@ router.put('/:id/variants/:variantId', async (req, res) => {
 
       // Normalize priorities to 1..n per category
       normalizedMappings = []
-      for (const [catId, catMappings] of mappingsByCategory) {
+      for (const catMappings of mappingsByCategory.values()) {
         const sorted = [...catMappings].sort((a, b) => (a.priority ?? 1) - (b.priority ?? 1))
         sorted.forEach((m, i) => normalizedMappings!.push({
           categoryId: m.categoryId,
@@ -686,6 +701,7 @@ router.put('/:id/variants/:variantId', async (req, res) => {
         ...(data.name && { name: data.name }),
         ...(data.sellingPrice !== undefined && { sellingPrice: data.sellingPrice }),
         ...(data.etsySku !== undefined && { etsySku: data.etsySku }),
+        ...(data.etsyIsEnabled !== undefined && { etsyIsEnabled: data.etsyIsEnabled }),
         ...(data.indicativeQuantity !== undefined && { indicativeQuantity: data.indicativeQuantity }),
         ...(normalizedMappings && {
           mappings: {

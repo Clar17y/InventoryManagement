@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef } from 'react'
 import { ChevronDownIcon, ChevronUpIcon, PencilIcon, TrashIcon, XMarkIcon } from '@heroicons/react/24/outline'
 import type { FormEvent, RefObject } from 'react'
 import type { Category, HamperVariant, HamperVariantCreateData, Product } from '../../../lib/api'
+import { emptyVariantForm } from '../constants'
 import type { HamperFormData } from '../types'
 import RequirementsChecklist from './RequirementsChecklist'
 
@@ -60,7 +61,7 @@ export default function HamperForm({
 
   // Group mappings by category for display
   const mappingsByCategory = useMemo(() => {
-    const grouped = new Map<string, typeof variantFormData.mappings>()
+    const grouped = new Map<string, HamperVariantCreateData['mappings']>()
     for (const m of variantFormData.mappings) {
       const existing = grouped.get(m.categoryId) || []
       grouped.set(m.categoryId, [...existing, m].sort((a, b) => (a.priority ?? 1) - (b.priority ?? 1)))
@@ -208,6 +209,16 @@ export default function HamperForm({
         </span>
       </div>
 
+      <label className="flex items-center gap-3">
+        <input
+          type="checkbox"
+          checked={formData.etsyIsEnabled}
+          onChange={(e) => setFormData({ ...formData, etsyIsEnabled: e.target.checked })}
+          className="h-4 w-4 text-primary-600 border-gray-300 rounded focus:ring-primary-500"
+        />
+        <span className="text-sm font-medium text-gray-700">Enabled on Etsy</span>
+      </label>
+
       <div>
         <div className="flex justify-between items-center mb-2">
           <label className="block text-sm font-medium text-gray-700">
@@ -240,8 +251,7 @@ export default function HamperForm({
               <button
                 type="button"
                 onClick={() => {
-                  // Start with empty mappings - user adds what they need
-                  setVariantFormData({ name: '', etsySku: '', mappings: [] })
+                  setVariantFormData(emptyVariantForm)
                   setShowVariantForm(true)
                 }}
                 className="btn-secondary text-sm py-1"
@@ -254,7 +264,7 @@ export default function HamperForm({
           {/* Add Variant Form */}
           {showVariantForm && (
             <div ref={variantFormRef} className="bg-primary-50 p-4 rounded-lg mb-4 space-y-4">
-              <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
                 <div>
                   <label className="block text-xs font-medium text-gray-700 mb-1">Variant Name *</label>
                   <input
@@ -305,6 +315,15 @@ export default function HamperForm({
                     placeholder="Floor for Etsy stock"
                   />
                 </div>
+                <label className="flex items-center gap-2 pt-6 text-xs font-medium text-gray-700">
+                  <input
+                    type="checkbox"
+                    checked={variantFormData.etsyIsEnabled ?? true}
+                    onChange={(e) => setVariantFormData({ ...variantFormData, etsyIsEnabled: e.target.checked })}
+                    className="h-4 w-4 text-primary-600 border-gray-300 rounded focus:ring-primary-500"
+                  />
+                  Enabled on Etsy
+                </label>
               </div>
 
 
@@ -424,7 +443,7 @@ export default function HamperForm({
                   onClick={() => {
                     setShowVariantForm(false)
                     setEditingVariantId(null)
-                    setVariantFormData({ name: '', mappings: [] })
+                    setVariantFormData(emptyVariantForm)
                   }}
                   className="btn-secondary text-sm py-1"
                 >
@@ -449,6 +468,7 @@ export default function HamperForm({
                 <div className="flex justify-between items-start">
                   <div>
                     <div className="font-medium text-gray-900">{variant.name}</div>
+                    {variant.etsyIsEnabled === false && <div className="text-xs text-gray-500">Etsy hidden</div>}
                     {variant.sellingPrice && <div className="text-xs text-green-600 font-medium">£{Number(variant.sellingPrice).toFixed(2)}</div>}
                     {variant.etsySku && <div className="text-xs text-gray-500 font-mono">SKU: {variant.etsySku}</div>}
                     {!!variant.indicativeQuantity && <div className="text-xs text-blue-600">Indicative: {variant.indicativeQuantity}</div>}

@@ -262,6 +262,25 @@ describe('buildInventoryUpdateProducts', () => {
     expect(products[0].offerings[0].quantity).toBe(15);
   });
 
+  it('preserves existing Etsy visibility for quantity-only updates', () => {
+    const hiddenInventory = {
+      ...SINGLE_VARIANT_INVENTORY,
+      products: SINGLE_VARIANT_INVENTORY.products.map((product) => ({
+        ...product,
+        offerings: product.offerings.map((offering) => ({
+          ...offering,
+          is_enabled: false,
+        })),
+      })),
+    };
+    const updates = [{ etsySku: null, etsyProductId: null, quantity: 15 }];
+
+    const products = buildInventoryUpdateProducts(hiddenInventory, updates);
+
+    expect(products[0].offerings[0].quantity).toBe(15);
+    expect(products[0].offerings[0].is_enabled).toBe(false);
+  });
+
   it('rejects null SKU for multi-variant listings', () => {
     const updates = [{ etsySku: null, etsyProductId: null, quantity: 15 }];
 

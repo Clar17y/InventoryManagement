@@ -55,6 +55,7 @@ describe('Hampers', () => {
       sellingPrice: 35,
       etsyListingId: '12345',
       hasVariants: false,
+      etsyIsEnabled: true,
       isActive: true,
       createdAt: '2024-01-01T00:00:00Z',
       requirements: [
@@ -68,6 +69,7 @@ describe('Hampers', () => {
       sellingPrice: 25,
       etsyListingId: null,
       hasVariants: false,
+      etsyIsEnabled: true,
       isActive: true,
       createdAt: '2024-01-02T00:00:00Z',
       requirements: [
@@ -98,6 +100,7 @@ describe('Hampers', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    localStorage.clear();
     mockHampersList.mockResolvedValue(sampleHampers as any);
     mockHampersGet.mockResolvedValue(sampleHamperDetail as any);
     mockCategoriesList.mockResolvedValue(sampleCategories as any);
@@ -162,6 +165,73 @@ describe('Hampers', () => {
       await waitFor(() => {
         expect(screen.getByText('No hampers defined yet')).toBeInTheDocument();
       });
+    });
+
+    it('hides Etsy-disabled hampers and variants by default with a toggle to show them', async () => {
+      const user = userEvent.setup();
+      mockHampersList.mockResolvedValue([
+        {
+          id: 'ham-visible-variants',
+          name: 'Variant Hamper',
+          sellingPrice: 42,
+          etsyListingId: '98765',
+          hasVariants: true,
+          etsyIsEnabled: true,
+          isActive: true,
+          createdAt: '2024-01-03T00:00:00Z',
+          requirements: [],
+          canMake: 0,
+          variantAvailability: [
+            {
+              variantId: 'var-blue',
+              name: 'Blue Suitcase',
+              etsySku: 'BLUE-SUITCASE',
+              sellingPrice: 42,
+              indicativeQuantity: null,
+              etsyIsEnabled: true,
+              canMake: 2,
+            },
+            {
+              variantId: 'var-squirrel',
+              name: 'Squirrel Medium Suitcase',
+              etsySku: 'SQUIRREL-MEDIUM',
+              sellingPrice: 42,
+              indicativeQuantity: null,
+              etsyIsEnabled: false,
+              canMake: 1,
+            },
+          ],
+        },
+        {
+          id: 'ham-hidden',
+          name: 'Hidden Etsy Hamper',
+          sellingPrice: 30,
+          etsyListingId: '54321',
+          hasVariants: false,
+          etsyIsEnabled: false,
+          isActive: true,
+          createdAt: '2024-01-04T00:00:00Z',
+          requirements: [],
+          canMake: 4,
+        },
+      ] as any);
+
+      render(<Hampers />);
+
+      await waitFor(() => {
+        expect(screen.getByText('Variant Hamper')).toBeInTheDocument();
+      });
+
+      const toggle = screen.getByRole('checkbox', { name: /hide etsy hidden/i });
+      expect(toggle).toBeChecked();
+      expect(screen.getByText(/Blue Suitcase: 2/)).toBeInTheDocument();
+      expect(screen.queryByText(/Squirrel Medium Suitcase/)).not.toBeInTheDocument();
+      expect(screen.queryByText('Hidden Etsy Hamper')).not.toBeInTheDocument();
+
+      await user.click(toggle);
+
+      expect(screen.getByText(/Squirrel Medium Suitcase: 1/)).toBeInTheDocument();
+      expect(screen.getByText('Hidden Etsy Hamper')).toBeInTheDocument();
     });
   });
 

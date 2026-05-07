@@ -246,22 +246,27 @@ export class ThrottleManager {
 // Batch Update Helpers
 // =============================================================================
 
+type ListingInventoryUpdate = {
+  etsySku: string | null;
+  etsyProductId: string | null;
+  quantity: number;
+};
+
 /**
  * Group updates by listing ID for batch processing.
  */
 export function groupUpdatesByListing(
-  updates: Array<{
-    etsyListingId: string;
-    etsySku: string | null;
-    etsyProductId: string | null;
-    quantity: number;
-  }>
-): Map<string, Array<{ etsySku: string | null; etsyProductId: string | null; quantity: number }>> {
-  const grouped = new Map<string, Array<{ etsySku: string | null; etsyProductId: string | null; quantity: number }>>();
+  updates: Array<ListingInventoryUpdate & { etsyListingId: string }>
+): Map<string, ListingInventoryUpdate[]> {
+  const grouped = new Map<string, ListingInventoryUpdate[]>();
 
   for (const update of updates) {
     const existing = grouped.get(update.etsyListingId) || [];
-    existing.push({ etsySku: update.etsySku, etsyProductId: update.etsyProductId, quantity: update.quantity });
+    existing.push({
+      etsySku: update.etsySku,
+      etsyProductId: update.etsyProductId,
+      quantity: update.quantity,
+    });
     grouped.set(update.etsyListingId, existing);
   }
 
@@ -277,7 +282,7 @@ export function groupUpdatesByListing(
  */
 export function buildInventoryUpdateProducts(
   currentInventory: EtsyInventory,
-  updates: Array<{ etsySku: string | null; etsyProductId: string | null; quantity: number }>
+  updates: ListingInventoryUpdate[]
 ): EtsyInventoryUpdateProduct[] {
   const defaultVariantUpdate = updates.find((u) => u.etsySku === null && u.etsyProductId === null);
 
@@ -312,8 +317,7 @@ export function buildInventoryUpdateProducts(
         return {
           quantity: newQuantity,
           price: offering.price.amount / offering.price.divisor,
-          // Set visibility based on quantity: visible if quantity > 0, hidden if 0
-          is_enabled: newQuantity > 0,
+          is_enabled: offering.is_enabled,
           readiness_state_id: offering.readiness_state_id,
         };
       }),

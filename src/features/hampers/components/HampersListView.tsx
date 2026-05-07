@@ -11,13 +11,15 @@ import type { Hamper, HamperDetail, HamperVariantAvailability } from '../../../l
 import { formatCurrency } from '../../../lib/formatting'
 import { HAMPER_SORT_OPTIONS } from '../constants'
 import type { HamperSortOption } from '../types'
-import { formatAvailability, getAvailabilityColor, getDisplayAvailability } from '../utils'
+import { formatAvailability, getAvailabilityColor, getDisplayAvailability, isEtsyEnabled } from '../utils'
 
 export default function HampersListView({
   sortedHampers,
   debouncedSearch,
   searchQuery,
   setSearchQuery,
+  hideEtsyHidden,
+  setHideEtsyHidden,
   sortBy,
   setSortBy,
   expandedId,
@@ -30,6 +32,8 @@ export default function HampersListView({
   debouncedSearch: string
   searchQuery: string
   setSearchQuery: (value: string) => void
+  hideEtsyHidden: boolean
+  setHideEtsyHidden: (value: boolean) => void
   sortBy: HamperSortOption
   setSortBy: (value: HamperSortOption) => void
   expandedId: string | null
@@ -39,6 +43,10 @@ export default function HampersListView({
   handleDelete: (id: string) => void
 }) {
   const [selectedVariantId, setSelectedVariantId] = useState<string | null>(null)
+  const visibleExpandedVariants =
+    expandedDetail?.variantAvailability?.filter((variant) =>
+      !hideEtsyHidden || isEtsyEnabled(variant.etsyIsEnabled)
+    ) ?? []
 
   // Clear selected variant when expanded hamper changes
   useEffect(() => {
@@ -68,7 +76,16 @@ export default function HampersListView({
           )}
         </div>
 
-        {/* Sort */}
+        <label className="flex items-center gap-2 text-sm text-gray-600">
+          <input
+            type="checkbox"
+            checked={hideEtsyHidden}
+            onChange={(e) => setHideEtsyHidden(e.target.checked)}
+            className="h-4 w-4 text-primary-600 border-gray-300 rounded focus:ring-primary-500"
+          />
+          Hide Etsy hidden
+        </label>
+
         <div className="flex items-center gap-2">
           <span className="text-sm text-gray-500">Sort:</span>
           <select
@@ -85,31 +102,38 @@ export default function HampersListView({
         </div>
       </div>
 
-    {sortedHampers.length === 0 ? (
-      <div className="card text-gray-500 text-center py-12">
-        {debouncedSearch ? (
-          <>
-            <p className="mb-4">No hampers match "{debouncedSearch}"</p>
-            <p className="text-sm">Try a different search term</p>
-          </>
-        ) : (
-          <>
-            <p className="mb-4">No hampers defined yet</p>
-            <p className="text-sm">Create your first hamper to start tracking availability</p>
-          </>
-        )}
-      </div>
-    ) : (
-      <div className="space-y-3">
-        {sortedHampers.map((hamper) => (
-          <div key={hamper.id} className="card">
+      {sortedHampers.length === 0 ? (
+        <div className="card text-gray-500 text-center py-12">
+          {debouncedSearch ? (
+            <>
+              <p className="mb-4">No hampers match "{debouncedSearch}"</p>
+              <p className="text-sm">Try a different search term</p>
+            </>
+          ) : (
+            <>
+              <p className="mb-4">No hampers defined yet</p>
+              <p className="text-sm">Create your first hamper to start tracking availability</p>
+            </>
+          )}
+        </div>
+      ) : (
+        <div className="space-y-3">
+          {sortedHampers.map((hamper) => (
+            <div key={hamper.id} className="card">
             {/* Row 1: Full-width name with edit/delete buttons */}
             <div className="flex items-start justify-between gap-2">
               <button
                 onClick={() => handleExpand(hamper.id)}
                 className="flex-1 text-left min-w-0"
               >
-                <div className="text-sm font-medium">{hamper.name}</div>
+                <div className="text-sm font-medium flex items-center gap-2">
+                  <span>{hamper.name}</span>
+                  {!isEtsyEnabled(hamper.etsyIsEnabled) && (
+                    <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-600">
+                      Etsy hidden
+                    </span>
+                  )}
+                </div>
               </button>
               <div className="flex gap-1 flex-shrink-0">
                 <button
@@ -169,6 +193,7 @@ export default function HampersListView({
                         title={v.etsySku ? `SKU: ${v.etsySku}` : undefined}
                       >
                         {v.name}: {formatAvailability(v.canMake, v.indicativeQuantity)}
+                        {!isEtsyEnabled(v.etsyIsEnabled) && ' (hidden)'}
                       </span>
                     )
                   })}
@@ -222,11 +247,11 @@ export default function HampersListView({
                 </div>
 
                 {/* Variant Availability Breakdown */}
-                {expandedDetail.hasVariants && expandedDetail.variantAvailability && expandedDetail.variantAvailability.length > 0 && (
+                {expandedDetail.hasVariants && visibleExpandedVariants.length > 0 && (
                   <div className="mt-4">
                     <h4 className="text-sm font-medium text-gray-700 mb-2">Variant Availability</h4>
                     <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-                      {expandedDetail.variantAvailability.map((v: HamperVariantAvailability) => {
+                      {visibleExpandedVariants.map((v: HamperVariantAvailability) => {
                         const { value } = getDisplayAvailability(v.canMake, v.indicativeQuantity)
                         return (
                           <button
@@ -242,6 +267,9 @@ export default function HampersListView({
                             {v.etsySku && (
                               <div className="text-xs opacity-75 font-mono">{v.etsySku}</div>
                             )}
+                            {!isEtsyEnabled(v.etsyIsEnabled) && (
+                              <div className="text-xs opacity-75">Etsy hidden</div>
+                            )}
                           </button>
                         )
                       })}
@@ -249,7 +277,7 @@ export default function HampersListView({
 
                     {/* Selected Variant Mappings */}
                     {selectedVariantId && (() => {
-                      const selectedVariant = expandedDetail.variantAvailability?.find(v => v.variantId === selectedVariantId)
+                      const selectedVariant = visibleExpandedVariants.find(v => v.variantId === selectedVariantId)
                       if (!selectedVariant?.mappings?.length) return null
 
                       // Group mappings by category
@@ -316,11 +344,10 @@ export default function HampersListView({
                 )}
               </div>
             )}
-          </div>
-        ))}
-      </div>
-    )
-    }
+            </div>
+          ))}
+        </div>
+      )}
     </>
   )
 }

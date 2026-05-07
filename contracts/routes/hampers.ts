@@ -61,6 +61,7 @@ export const hampersCreateBodySchema = z.object({
     .nullable()
     .transform((value) => (value === '' ? null : value)),
   indicativeQuantity: nullableIntSchema,
+  etsyIsEnabled: z.boolean().default(true),
   hasVariants: z.boolean().default(false),
   requirements: z.array(hamperRequirementInputSchema).min(1),
 })
@@ -75,6 +76,7 @@ export const hampersUpdateBodySchema = z.object({
     .nullable()
     .transform((value) => (value === '' ? null : value)),
   indicativeQuantity: nullableIntSchema,
+  etsyIsEnabled: z.boolean().optional(),
   hasVariants: z.boolean().optional(),
   requirements: z.array(hamperRequirementInputSchema).optional(),
 })
@@ -107,6 +109,7 @@ export const hamperVariantCreateBodySchema = z.object({
   name: z.string().min(1).max(100),
   sellingPrice: nullableNumberSchema,
   etsySku: nullableStringSchema,
+  etsyIsEnabled: z.boolean().default(true),
   indicativeQuantity: nullableIntSchema,
   mappings: z.array(variantMappingInputSchema),
 })
@@ -115,6 +118,7 @@ export const hamperVariantUpdateBodySchema = z.object({
   name: z.string().min(1).max(100).optional(),
   sellingPrice: nullableNumberSchema,
   etsySku: nullableStringSchema,
+  etsyIsEnabled: z.boolean().optional(),
   indicativeQuantity: nullableIntSchema,
   mappings: z.array(variantMappingInputSchema).optional(),
 })

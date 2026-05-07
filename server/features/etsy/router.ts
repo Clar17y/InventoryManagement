@@ -546,7 +546,7 @@ router.post('/import', async (req, res) => {
             errors: [] as string[],
             details: [] as Array<{
                 hamper: string;
-                action: 'created_hamper' | 'created_variant' | 'linked_product_id' | 'set_sku' | 'set_price' | 'renamed_variant' | 'toggled_has_variants' | 'relinked_variant';
+                action: 'created_hamper' | 'created_variant' | 'linked_product_id' | 'set_sku' | 'set_price' | 'set_visibility' | 'renamed_variant' | 'toggled_has_variants' | 'relinked_variant';
                 variant?: string;
                 info?: string;
             }>,
@@ -580,7 +580,7 @@ router.post('/import', async (req, res) => {
                 const price = listing.price.amount / listing.price.divisor;
 
                 // Get inventory from pre-fetched map
-                let variants: Array<{ name: string; sku: string | null; productId: string; sellingPrice: number | null }> = [];
+                let variants: Array<{ name: string; sku: string | null; productId: string; sellingPrice: number | null; etsyIsEnabled: boolean }> = [];
                 let hasVariants = false;
                 const inventory = inventoryMap.get(listing.listing_id);
                 const inventoryLoaded = !!inventory;
@@ -602,15 +602,22 @@ router.post('/import', async (req, res) => {
                         const sellingPrice = offering?.price
                             ? offering.price.amount / offering.price.divisor
                             : null;
+                        const etsyIsEnabled = offering?.is_enabled ?? true;
 
                         return {
                             name,
                             sku,
                             productId: String(p.product_id),
                             sellingPrice,
+                            etsyIsEnabled,
                         };
                     });
                 }
+                const etsyIsEnabled = listing.state === 'active' && (
+                    inventoryLoaded && variants.length > 0
+                        ? variants.some(v => v.etsyIsEnabled)
+                        : true
+                );
 
                 let hamperId: string;
 
@@ -620,6 +627,7 @@ router.post('/import', async (req, res) => {
                         data: {
                             name: listing.title,
                             etsyListingId: listingIdStr,
+                            etsyIsEnabled,
                             sellingPrice: price,
                             hasVariants,
                             isActive: listing.state === 'active',
@@ -659,6 +667,7 @@ router.post('/import', async (req, res) => {
                                     sellingPrice: v.sellingPrice,
                                     etsySku: v.skuForStorage,
                                     etsyProductId: v.productId,
+                                    etsyIsEnabled: v.etsyIsEnabled ?? true,
                                     isActive: true,
                                 },
                             });
@@ -694,6 +703,7 @@ router.post('/import', async (req, res) => {
                                         sellingPrice: v.sellingPrice,
                                         etsySku: v.skuForStorage,
                                         etsyProductId: v.productId,
+                                        etsyIsEnabled: v.etsyIsEnabled ?? true,
                                         isActive: true,
                                     },
                                 });

@@ -55,11 +55,13 @@ interface HamperWithRelations {
   id: string;
   name: string;
   etsyListingId: string | null;
+  etsyIsEnabled: boolean;
   hasVariants: boolean;
   variants: Array<{
     id: string;
     name: string;
     etsySku: string | null;
+    etsyIsEnabled: boolean;
     mappings: Array<{
       categoryId: string;
       product: {

@@ -15,6 +15,7 @@ export interface HamperFormData {
   name: string
   sellingPrice: string
   etsyListingId: string
+  etsyIsEnabled: boolean
   indicativeQuantity: string
   hasVariants: boolean
   requirements: RequirementInput[]

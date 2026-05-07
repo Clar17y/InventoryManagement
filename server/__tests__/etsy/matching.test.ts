@@ -2,10 +2,16 @@ import { describe, expect, it } from 'vitest';
 import {
   findEtsyProductByIdentifiers,
   findItemByEtsyProduct,
+  hasDuplicateEtsySku,
 } from '../../lib/etsy/matching';
 import type { EtsyProduct } from '../../lib/etsy/types';
 
-function product(productId: number, sku: string, name: string): EtsyProduct {
+function product(
+  productId: number,
+  sku: string,
+  name: string,
+  overrides: Partial<EtsyProduct> = {}
+): EtsyProduct {
   return {
     product_id: productId,
     sku,
@@ -28,6 +34,7 @@ function product(productId: number, sku: string, name: string): EtsyProduct {
         values: [name],
       },
     ],
+    ...overrides,
   };
 }
 
@@ -83,5 +90,27 @@ describe('Etsy matching', () => {
     const match = findItemByEtsyProduct(localItems, products[1], products);
 
     expect(match?.name).toBe('Mustard Star');
+  });
+
+  it('ignores deleted Etsy products when checking whether a SKU is duplicated', () => {
+    const productsWithDeletedDuplicate = [
+      product(101, 'GREY-SKU', 'Grey Marble'),
+      product(102, 'GREY-SKU', 'Deleted Grey Marble', { is_deleted: true }),
+    ];
+
+    expect(hasDuplicateEtsySku(productsWithDeletedDuplicate, 'GREY-SKU')).toBe(false);
+    expect(
+      findEtsyProductByIdentifiers(productsWithDeletedDuplicate, {
+        etsySku: 'GREY-SKU',
+        etsyProductId: null,
+      })?.product_id
+    ).toBe(101);
+    expect(
+      findItemByEtsyProduct(
+        [{ etsySku: 'GREY-SKU', etsyProductId: null, name: 'Grey Marble' }],
+        productsWithDeletedDuplicate[0],
+        productsWithDeletedDuplicate
+      )?.name
+    ).toBe('Grey Marble');
   });
 });

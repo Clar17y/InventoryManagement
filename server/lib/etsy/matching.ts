@@ -23,14 +23,19 @@ function normalizeVariantName(name?: string | null): string | null {
   return trimmed.length > 0 ? trimmed.toLowerCase() : null;
 }
 
+function isActiveProduct(product: EtsyProduct): boolean {
+  return !product.is_deleted;
+}
+
 function isSkuUniqueInProducts(products: EtsyProduct[], sku: string): boolean {
-  return products.filter((product) => normalizeSku(product.sku) === sku).length === 1;
+  return products.filter((product) => isActiveProduct(product) && normalizeSku(product.sku) === sku).length === 1;
 }
 
 export function findDuplicateEtsySkus(products: EtsyProduct[]): Set<string> {
   const counts = new Map<string, number>();
 
   for (const product of products) {
+    if (!isActiveProduct(product)) continue;
     const sku = normalizeSku(product.sku);
     if (!sku) continue;
     counts.set(sku, (counts.get(sku) ?? 0) + 1);

@@ -301,6 +301,7 @@ npm run test:server:run   # Single run (server only)
 **Current State:**
 - **Etsy duplicate SKU safety + repair added** (worktree: `D:\Code\InventoryManager-etsy-throttle`, branch: `codex/etsy-api-throttle`): Etsy matching now prefers `etsyProductId`; SKU fallback is only used when unambiguous. Import creates product-id-linked variants without storing duplicate Etsy SKUs, inventory/price pushes reject ambiguous SKU-only updates, and duplicate SKU report/repair APIs were added under `/api/etsy/sync/skus/duplicates` and `/api/etsy/sync/skus/repair-duplicates`.
 - **Code review follow-up completed**: new-listing import now uses the same duplicate-SKU-safe storage path as existing-listing sync, 429 `Retry-After` cooldown is applied before the next queued Etsy request can start, duplicate SKU repair fetches fresh listing inventory, repair no longer reuses a local SKU already occupied by another Etsy product, and order import skips SKU fallback when Etsy reports duplicate SKUs.
+- **PR review follow-up completed**: duplicate-SKU matching now ignores deleted Etsy inventory products so deleted rows do not block safe SKU-only matching for a single active product.
 - **Etsy API throttling safeguards added** (worktree: `D:\Code\InventoryManager-etsy-throttle`, branch: `codex/etsy-api-throttle`): global serialized Etsy request limiter, `Retry-After` cooldown handling, deduplicated token refresh, and UI duplicate-refresh guards on Etsy sync panels.
 - **v1.0.0 Released**: Project marked as stable and ready for use.
 - **Automated test suite complete**: 34 files / 480 tests passing (`npm run test:run`).
@@ -318,6 +319,7 @@ npm run test:server:run   # Single run (server only)
 - Passed: focused Etsy duplicate SKU tests (`server/__tests__/etsy/matching.test.ts`, `importListings.test.ts`, `safety.test.ts`, `skus.test.ts`, `prices.test.ts`, `orderImport.test.ts`)
 - Passed: focused Etsy API client test (`src/__tests__/lib/api/etsy.test.ts`)
 - Passed: focused Etsy server tests for limiter/client/sync safety (`server/__tests__/etsy/rateLimiter.test.ts`, `realClient.test.ts`, `safety.test.ts`, `skus.test.ts`, `prices.test.ts`)
+- Passed after PR review fix: focused Etsy server suite (`matching.test.ts`, `importListings.test.ts`, `safety.test.ts`, `skus.test.ts`, `prices.test.ts`, `orderImport.test.ts`, `rateLimiter.test.ts`, `realClient.test.ts`) - 64 tests
 - Passed: focused Etsy sync panel client tests (`src/__tests__/components/EtsySyncPanel.test.tsx`, `EtsyOrdersSyncPanel.test.tsx`)
 - Passed: repository TypeScript check (`npx tsc -p tsconfig.json --noEmit`) and focused per-file TypeScript checks
 - Passed: focused ESLint over touched Etsy files

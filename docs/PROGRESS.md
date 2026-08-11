@@ -291,6 +291,7 @@ npm run test:server:run   # Single run (server only)
 | 2026-05-07 | Codex | Etsy visibility flag + hidden-by-default UI toggle | Done | feature/etsy-visibility-toggle |
 | 2026-05-07 | Codex | Simplify cleanup for Etsy visibility feature | Done | feature/etsy-visibility-toggle |
 | 2026-05-07 | Codex | Mark missing Etsy variants hidden on import | Done | feature/etsy-visibility-toggle |
+| 2026-08-11 | Codex | Design Etsy Offsite Ads fee reconciliation | Done | codex/etsy-offsite-fee-reconciliation |
 
 
 ---
@@ -299,9 +300,10 @@ npm run test:server:run   # Single run (server only)
 
 > Leave notes here when ending a session so the next agent knows where you left off
 
-**Last Updated:** 2026-05-07
+**Last Updated:** 2026-08-11
 
 **Current State:**
+- **Etsy Offsite Ads fee reconciliation design approved** (branch: `codex/etsy-offsite-fee-reconciliation`): the design uses Etsy Payment API aggregates only after validation against known statements, treats monthly statements as authoritative for exact attribution/fee/VAT, preserves unknown sales as pending, and requires a preview before any historical financial writes. No application, database, or Etsy account changes were made during design.
 - **Etsy visibility flag + hidden-by-default UI toggle added** (branch: `feature/etsy-visibility-toggle`): `Hamper` and `HamperVariant` now store `etsyIsEnabled` from Etsy offering `is_enabled`. Etsy import/sync preserves disabled visibility instead of re-enabling hidden variants during quantity pushes. Hampers UI hides Etsy-hidden hampers and hidden variants by default, with a persisted `Hide Etsy hidden` toggle and manual `Enabled on Etsy` controls in hamper/variant editing.
 - **Missing Etsy variants are now hidden on import**: when a local active variant still has an Etsy SKU/product id but is absent from the latest fetched Etsy inventory for that listing, import marks that local variant `etsyIsEnabled = false` rather than leaving old removed options visible.
 - **Simplify cleanup completed for Etsy visibility feature**: centralized the blank variant form state, reused filtered expanded variants in the hamper list, named the backend variant availability summary type, and removed an unnecessary test cast.
@@ -337,6 +339,9 @@ npm run test:server:run   # Single run (server only)
 - Full `npm run lint` still has pre-existing unrelated errors in untouched files (`server/features/hampers/router.ts`, `server/lib/etsy/debugLogger.ts`, `server/lib/etsy/inventoryCache.ts`, `server/lib/etsy/mockClient.ts`, `src/lib/api/request.ts`)
 - Full `npm run test:run` still has unrelated/environment failures: Prisma client generation/env setup and `Prisma.Decimal is not a constructor` in existing import-listings tests
 
+**Documentation Review (2026-08-11):**
+- Approved design specification self-reviewed for unresolved placeholders, accounting consistency, evidence precedence, idempotency, historical order grouping, and no-write safety; `git diff --check` passed apart from the repository's existing CRLF conversion warning.
+
 **Testing (2026-01-12):**
 - `vitest.config.ts` - Workspace config with client/server projects
 - `src/__tests__/setup.ts` - Test setup with @testing-library/jest-dom
@@ -368,9 +373,10 @@ npm run test:server:run   # Single run (server only)
 - `prisma/migrations/20260106121712_add_stock_category_and_historical_flag/` - DB migration
 
 **Next Steps:**
-1. Continue contracts adoption (move route schemas into `contracts/` and consume from `server/` + `src/`)
-2. Decide whether PKCE verifier storage should be persisted (if multi-instance deployment is planned)
-3. Merge `feature/real-etsy-integration` to main when ready
+1. Review the approved Etsy Offsite Ads reconciliation specification, then create its detailed implementation plan.
+2. Continue contracts adoption (move route schemas into `contracts/` and consume from `server/` + `src/`)
+3. Decide whether PKCE verifier storage should be persisted (if multi-instance deployment is planned)
+4. Merge `feature/real-etsy-integration` to main when ready
 
 **Known Issues:**
 - Etsy listing inventory caching is in-memory per-process; multi-instance deployments will have separate caches.

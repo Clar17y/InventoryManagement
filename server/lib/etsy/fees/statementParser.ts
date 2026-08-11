@@ -24,9 +24,9 @@ interface StatementRow {
   description: string
   info: string
   currency: string
-  amount: number
-  feesAndTaxes: number
-  net: number
+  amount: number | null
+  feesAndTaxes: number | null
+  net: number | null
   type: string
 }
 
@@ -81,9 +81,9 @@ function rowValue(row: Record<string, unknown>, column: string | null): string {
 }
 
 /** Parse a decimal statement value into absolute integer pence. */
-function parsePence(value: string, label: string): number {
+function parsePence(value: string, label: string): number | null {
   const trimmed = value.trim()
-  if (trimmed === '') return 0
+  if (trimmed === '') return null
 
   // Etsy's CSV uses a decimal point. Commas are accepted as thousands separators
   // because quoted statement exports can contain them in numeric cells.
@@ -135,8 +135,17 @@ function parseRows(csv: string): StatementRow[] {
   })
 }
 
-function selectChargePence(row: StatementRow): number {
-  return row.feesAndTaxes !== 0 ? row.feesAndTaxes : row.amount
+function selectChargePence(row: StatementRow, receiptId: string, kind: string): number {
+  if (row.feesAndTaxes === null && row.amount === null) {
+    throw new Error(`${kind} row for order ${receiptId} has blank money cells`)
+  }
+  return row.feesAndTaxes !== null && row.feesAndTaxes !== 0
+    ? row.feesAndTaxes
+    : (row.amount ?? 0)
+}
+
+function isSaleCoverageRow(row: StatementRow, combinedText: string): boolean {
+  return row.type.trim().toLowerCase() === 'sale' || /payment\s+for\s+order\b/i.test(combinedText)
 }
 
 function conflict(receiptId: string, kind: string): never {
@@ -158,6 +167,7 @@ export function parseEtsyStatement(input: ParseEtsyStatementInput): ParsedEtsySt
     const orderMatch = combinedText.match(ORDER_ID_PATTERN)
     const isOffsiteRow = /offsite\s+ads/i.test(combinedText)
     const isVatRow = isOffsiteRow && /\bvat\b/i.test(combinedText)
+    const isCoverageRow = isSaleCoverageRow(row, combinedText)
 
     if (isOffsiteRow && !orderMatch) {
       throw new Error('Offsite Ads statement row is missing an order ID')
@@ -173,36 +183,36 @@ export function parseEtsyStatement(input: ParseEtsyStatementInput): ParsedEtsySt
       hasOffsiteFeeRow: false,
       hasVatRow: false,
     }
-    existing.covered = true
+    existing.covered ||= isCoverageRow
 
     if (isVatRow) {
-      const vat = selectChargePence(row)
+      const vat = selectChargePence(row, receiptId, 'VAT on Offsite Ads fee')
       if (existing.hasVatRow && existing.vatOnOffsiteAdsFeePence !== vat) {
         conflict(receiptId, 'VAT')
       }
       existing.hasVatRow = true
       existing.vatOnOffsiteAdsFeePence = vat
     } else if (isOffsiteRow) {
-      const fee = selectChargePence(row)
+      const fee = selectChargePence(row, receiptId, 'Offsite Ads fee')
       if (existing.hasOffsiteFeeRow && existing.offsiteAdsFeePence !== fee) {
         conflict(receiptId, 'Offsite Ads fee')
       }
       existing.hasOffsiteFeeRow = true
       existing.attributed = true
       existing.offsiteAdsFeePence = fee
-      if (existing.hasVatRow && existing.vatOnOffsiteAdsFeePence > 0 && fee === 0) {
-        throw new Error(`VAT on Offsite Ads fee has no matching fee for order ${receiptId}`)
-      }
     }
 
     receipts.set(receiptId, existing)
   }
 
-  const coveredReceiptIds = [...receipts.keys()].sort()
+  const coveredReceiptIds = [...receipts.entries()]
+    .filter(([, receipt]) => receipt.covered)
+    .map(([receiptId]) => receiptId)
+    .sort()
   const evidenceByReceipt = new Map<string, NormalizedOrderEvidence>()
   for (const receiptId of coveredReceiptIds) {
     const receipt = receipts.get(receiptId)!
-    if (receipt.hasVatRow && receipt.vatOnOffsiteAdsFeePence > 0 && !receipt.hasOffsiteFeeRow) {
+    if (receipt.hasVatRow && receipt.vatOnOffsiteAdsFeePence > 0 && receipt.offsiteAdsFeePence <= 0) {
       throw new Error(`VAT on Offsite Ads fee has no matching fee for order ${receiptId}`)
     }
     evidenceByReceipt.set(receiptId, {

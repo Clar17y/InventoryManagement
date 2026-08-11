@@ -134,6 +134,49 @@ describe('Etsy statement parser', () => {
 
     expect(() => parseEtsyStatement({ csv, statementMonth: '2025-07' })).toThrow(/conflict|duplicate/i)
   })
+
+  it('does not treat refund or adjustment rows as proof of no Offsite attribution', () => {
+    const csv = `Date,Type,Description,Info,Currency,Amount,Fees & Taxes,Net
+31 Jul 2025,Refund,Refund for Order #4137418123,,GBP,-39.99,4.00,-35.99
+31 Jul 2025,Adjustment,Adjustment for Order #4137418124,,GBP,0,0,0`
+
+    const result = parseEtsyStatement({ csv, statementMonth: '2025-07' })
+
+    expect(result.coveredReceiptIds).toEqual([])
+    expect(result.evidenceByReceipt.get('4137418123')).toBeUndefined()
+    expect(result.evidenceByReceipt.get('4137418124')).toBeUndefined()
+  })
+
+  it('requires a Sale or payment-for-order row to establish coverage', () => {
+    const csv = `Date,Type,Description,Info,Currency,Amount,Fees & Taxes,Net
+31 Jul 2025,Adjustment,Adjustment for Order #4137418123,,GBP,0,0,0
+31 Jul 2025,,Payment for Order #4137418124,,GBP,39.99,-4.00,35.99`
+
+    const result = parseEtsyStatement({ csv, statementMonth: '2025-07' })
+
+    expect(result.coveredReceiptIds).toEqual(['4137418124'])
+    expect(result.evidenceByReceipt.get('4137418124')).toMatchObject({ attributed: false })
+    expect(result.evidenceByReceipt.get('4137418123')).toBeUndefined()
+  })
+
+  it('rejects zero Offsite fees with positive VAT regardless of row order', () => {
+    const sale = '31 Jul 2025,Sale,Payment for Order #4137418123,,GBP,39.99,-4.00,35.99'
+    const fee = '31 Jul 2025,Marketing,Marketing Fee for sale made through Offsite Ads Order #4137418123,,GBP,0,0,0'
+    const vat = '31 Jul 2025,Tax,VAT: Offsite Ads fee Order #4137418123,,GBP,0,-0.96,-0.96'
+
+    for (const rows of [[sale, fee, vat], [sale, vat, fee]]) {
+      const csv = `Date,Type,Description,Info,Currency,Amount,Fees & Taxes,Net\n${rows.join('\n')}`
+      expect(() => parseEtsyStatement({ csv, statementMonth: '2025-07' })).toThrow(/VAT.*fee|fee.*VAT/i)
+    }
+  })
+
+  it('rejects an Offsite charge row with blank money cells', () => {
+    const csv = `Date,Type,Description,Info,Currency,Amount,Fees & Taxes,Net
+31 Jul 2025,Sale,Payment for Order #4137418123,,GBP,39.99,-4.00,35.99
+31 Jul 2025,Marketing,Marketing Fee for sale made through Offsite Ads Order #4137418123,,GBP,,,`
+
+    expect(() => parseEtsyStatement({ csv, statementMonth: '2025-07' })).toThrow(/amount|fees|money|blank/i)
+  })
 })
 
 describe('Etsy reconciliation input fingerprint', () => {

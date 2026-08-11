@@ -56,3 +56,23 @@ Before the fix, `rtk npm run test:server:run -- server/__tests__/etsy/paymentRec
 - `rtk git diff --check` — PASS.
 
 No real Etsy account or database was accessed. The existing Task 4 direct Payment-write tests now set the explicit validation gate to `true`; their default/missing-gate behavior is covered by the new direct-call regression.
+
+## Fix round 2
+
+### Finding addressed
+
+Closed the remaining sale-state TOCTOU gap at the actual transaction write boundary. `FeeReconciliationTransaction.updateSale` now requires the approved snapshot `updatedAt` version. The in-memory repository checks that version before changing its copy-on-write working row; the Prisma adapter uses `updateMany` with `id + updatedAt` and throws the typed reconciliation conflict when no row matches. A conflict aborts the transaction, so a mixed batch cannot partially commit.
+
+### TDD RED evidence
+
+The deterministic late-mutation regression was added before the fix. It mutates the sale immediately after the service's final snapshot read and just before the transaction starts. The focused Payment + Task 4 command then failed one test: the apply resolved with `applied: true` instead of rejecting with `PaymentReconciliationConflictError`; 31 other focused assertions passed.
+
+### Fix verification
+
+- `rtk npm run test:server:run -- server/__tests__/etsy/paymentReconciliation.test.ts server/__tests__/etsy/feeReconciliationService.test.ts` — PASS, 32/32.
+- `rtk npm run test:server:run` — PASS, 17 files / 186 tests.
+- `rtk tsc -p server/tsconfig.json --noEmit --rootDir .` — PASS.
+- ESLint on all fix-round files — PASS.
+- `rtk git diff --check` — PASS.
+
+No real Etsy account or database was accessed. Statement apply continues to pass through the same conditional update contract and preserves its existing transaction behavior.

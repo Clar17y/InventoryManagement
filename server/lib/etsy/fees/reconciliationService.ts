@@ -100,7 +100,12 @@ export interface FeeReconciliationRepository {
 
 export interface FeeReconciliationTransaction {
   createStatementImport(input: NewStatementImport): Promise<{ id: string }>
-  updateSale(id: string, proposal: SaleFeeProposal, statementImportId: string | null): Promise<void>
+  updateSale(
+    id: string,
+    proposal: SaleFeeProposal,
+    statementImportId: string | null,
+    expectedUpdatedAt: string,
+  ): Promise<void>
   finishStatementImport(id: string, summary: FeeReconciliationPreview['summary']): Promise<void>
 }
 
@@ -489,7 +494,12 @@ export async function applyStatementReconciliation(
         checksum: parsed.statementChecksum,
       })
       for (const salePlan of plan.salePlans) {
-        await tx.updateSale(salePlan.snapshot.id, salePlan.proposal, statementImport.id)
+        await tx.updateSale(
+          salePlan.snapshot.id,
+          salePlan.proposal,
+          statementImport.id,
+          salePlan.snapshot.updatedAt,
+        )
       }
       await tx.finishStatementImport(statementImport.id, plan.summary)
       return statementImport
@@ -725,7 +735,12 @@ export async function reconcileImportedPaymentEvidence(
   await db.transaction(async (tx) => {
     for (const salePlan of salePlans) {
       if (salePlan.changed) {
-        await tx.updateSale(salePlan.snapshot.id, salePlan.proposal, null)
+        await tx.updateSale(
+          salePlan.snapshot.id,
+          salePlan.proposal,
+          null,
+          salePlan.snapshot.updatedAt,
+        )
       }
     }
   })
@@ -861,9 +876,9 @@ export function createPrismaFeeReconciliationRepository(prisma: PrismaClient): F
           })
           return row
         },
-        async updateSale(id, proposal, statementImportId) {
-          await transaction.sale.update({
-            where: { id },
+        async updateSale(id, proposal, statementImportId, expectedUpdatedAt) {
+          const result = await transaction.sale.updateMany({
+            where: { id, updatedAt: new Date(expectedUpdatedAt) },
             data: {
               etsyFees: proposal.etsyFeesPence / 100,
               netRevenue: proposal.netRevenuePence / 100,
@@ -880,6 +895,11 @@ export function createPrismaFeeReconciliationRepository(prisma: PrismaClient): F
               etsyStatementImportId: statementImportId,
             },
           })
+          if (result.count !== 1) {
+            throw new StatementReconciliationConflictError(
+              `Sale ${id} changed while applying Etsy fee evidence`,
+            )
+          }
         },
         async finishStatementImport(id, summary) {
           await transaction.etsyStatementImport.update({

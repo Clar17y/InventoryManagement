@@ -374,4 +374,35 @@ describe('Etsy Payment reconciliation orchestration', () => {
     expect(baseDb.writeCount).toBe(0);
     expect(baseDb.sales[0]?.etsyFeesPence).toBe(401);
   });
+
+  it('rejects a mutation after the final snapshot read but before the conditional update', async () => {
+    process.env.ETSY_PAYMENT_FEES_VALIDATED = 'true';
+    const baseDb = createFeeDbFixture({
+      sales: [sale({ id: 's1', etsyOrderId: '4137418052' })],
+    });
+    const db = {
+      ...baseDb,
+      async transaction(work: Parameters<typeof baseDb.transaction>[0]) {
+        baseDb.sales = [sale({
+          id: 's1',
+          etsyOrderId: '4137418052',
+          etsyFeesPence: 401,
+          updatedAt: '2025-07-31T12:01:00.000Z',
+        })];
+        return baseDb.transaction(work);
+      },
+    };
+    const deps = dependencies(
+      new Map([[4137418052, [paymentFixture]]]),
+      db as unknown as ReturnType<typeof createFeeDbFixture>,
+    );
+    const preview = await previewPaymentReconciliation({ receiptIds: ['4137418052'] }, deps);
+
+    await expect(applyPaymentReconciliation({
+      receiptIds: ['4137418052'],
+      fingerprint: preview.fingerprint,
+    }, deps)).rejects.toBeInstanceOf(PaymentReconciliationConflictError);
+    expect(baseDb.writeCount).toBe(0);
+    expect(baseDb.sales[0]).toMatchObject({ etsyFeesPence: 401 });
+  });
 });

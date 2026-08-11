@@ -1,10 +1,10 @@
 import type { SaleFeeSnapshot } from '../../lib/etsy/fees/types'
-import type {
-  FeeReconciliationRepository,
-  FeeReconciliationTransaction,
-  SavedStatementImport,
+import {
+  StatementReconciliationConflictError,
+  type FeeReconciliationRepository,
+  type FeeReconciliationTransaction,
+  type SavedStatementImport,
 } from '../../lib/etsy/fees/reconciliationService'
-
 export const attributedCsv = `Date,Type,Description,Info,Currency,Amount,Fees & Taxes,Net
 31 Jul 2025,Sale,Payment for Order #4137418052,,GBP,39.99,-4.00,35.99
 31 Jul 2025,Marketing,Marketing Fee for sale made through Offsite Ads Order #4137418052 12% of order total,,GBP,0,-4.80,-4.80
@@ -103,10 +103,15 @@ export function createFeeDbFixture(initial: { sales: SaleFeeSnapshot[] }): FeeRe
           pendingWrites += 1
           return { id: created.id }
         },
-        async updateSale(id, proposal) {
+        async updateSale(id, proposal, _statementImportId, expectedUpdatedAt) {
           const index = workingSales.findIndex((snapshot) => snapshot.id === id)
           if (index < 0) throw new Error(`Unknown fixture sale ${id}`)
           const current = workingSales[index]!
+          if (current.updatedAt !== expectedUpdatedAt) {
+            throw new StatementReconciliationConflictError(
+              `Sale ${id} changed while applying Etsy fee evidence`,
+            )
+          }
           workingSales[index] = {
             ...current,
             etsyFeesPence: proposal.etsyFeesPence,

@@ -52,6 +52,10 @@ export function fingerprintReconciliationInput(
       marginPence: snapshot.marginPence,
       previousOffsiteAdsFeePence: snapshot.previousOffsiteAdsFeePence,
       previousVatOnOffsiteAdsFeePence: snapshot.previousVatOnOffsiteAdsFeePence,
+      etsyPaymentGrossPence: snapshot.etsyPaymentGrossPence ?? null,
+      etsyPaymentFeesPence: snapshot.etsyPaymentFeesPence ?? null,
+      etsyPaymentNetPence: snapshot.etsyPaymentNetPence ?? null,
+      offsiteAdsAttributed: snapshot.offsiteAdsAttributed ?? null,
       status: snapshot.status,
       updatedAt: snapshot.updatedAt,
     }))

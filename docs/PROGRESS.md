@@ -297,6 +297,7 @@ npm run test:server:run   # Single run (server only)
 | 2026-08-11 | Codex subagent | Task 1: Persist Etsy fee reconciliation state without changing money | Done | codex/etsy-offsite-fee-reconciliation |
 | 2026-08-11 | Codex subagent | Task 2: Implement penny-exact fee deltas and historical order grouping | Done | codex/etsy-offsite-fee-reconciliation |
 | 2026-08-11 | Codex subagent | Task 3: Parse Etsy statements into explicit attribution evidence | Done | codex/etsy-offsite-fee-reconciliation |
+| 2026-08-11 | Codex subagent | Task 4: Preview and atomically apply statement evidence | Done | codex/etsy-offsite-fee-reconciliation |
 
 
 ---
@@ -308,9 +309,11 @@ npm run test:server:run   # Single run (server only)
 **Last Updated:** 2026-08-11
 
 **Current State:**
-- **Etsy Offsite Ads implementation plan complete** (branch: `codex/etsy-offsite-fee-reconciliation`): ten test-first tasks cover the no-money migration, penny-exact reconciliation, strict statement parsing, Payment API validation gate, typed endpoints, import integration, reporting warnings, guarded UI, and production backfill runbook. Execution has not started.
+- **Etsy Offsite Ads implementation in progress** (branch: `codex/etsy-offsite-fee-reconciliation`): Tasks 1–4 are complete; the remaining work covers the Payment API validation gate, typed endpoints, import integration, reporting warnings, guarded UI, and production backfill runbook. No production database or Etsy account was accessed.
 - **Task 1 complete** (branch: `codex/etsy-offsite-fee-reconciliation`): persisted nullable Etsy Offsite/payment reconciliation fields, shared contracts, statement-import audit model, and a status-only migration backfill; report: `.superpowers/sdd/2026-08-11-etsy-offsite-fee-reconciliation/task-1-report.md`.
 - **Task 2 complete** (branch: `codex/etsy-offsite-fee-reconciliation`): added integer-pence fee adjustments, deterministic largest-remainder order allocation, strict historical receipt grouping, and normalized fee reconciliation types; report: `.superpowers/sdd/2026-08-11-etsy-offsite-fee-reconciliation/task-2-report.md`.
+- **Task 3 complete** (branch: `codex/etsy-offsite-fee-reconciliation`): added strict statement parsing, normalized attribution evidence, stable checksums, and deterministic reconciliation fingerprints; report: `.superpowers/sdd/2026-08-11-etsy-offsite-fee-reconciliation/task-3-report.md`.
+- **Task 4 complete** (branch: `codex/etsy-offsite-fee-reconciliation`): added preview-only statement reconciliation, atomic apply with checksum idempotency/stale-preview conflicts, deterministic in-memory repository fixtures, and a Prisma repository adapter; report: `.superpowers/sdd/2026-08-11-etsy-offsite-fee-reconciliation/task-4-report.md`.
 - **Etsy Offsite Ads fee reconciliation design approved** (branch: `codex/etsy-offsite-fee-reconciliation`): the design uses Etsy Payment API aggregates only after validation against known statements, treats monthly statements as authoritative for exact attribution/fee/VAT, preserves unknown sales as pending, and requires a preview before any historical financial writes. No application, database, or Etsy account changes were made during design.
 - **Etsy visibility flag + hidden-by-default UI toggle added** (branch: `feature/etsy-visibility-toggle`): `Hamper` and `HamperVariant` now store `etsyIsEnabled` from Etsy offering `is_enabled`. Etsy import/sync preserves disabled visibility instead of re-enabling hidden variants during quantity pushes. Hampers UI hides Etsy-hidden hampers and hidden variants by default, with a persisted `Hide Etsy hidden` toggle and manual `Enabled on Etsy` controls in hamper/variant editing.
 - **Missing Etsy variants are now hidden on import**: when a local active variant still has an Etsy SKU/product id but is absent from the latest fetched Etsy inventory for that listing, import marks that local variant `etsyIsEnabled = false` rather than leaving old removed options visible.

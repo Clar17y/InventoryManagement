@@ -13,6 +13,12 @@ export interface SaleFeeSnapshot {
   marginPence: number
   previousOffsiteAdsFeePence: number | null
   previousVatOnOffsiteAdsFeePence: number | null
+  /** Payment API aggregate fields are absent on pre-Payment snapshots. */
+  etsyPaymentGrossPence?: number | null
+  etsyPaymentFeesPence?: number | null
+  etsyPaymentNetPence?: number | null
+  /** Persisted attribution flag, omitted by older in-memory snapshots. */
+  offsiteAdsAttributed?: boolean | null
   status: EtsyFeeReconciliationStatus
   updatedAt: string
 }

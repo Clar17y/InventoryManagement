@@ -292,6 +292,7 @@ npm run test:server:run   # Single run (server only)
 | 2026-05-07 | Codex | Simplify cleanup for Etsy visibility feature | Done | feature/etsy-visibility-toggle |
 | 2026-05-07 | Codex | Mark missing Etsy variants hidden on import | Done | feature/etsy-visibility-toggle |
 | 2026-08-11 | Codex | Design Etsy Offsite Ads fee reconciliation | Done | codex/etsy-offsite-fee-reconciliation |
+| 2026-08-11 | Codex | Plan Etsy Offsite Ads fee reconciliation implementation | Done | codex/etsy-offsite-fee-reconciliation |
 
 
 ---
@@ -303,6 +304,7 @@ npm run test:server:run   # Single run (server only)
 **Last Updated:** 2026-08-11
 
 **Current State:**
+- **Etsy Offsite Ads implementation plan complete** (branch: `codex/etsy-offsite-fee-reconciliation`): ten test-first tasks cover the no-money migration, penny-exact reconciliation, strict statement parsing, Payment API validation gate, typed endpoints, import integration, reporting warnings, guarded UI, and production backfill runbook. Execution has not started.
 - **Etsy Offsite Ads fee reconciliation design approved** (branch: `codex/etsy-offsite-fee-reconciliation`): the design uses Etsy Payment API aggregates only after validation against known statements, treats monthly statements as authoritative for exact attribution/fee/VAT, preserves unknown sales as pending, and requires a preview before any historical financial writes. No application, database, or Etsy account changes were made during design.
 - **Etsy visibility flag + hidden-by-default UI toggle added** (branch: `feature/etsy-visibility-toggle`): `Hamper` and `HamperVariant` now store `etsyIsEnabled` from Etsy offering `is_enabled`. Etsy import/sync preserves disabled visibility instead of re-enabling hidden variants during quantity pushes. Hampers UI hides Etsy-hidden hampers and hidden variants by default, with a persisted `Hide Etsy hidden` toggle and manual `Enabled on Etsy` controls in hamper/variant editing.
 - **Missing Etsy variants are now hidden on import**: when a local active variant still has an Etsy SKU/product id but is absent from the latest fetched Etsy inventory for that listing, import marks that local variant `etsyIsEnabled = false` rather than leaving old removed options visible.
@@ -341,6 +343,7 @@ npm run test:server:run   # Single run (server only)
 
 **Documentation Review (2026-08-11):**
 - Approved design specification self-reviewed for unresolved placeholders, accounting consistency, evidence precedence, idempotency, historical order grouping, and no-write safety; `git diff --check` passed apart from the repository's existing CRLF conversion warning.
+- Implementation plan self-reviewed against every design section for requirement coverage, placeholder-free steps, type/signature consistency, TDD order, operational safety, and protection of the existing untracked price-pull plan.
 
 **Testing (2026-01-12):**
 - `vitest.config.ts` - Workspace config with client/server projects
@@ -373,7 +376,7 @@ npm run test:server:run   # Single run (server only)
 - `prisma/migrations/20260106121712_add_stock_category_and_historical_flag/` - DB migration
 
 **Next Steps:**
-1. Review the approved Etsy Offsite Ads reconciliation specification, then create its detailed implementation plan.
+1. Execute `docs/superpowers/plans/2026-08-11-etsy-offsite-fee-reconciliation.md` using the user's chosen execution workflow.
 2. Continue contracts adoption (move route schemas into `contracts/` and consume from `server/` + `src/`)
 3. Decide whether PKCE verifier storage should be persisted (if multi-instance deployment is planned)
 4. Merge `feature/real-etsy-integration` to main when ready

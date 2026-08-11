@@ -23,6 +23,19 @@ enum ExpenseCategory {
   OTHER
 }
 
+enum EtsyFeeReconciliationStatus {
+  NOT_APPLICABLE
+  PENDING
+  PAYMENT_SYNCED
+  STATEMENT_VERIFIED
+  MANUAL_REVIEW
+}
+
+enum EtsyFeeReconciliationSource {
+  ETSY_PAYMENT_API
+  ETSY_STATEMENT
+}
+
 model ComponentCategory {
   id          String   @id @default(cuid())
   name        String   @unique
@@ -190,10 +203,40 @@ model Sale {
   vatOnProcessingFee    Decimal @db.Decimal(10, 2) @default(0)
   listingFee            Decimal @db.Decimal(10, 2) @default(0)
 
+  // Etsy fee reconciliation itemization and payment aggregates
+  offsiteAdsAttributed        Boolean?
+  offsiteAdsFee               Decimal?                    @db.Decimal(10, 2)
+  vatOnOffsiteAdsFee          Decimal?                    @db.Decimal(10, 2)
+  etsyPaymentGross            Decimal?                    @db.Decimal(10, 2)
+  etsyPaymentFees             Decimal?                    @db.Decimal(10, 2)
+  etsyPaymentNet              Decimal?                    @db.Decimal(10, 2)
+  etsyFeeReconciliationStatus EtsyFeeReconciliationStatus @default(PENDING)
+  etsyFeeReconciliationSource EtsyFeeReconciliationSource?
+  etsyFeeReconciledAt         DateTime?
+  etsyStatementImportId       String?
+  etsyStatementImport         EtsyStatementImport?        @relation(fields: [etsyStatementImportId], references: [id])
+
   lines SaleLine[]
 
   @@index([saleDate])
   @@index([saleChannel])
+  @@index([etsyFeeReconciliationStatus])
+  @@index([etsyStatementImportId])
+}
+
+model EtsyStatementImport {
+  id             String   @id @default(cuid())
+  statementMonth DateTime @db.Date
+  filename       String
+  checksum       String   @unique
+  matched        Int
+  changed        Int
+  unchanged      Int
+  unmatched      Int
+  manualReview   Int
+  createdAt      DateTime @default(now())
+
+  sales Sale[]
 }
 
 model SaleLine {

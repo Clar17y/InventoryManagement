@@ -294,6 +294,7 @@ npm run test:server:run   # Single run (server only)
 | 2026-08-11 | Codex | Design Etsy Offsite Ads fee reconciliation | Done | codex/etsy-offsite-fee-reconciliation |
 | 2026-08-11 | Codex | Plan Etsy Offsite Ads fee reconciliation implementation | Done | codex/etsy-offsite-fee-reconciliation |
 | 2026-08-11 | Codex + subagents | Implement Etsy Offsite Ads fee reconciliation | In Progress | codex/etsy-offsite-fee-reconciliation |
+| 2026-08-11 | Codex subagent | Task 1: Persist Etsy fee reconciliation state without changing money | Done | codex/etsy-offsite-fee-reconciliation |
 
 
 ---
@@ -306,6 +307,7 @@ npm run test:server:run   # Single run (server only)
 
 **Current State:**
 - **Etsy Offsite Ads implementation plan complete** (branch: `codex/etsy-offsite-fee-reconciliation`): ten test-first tasks cover the no-money migration, penny-exact reconciliation, strict statement parsing, Payment API validation gate, typed endpoints, import integration, reporting warnings, guarded UI, and production backfill runbook. Execution has not started.
+- **Task 1 complete** (branch: `codex/etsy-offsite-fee-reconciliation`): persisted nullable Etsy Offsite/payment reconciliation fields, shared contracts, statement-import audit model, and a status-only migration backfill; report: `.superpowers/sdd/2026-08-11-etsy-offsite-fee-reconciliation/task-1-report.md`.
 - **Etsy Offsite Ads fee reconciliation design approved** (branch: `codex/etsy-offsite-fee-reconciliation`): the design uses Etsy Payment API aggregates only after validation against known statements, treats monthly statements as authoritative for exact attribution/fee/VAT, preserves unknown sales as pending, and requires a preview before any historical financial writes. No application, database, or Etsy account changes were made during design.
 - **Etsy visibility flag + hidden-by-default UI toggle added** (branch: `feature/etsy-visibility-toggle`): `Hamper` and `HamperVariant` now store `etsyIsEnabled` from Etsy offering `is_enabled`. Etsy import/sync preserves disabled visibility instead of re-enabling hidden variants during quantity pushes. Hampers UI hides Etsy-hidden hampers and hidden variants by default, with a persisted `Hide Etsy hidden` toggle and manual `Enabled on Etsy` controls in hamper/variant editing.
 - **Missing Etsy variants are now hidden on import**: when a local active variant still has an Etsy SKU/product id but is absent from the latest fetched Etsy inventory for that listing, import marks that local variant `etsyIsEnabled = false` rather than leaving old removed options visible.

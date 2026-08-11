@@ -115,6 +115,9 @@ export function createFeeDbFixture(initial: { sales: SaleFeeSnapshot[] }): FeeRe
             previousOffsiteAdsFeePence: proposal.offsiteAdsFeePence,
             previousVatOnOffsiteAdsFeePence: proposal.vatOnOffsiteAdsFeePence,
             offsiteAdsAttributed: proposal.offsiteAdsAttributed,
+            etsyPaymentGrossPence: proposal.etsyPaymentGrossPence,
+            etsyPaymentFeesPence: proposal.etsyPaymentFeesPence,
+            etsyPaymentNetPence: proposal.etsyPaymentNetPence,
             status: proposal.status,
           }
           pendingWrites += 1

@@ -438,6 +438,28 @@ export async function previewStatementReconciliation(
   }
 }
 
+function duplicateStatementResult(
+  input: StatementReconciliationApplyInput,
+  parsed: ReturnType<typeof parseEtsyStatement>,
+  existing: SavedStatementImport,
+): StatementReconciliationResult {
+  return {
+    fingerprint: input.fingerprint,
+    statementChecksum: parsed.statementChecksum,
+    receiptIds: [...parsed.coveredReceiptIds],
+    summary: cloneSummary(existing.summary),
+    changes: [],
+    applied: false,
+    duplicate: true,
+    statementImportId: existing.id,
+  }
+}
+
+function isChecksumUniqueConflict(error: unknown): boolean {
+  if (typeof error !== 'object' || error === null) return false
+  return 'code' in error && error.code === 'P2002'
+}
+
 export async function applyStatementReconciliation(
   input: StatementReconciliationApplyInput,
   db: FeeReconciliationRepository,
@@ -445,16 +467,7 @@ export async function applyStatementReconciliation(
   const parsed = parseEtsyStatement({ csv: input.csv, statementMonth: input.statementMonth })
   const existing = await db.findStatementImportByChecksum(parsed.statementChecksum)
   if (existing) {
-    return {
-      fingerprint: input.fingerprint,
-      statementChecksum: parsed.statementChecksum,
-      receiptIds: [...parsed.coveredReceiptIds],
-      summary: cloneSummary(existing.summary),
-      changes: [],
-      applied: false,
-      duplicate: true,
-      statementImportId: existing.id,
-    }
+    return duplicateStatementResult(input, parsed, existing)
   }
 
   const plan = await buildStatementPlan(input, db)
@@ -464,18 +477,26 @@ export async function applyStatementReconciliation(
     )
   }
 
-  const created = await db.transaction(async (tx) => {
-    const statementImport = await tx.createStatementImport({
-      statementMonth: input.statementMonth,
-      fileName: input.fileName,
-      checksum: parsed.statementChecksum,
+  let created: { id: string }
+  try {
+    created = await db.transaction(async (tx) => {
+      const statementImport = await tx.createStatementImport({
+        statementMonth: input.statementMonth,
+        fileName: input.fileName,
+        checksum: parsed.statementChecksum,
+      })
+      for (const salePlan of plan.salePlans) {
+        await tx.updateSale(salePlan.snapshot.id, salePlan.proposal, statementImport.id)
+      }
+      await tx.finishStatementImport(statementImport.id, plan.summary)
+      return statementImport
     })
-    for (const salePlan of plan.salePlans) {
-      await tx.updateSale(salePlan.snapshot.id, salePlan.proposal, statementImport.id)
-    }
-    await tx.finishStatementImport(statementImport.id, plan.summary)
-    return statementImport
-  })
+  } catch (error) {
+    if (!isChecksumUniqueConflict(error)) throw error
+    const winner = await db.findStatementImportByChecksum(parsed.statementChecksum)
+    if (!winner) throw error
+    return duplicateStatementResult(input, parsed, winner)
+  }
 
   return {
     fingerprint: plan.fingerprint,
@@ -528,6 +549,35 @@ function paymentChange(
   }
 }
 
+interface AllocatedPaymentEvidence {
+  grossPence: number
+  feesPence: number
+  netPence: number
+}
+
+function allocatePaymentEvidence(
+  evidence: NormalizedOrderEvidence,
+  snapshots: readonly SaleFeeSnapshot[],
+): Map<string, AllocatedPaymentEvidence> {
+  if (evidence.paymentGrossPence === null
+    || evidence.paymentFeesPence === null
+    || evidence.paymentNetPence === null) {
+    return new Map()
+  }
+  const weightedSales = snapshots.map((snapshot) => ({
+    id: snapshot.id,
+    grossRevenuePence: snapshot.grossRevenuePence,
+  }))
+  const gross = allocateOrderPence(evidence.paymentGrossPence, weightedSales)
+  const fees = allocateOrderPence(evidence.paymentFeesPence, weightedSales)
+  const net = allocateOrderPence(evidence.paymentNetPence, weightedSales)
+  return new Map(snapshots.map((snapshot) => [snapshot.id, {
+    grossPence: gross.get(snapshot.id) ?? 0,
+    feesPence: fees.get(snapshot.id) ?? 0,
+    netPence: net.get(snapshot.id) ?? 0,
+  }]))
+}
+
 export async function reconcileImportedPaymentEvidence(
   evidenceInput: NormalizedOrderEvidence | readonly NormalizedOrderEvidence[],
   db: FeeReconciliationRepository,
@@ -547,6 +597,7 @@ export async function reconcileImportedPaymentEvidence(
     }
     summary.matched += 1
     const plans: SalePlan[] = []
+    const allocatedPayment = allocatePaymentEvidence(evidenceItem, grouped)
     for (const snapshot of grouped) {
       if (snapshot.status === 'STATEMENT_VERIFIED') {
         const proposal: SaleFeeProposal = {
@@ -598,11 +649,15 @@ export async function reconcileImportedPaymentEvidence(
         })
         continue
       }
+      const payment = allocatedPayment.get(snapshot.id)
+      if (!payment) {
+        throw new TypeError(`Payment evidence for ${evidenceItem.receiptId} is missing a complete aggregate`)
+      }
       const adjustment = calculateFeeAdjustment({
         etsyFees: snapshot.etsyFeesPence,
         netRevenue: snapshot.netRevenuePence,
         margin: snapshot.marginPence,
-      }, evidenceItem.paymentFeesPence)
+      }, payment.feesPence)
       const proposal: SaleFeeProposal = {
         saleId: snapshot.id,
         feeDeltaPence: adjustment.feeDeltaPence,
@@ -612,9 +667,9 @@ export async function reconcileImportedPaymentEvidence(
         offsiteAdsAttributed: null,
         offsiteAdsFeePence: snapshot.previousOffsiteAdsFeePence,
         vatOnOffsiteAdsFeePence: snapshot.previousVatOnOffsiteAdsFeePence,
-        etsyPaymentGrossPence: evidenceItem.paymentGrossPence,
-        etsyPaymentFeesPence: evidenceItem.paymentFeesPence,
-        etsyPaymentNetPence: evidenceItem.paymentNetPence,
+        etsyPaymentGrossPence: payment.grossPence,
+        etsyPaymentFeesPence: payment.feesPence,
+        etsyPaymentNetPence: payment.netPence,
         status: 'PAYMENT_SYNCED',
         source: 'ETSY_PAYMENT_API',
       }
@@ -739,6 +794,11 @@ export function createPrismaFeeReconciliationRepository(prisma: PrismaClient): F
           unchanged: true,
           unmatched: true,
           manualReview: true,
+          attributed: true,
+          notAttributed: true,
+          oldFeesPence: true,
+          newFeesPence: true,
+          marginDeltaPence: true,
         },
       })
       if (!row) return null
@@ -751,11 +811,11 @@ export function createPrismaFeeReconciliationRepository(prisma: PrismaClient): F
           unchanged: row.unchanged,
           unmatched: row.unmatched,
           manualReview: row.manualReview,
-          attributed: 0,
-          notAttributed: 0,
-          oldFeesPence: 0,
-          newFeesPence: 0,
-          marginDeltaPence: 0,
+          attributed: row.attributed,
+          notAttributed: row.notAttributed,
+          oldFeesPence: row.oldFeesPence,
+          newFeesPence: row.newFeesPence,
+          marginDeltaPence: row.marginDeltaPence,
         },
       }
     },
@@ -772,6 +832,11 @@ export function createPrismaFeeReconciliationRepository(prisma: PrismaClient): F
               unchanged: 0,
               unmatched: 0,
               manualReview: 0,
+              attributed: 0,
+              notAttributed: 0,
+              oldFeesPence: 0,
+              newFeesPence: 0,
+              marginDeltaPence: 0,
             },
             select: { id: true },
           })
@@ -806,6 +871,11 @@ export function createPrismaFeeReconciliationRepository(prisma: PrismaClient): F
               unchanged: summary.unchanged,
               unmatched: summary.unmatched,
               manualReview: summary.manualReview,
+              attributed: summary.attributed,
+              notAttributed: summary.notAttributed,
+              oldFeesPence: summary.oldFeesPence,
+              newFeesPence: summary.newFeesPence,
+              marginDeltaPence: summary.marginDeltaPence,
             },
           })
         },

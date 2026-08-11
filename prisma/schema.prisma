@@ -234,6 +234,11 @@ model EtsyStatementImport {
   unchanged      Int
   unmatched      Int
   manualReview   Int
+  attributed     Int
+  notAttributed  Int
+  oldFeesPence   Int
+  newFeesPence   Int
+  marginDeltaPence Int
   createdAt      DateTime @default(now())
 
   sales Sale[]

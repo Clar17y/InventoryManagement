@@ -64,3 +64,49 @@ PASS — 1 file, 13 tests
 ## Commit
 
 Pending commit in the Task 4 worktree.
+
+## Fix round 1
+
+### Status
+
+Complete. The three reviewer findings were addressed without accessing a database or Etsy account.
+
+### RED evidence
+
+Added three regression tests before changing production code. The focused service run failed exactly in those three cases:
+
+```text
+rtk npm run test:server:run -- server/__tests__/etsy/feeReconciliationService.test.ts
+FAIL — 16 tests, 3 failed
+- historical Payment suffix group returned newFeesPence 1200 instead of 600;
+- Prisma duplicate summary returned attributed/notAttributed and money totals as 0;
+- controlled P2002 checksum race rejected with `checksum already exists`.
+```
+
+### Changes
+
+- Allocated Payment gross, fee, and net aggregates independently with the existing deterministic largest-remainder allocator across exact receipt groups and numeric historical suffixes.
+- Added five integer summary columns to `EtsyStatementImport` (`attributed`, `notAttributed`, `oldFeesPence`, `newFeesPence`, `marginDeltaPence`) plus an unapplied migration. The Prisma adapter now writes and reads these values instead of fabricating zeroes.
+- Centralized duplicate result construction and caught only Prisma `P2002` transaction conflicts. The loser reloads the committed checksum row and returns `duplicate: true`; transaction atomicity prevents partial writes.
+
+### Verification
+
+- `rtk npm run test:server:run -- server/__tests__/etsy/feeReconciliationService.test.ts` — PASS, 16 tests.
+- `rtk npm run test:server:run -- server/__tests__/etsy/feeReconciliationService.test.ts server/__tests__/etsy/feeCalculations.test.ts server/__tests__/etsy/statementParser.test.ts server/__tests__/etsy/feeContracts.test.ts` — PASS, 4 files / 46 tests.
+- `rtk npm run test:server:run` — PASS, 16 files / 167 tests. Existing optional Etsy environment warnings and one expected simulated unique-constraint log remain.
+- `rtk npx tsc -p server/tsconfig.json --noEmit --rootDir .` — PASS, no errors.
+- `rtk npx eslint server/lib/etsy/fees/reconciliationService.ts server/__tests__/etsy/feeReconciliationService.test.ts server/__tests__/etsy/feeTestHelpers.ts` — PASS, no issues.
+- `$env:DATABASE_URL='postgresql://user:pass@localhost:5432/test'; rtk npx prisma validate` — PASS; schema valid.
+- `$env:DATABASE_URL='postgresql://user:pass@localhost:5432/test'; rtk npx prisma generate` — PASS; generated client only, no database connection or migration.
+- `rtk git diff --check` — PASS; only existing LF-to-CRLF conversion warnings.
+
+### Self-review and concerns
+
+- Payment group totals now remain exact for gross, fees, and net, and each sale receives a deterministic integer-pence share before fee-dependent net/margin adjustment.
+- Duplicate summaries are sourced from persisted audit fields; no statement CSV is stored. The migration uses zero defaults only to make the new columns additive for pre-existing audit rows; all new imports write the complete summary before commit.
+- A unique checksum conflict is converted to duplicate semantics only after a committed winner can be reloaded; otherwise the original error is preserved.
+- The schema migration was not applied to any database.
+
+### Commit
+
+Pending commit for fix round 1.

@@ -1,11 +1,14 @@
 import { describe, expect, it } from 'vitest'
 import {
   applyStatementReconciliation,
+  createPrismaFeeReconciliationRepository,
   previewStatementReconciliation,
   reconcileImportedPaymentEvidence,
   StatementReconciliationConflictError,
 } from '../../lib/etsy/fees/reconciliationService'
 import type { NormalizedOrderEvidence } from '../../lib/etsy/fees/types'
+import type { FeeReconciliationRepository } from '../../lib/etsy/fees/reconciliationService'
+import type { PrismaClient } from '@prisma/client'
 import {
   attributedCsv,
   createFeeDbFixture,
@@ -318,5 +321,153 @@ describe('Etsy statement reconciliation service', () => {
       newStatus: 'STATEMENT_VERIFIED',
     })
     expect(db.writeCount).toBe(0)
+  })
+
+  it('allocates Payment gross, fees, and net exactly across historical suffix rows', async () => {
+    const db = createFeeDbFixture({
+      sales: [
+        sale({
+          id: 's1',
+          etsyOrderId: '4137418052',
+          grossRevenuePence: 2999,
+          etsyFeesPence: 100,
+          netRevenuePence: 2899,
+          marginPence: 1899,
+        }),
+        sale({
+          id: 's2',
+          etsyOrderId: '4137418052-1',
+          grossRevenuePence: 1000,
+          etsyFeesPence: 50,
+          netRevenuePence: 950,
+          marginPence: 450,
+        }),
+      ],
+    })
+    const evidence: NormalizedOrderEvidence = {
+      receiptId: '4137418052',
+      currency: 'GBP',
+      attributed: null,
+      offsiteAdsFeePence: null,
+      vatOnOffsiteAdsFeePence: null,
+      paymentGrossPence: 3999,
+      paymentFeesPence: 600,
+      paymentNetPence: 3399,
+      source: 'ETSY_PAYMENT_API',
+    }
+
+    const result = await reconcileImportedPaymentEvidence(evidence, db)
+
+    expect(result.changes[0]).toMatchObject({
+      receiptId: '4137418052',
+      saleIds: ['s1', 's2'],
+      oldFeesPence: 150,
+      newFeesPence: 600,
+    })
+    expect(db.sales.map((snapshot) => ({
+      id: snapshot.id,
+      etsyPaymentGrossPence: snapshot.etsyPaymentGrossPence,
+      etsyPaymentFeesPence: snapshot.etsyPaymentFeesPence,
+      etsyPaymentNetPence: snapshot.etsyPaymentNetPence,
+      etsyFeesPence: snapshot.etsyFeesPence,
+      netRevenuePence: snapshot.netRevenuePence,
+    }))).toEqual([
+      {
+        id: 's1',
+        etsyPaymentGrossPence: 2999,
+        etsyPaymentFeesPence: 450,
+        etsyPaymentNetPence: 2549,
+        etsyFeesPence: 450,
+        netRevenuePence: 2549,
+      },
+      {
+        id: 's2',
+        etsyPaymentGrossPence: 1000,
+        etsyPaymentFeesPence: 150,
+        etsyPaymentNetPence: 850,
+        etsyFeesPence: 150,
+        netRevenuePence: 850,
+      },
+    ])
+    expect(db.sales.reduce((sum, snapshot) => sum + (snapshot.etsyPaymentFeesPence ?? 0), 0)).toBe(600)
+    expect(db.sales.reduce((sum, snapshot) => sum + (snapshot.etsyPaymentNetPence ?? 0), 0)).toBe(3399)
+  })
+
+  it('round-trips the complete persisted summary through the Prisma adapter', async () => {
+    const summary = {
+      matched: 2,
+      changed: 1,
+      unchanged: 1,
+      unmatched: 3,
+      manualReview: 1,
+      attributed: 1,
+      notAttributed: 1,
+      oldFeesPence: 1400,
+      newFeesPence: 1976,
+      marginDeltaPence: -576,
+    }
+    const fakePrisma = {
+      etsyStatementImport: {
+        findUnique: async () => ({
+          id: 'statement-import-1',
+          checksum: 'checksum-1',
+          ...summary,
+        }),
+      },
+    } as unknown as PrismaClient
+    const repository = createPrismaFeeReconciliationRepository(fakePrisma)
+
+    await expect(repository.findStatementImportByChecksum('checksum-1')).resolves.toEqual({
+      id: 'statement-import-1',
+      checksum: 'checksum-1',
+      summary,
+    })
+  })
+
+  it('returns duplicate semantics when concurrent apply loses a checksum race', async () => {
+    const base = createFeeDbFixture({
+      sales: [sale({ id: 's1', etsyOrderId: '4137418052' })],
+    })
+    const initialSales = await base.listEtsySaleSnapshots()
+    let preflightFinds = 0
+    let transactionCalls = 0
+    let resolveCommitted!: () => void
+    const committed = new Promise<void>((resolve) => { resolveCommitted = resolve })
+    const raceDb: FeeReconciliationRepository = {
+      async listEtsySaleSnapshots() {
+        return initialSales.map((snapshot) => ({ ...snapshot }))
+      },
+      async findStatementImportByChecksum(checksum) {
+        preflightFinds += 1
+        if (preflightFinds <= 2) return null
+        await committed
+        return base.findStatementImportByChecksum(checksum)
+      },
+      async transaction(work) {
+        transactionCalls += 1
+        if (transactionCalls === 1) {
+          const result = await base.transaction(work)
+          resolveCommitted()
+          return result
+        }
+        const error = Object.assign(new Error('checksum already exists'), {
+          code: 'P2002',
+          meta: { target: ['checksum'] },
+        })
+        throw error
+      },
+    }
+    const statement = input(attributedCsv)
+    const preview = await previewStatementReconciliation(statement, base)
+
+    const results = await Promise.all([
+      applyStatementReconciliation({ ...statement, fingerprint: preview.fingerprint }, raceDb),
+      applyStatementReconciliation({ ...statement, fingerprint: preview.fingerprint }, raceDb),
+    ])
+
+    expect(results.filter((result) => result.applied)).toHaveLength(1)
+    expect(results.filter((result) => result.duplicate)).toHaveLength(1)
+    expect(base.imports).toHaveLength(1)
+    expect(base.writeCount).toBe(3)
   })
 })

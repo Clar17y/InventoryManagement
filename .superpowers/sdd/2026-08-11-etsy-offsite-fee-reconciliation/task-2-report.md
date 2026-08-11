@@ -53,5 +53,47 @@ After the minimal implementation, the same focused test suite passed all 7 tests
 
 ## Concerns
 
-- `allocateOrderPence` assumes unique sale IDs, matching the persisted sale identifier invariant; duplicate IDs would naturally collapse in the returned `Map`.
+- `allocateOrderPence` now rejects duplicate sale IDs before allocation so the returned `Map` cannot collapse rows.
 - The parent reconciliation service must populate `SaleFeeProposal.saleId` and the Etsy payment fields when it applies evidence.
+
+## Fix round 1
+
+### Changed files
+
+- `server/lib/etsy/fees/calculations.ts`
+- `server/__tests__/etsy/feeCalculations.test.ts`
+
+### Fix summary
+
+- Converted fee deltas, profit adjustments, weight totals, products, floors, and remainder distribution to `bigint` intermediates.
+- Added a single safe-pence conversion guard that throws a clear `RangeError` for unsafe final results.
+- Added floor division for negative totals so BigInt allocation semantics remain equivalent to mathematical floor allocation.
+- Rejected duplicate sale IDs before returning a `Map` so exact-total allocation cannot silently overwrite a row.
+
+### Covering tests and checks
+
+- `it('rejects a fee delta whose exact integer result is outside safe pence')`
+- `it('rejects a net revenue result outside safe pence')`
+- `it('allocates exactly when weight products and totals exceed safe intermediates')`
+- `it('rejects duplicate sale IDs before allocating into a Map')`
+- `npm run test:server:run -- server/__tests__/etsy/feeCalculations.test.ts` — PASS (11 tests).
+- `npm run test:server:run -- server/__tests__/etsy/feeCalculations.test.ts server/__tests__/etsy/feeContracts.test.ts` — PASS (12 tests).
+- `npx tsc -p server/tsconfig.json --noEmit --rootDir .` — PASS.
+- Per-file TypeScript checks for the changed calculation and test files — PASS.
+- Focused ESLint on all changed Task 2 TypeScript files — PASS.
+- `git diff --check` — PASS (only the repository's existing LF/CRLF conversion warnings).
+
+### Commit
+
+`d6a5e6d` — `fix: make Etsy fee calculations penny exact`
+
+### Self-review
+
+- Every accepted input remains a safe integer at the public boundary; all potentially overflowing arithmetic is performed as BigInt.
+- Every public monetary output is checked against the safe integer range before conversion back to a number.
+- Duplicate IDs fail before sorting, allocation, or `Map` construction with a `RangeError`.
+- Existing allocation tie ordering, non-positive-weight fallback, receipt grouping, and proposal types are unchanged.
+
+### Concerns
+
+- BigInt arithmetic protects intermediate exactness, but callers still receive JavaScript numbers by contract; values outside the safe range are intentionally rejected rather than approximated.

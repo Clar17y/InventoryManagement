@@ -6,6 +6,7 @@ import {
   EtsyListingWithInventory,
   EtsyInventory,
   EtsyReceipt,
+  EtsyPayment,
   EtsyInventoryUpdateProduct,
   MockEtsyClientConfig,
   MockErrorMode,
@@ -17,6 +18,7 @@ export class MockEtsyClient implements IEtsyClient {
   private listings: EtsyListing[];
   private inventoryByListingId: Map<number, EtsyInventory>;
   private receipts: EtsyReceipt[];
+  private paymentsByReceiptId: Map<number, EtsyPayment[]>;
   private config: MockEtsyClientConfig;
   private connected: boolean;
 
@@ -31,6 +33,9 @@ export class MockEtsyClient implements IEtsyClient {
     this.inventoryByListingId =
       config.inventoryByListingId ?? defaults.inventoryByListingId;
     this.receipts = config.receipts ?? defaults.receipts;
+    this.paymentsByReceiptId = clonePayments(
+      config.paymentsByReceiptId ?? new Map()
+    );
   }
 
   /**
@@ -47,6 +52,9 @@ export class MockEtsyClient implements IEtsyClient {
     this.inventoryByListingId =
       newConfig.inventoryByListingId ?? defaults.inventoryByListingId;
     this.receipts = newConfig.receipts ?? defaults.receipts;
+    this.paymentsByReceiptId = clonePayments(
+      newConfig.paymentsByReceiptId ?? new Map()
+    );
   }
 
   /**
@@ -331,6 +339,13 @@ export class MockEtsyClient implements IEtsyClient {
     };
   }
 
+  async getPaymentsForReceipt(receiptId: number): Promise<EtsyPayment[]> {
+    this.checkConnected();
+    this.maybeThrowError(receiptId);
+
+    return (this.paymentsByReceiptId.get(receiptId) ?? []).map(clonePayment);
+  }
+
   async isConnected(): Promise<boolean> {
     return this.connected;
   }
@@ -366,12 +381,35 @@ export class MockEtsyClient implements IEtsyClient {
     listings: EtsyListing[];
     inventoryByListingId: Map<number, EtsyInventory>;
     receipts: EtsyReceipt[];
+    paymentsByReceiptId: Map<number, EtsyPayment[]>;
   } {
     return {
       shop: this.shop,
       listings: this.listings,
       inventoryByListingId: this.inventoryByListingId,
       receipts: this.receipts,
+      paymentsByReceiptId: this.paymentsByReceiptId,
     };
   }
+}
+
+function clonePayment(payment: EtsyPayment): EtsyPayment {
+  return {
+    ...payment,
+    amount_gross: { ...payment.amount_gross },
+    amount_fees: { ...payment.amount_fees },
+    amount_net: { ...payment.amount_net },
+    adjusted_gross: { ...payment.adjusted_gross },
+    adjusted_fees: { ...payment.adjusted_fees },
+    adjusted_net: { ...payment.adjusted_net },
+  };
+}
+
+function clonePayments(payments: Map<number, EtsyPayment[]>): Map<number, EtsyPayment[]> {
+  return new Map(
+    [...payments.entries()].map(([receiptId, values]) => [
+      receiptId,
+      values.map(clonePayment),
+    ])
+  );
 }

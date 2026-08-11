@@ -393,6 +393,62 @@ describe('Etsy statement reconciliation service', () => {
     expect(db.sales.reduce((sum, snapshot) => sum + (snapshot.etsyPaymentNetPence ?? 0), 0)).toBe(3399)
   })
 
+  it('rewrites copied full Payment aggregates on already-synced suffix rows', async () => {
+    const db = createFeeDbFixture({
+      sales: [
+        sale({
+          id: 's1',
+          etsyOrderId: '4137418052',
+          grossRevenuePence: 2999,
+          etsyFeesPence: 450,
+          netRevenuePence: 2549,
+          marginPence: 1549,
+          status: 'PAYMENT_SYNCED',
+          etsyPaymentGrossPence: 3999,
+          etsyPaymentFeesPence: 600,
+          etsyPaymentNetPence: 3399,
+        }),
+        sale({
+          id: 's2',
+          etsyOrderId: '4137418052-1',
+          grossRevenuePence: 1000,
+          etsyFeesPence: 150,
+          netRevenuePence: 850,
+          marginPence: 350,
+          status: 'PAYMENT_SYNCED',
+          etsyPaymentGrossPence: 3999,
+          etsyPaymentFeesPence: 600,
+          etsyPaymentNetPence: 3399,
+        }),
+      ],
+    })
+    const evidence: NormalizedOrderEvidence = {
+      receiptId: '4137418052',
+      currency: 'GBP',
+      attributed: null,
+      offsiteAdsFeePence: null,
+      vatOnOffsiteAdsFeePence: null,
+      paymentGrossPence: 3999,
+      paymentFeesPence: 600,
+      paymentNetPence: 3399,
+      source: 'ETSY_PAYMENT_API',
+    }
+
+    const result = await reconcileImportedPaymentEvidence(evidence, db)
+
+    expect(result).toMatchObject({ applied: true })
+    expect(db.writeCount).toBe(2)
+    expect(db.sales.map((snapshot) => ({
+      id: snapshot.id,
+      etsyPaymentGrossPence: snapshot.etsyPaymentGrossPence,
+      etsyPaymentFeesPence: snapshot.etsyPaymentFeesPence,
+      etsyPaymentNetPence: snapshot.etsyPaymentNetPence,
+    }))).toEqual([
+      { id: 's1', etsyPaymentGrossPence: 2999, etsyPaymentFeesPence: 450, etsyPaymentNetPence: 2549 },
+      { id: 's2', etsyPaymentGrossPence: 1000, etsyPaymentFeesPence: 150, etsyPaymentNetPence: 850 },
+    ])
+  })
+
   it('round-trips the complete persisted summary through the Prisma adapter', async () => {
     const summary = {
       matched: 2,

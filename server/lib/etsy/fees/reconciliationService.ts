@@ -187,6 +187,9 @@ function proposalChanged(snapshot: SaleFeeSnapshot, proposal: SaleFeeProposal): 
     || snapshot.marginPence !== proposal.marginPence
     || snapshot.previousOffsiteAdsFeePence !== proposal.offsiteAdsFeePence
     || snapshot.previousVatOnOffsiteAdsFeePence !== proposal.vatOnOffsiteAdsFeePence
+    || (snapshot.etsyPaymentGrossPence ?? null) !== proposal.etsyPaymentGrossPence
+    || (snapshot.etsyPaymentFeesPence ?? null) !== proposal.etsyPaymentFeesPence
+    || (snapshot.etsyPaymentNetPence ?? null) !== proposal.etsyPaymentNetPence
     || snapshot.status !== proposal.status
 }
 

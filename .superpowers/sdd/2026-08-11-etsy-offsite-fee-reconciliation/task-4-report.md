@@ -110,3 +110,43 @@ FAIL — 16 tests, 3 failed
 ### Commit
 
 Pending commit for fix round 1.
+
+## Fix round 2
+
+### Status
+
+Complete. Re-imported Payment evidence now corrects stale copied aggregate fields on historical suffix rows without accessing a database or Etsy account.
+
+### RED evidence
+
+The regression was added before changing production code. It sets two `PAYMENT_SYNCED` suffix rows to copied full Payment totals while their fee, net, and status values already match the proposed allocations. The focused run failed because the service reported no application and performed no writes:
+
+```text
+rtk npm run test:server:run -- server/__tests__/etsy/feeReconciliationService.test.ts
+FAIL — 17 tests, 1 failed
+- rewrites copied full Payment aggregates on already-synced suffix rows: expected applied true, received applied false
+```
+
+### Changes
+
+- Added Payment gross, fee, and net aggregate comparisons to `proposalChanged`, normalizing omitted legacy snapshot fields to `null`.
+- Added a deterministic two-row regression that asserts two writes and exact per-row Payment aggregate allocations (2999/450/2549 and 1000/150/850).
+
+### Verification
+
+- `rtk npm run test:server:run -- server/__tests__/etsy/feeReconciliationService.test.ts` — PASS, 1 file / 17 tests.
+- `rtk npm run test:server:run -- server/__tests__/etsy/feeReconciliationService.test.ts server/__tests__/etsy/feeCalculations.test.ts server/__tests__/etsy/statementParser.test.ts server/__tests__/etsy/feeContracts.test.ts` — PASS, 4 files / 47 tests.
+- `rtk npm run test:server:run` — PASS, 16 files / 168 tests. Existing optional Etsy environment warnings and one expected simulated unique-constraint log remain.
+- `rtk npx tsc -p server/tsconfig.json --noEmit --rootDir .` — PASS, no errors.
+- `rtk npx eslint server/lib/etsy/fees/reconciliationService.ts server/__tests__/etsy/feeReconciliationService.test.ts server/__tests__/etsy/feeTestHelpers.ts` — PASS, no issues.
+- `rtk git diff --check` — PASS.
+
+### Self-review and concerns
+
+- The change is limited to persisted Payment aggregate change detection; existing allocation, duplicate-checksum, and statement reconciliation behavior is unchanged.
+- Legacy snapshots that omit Payment fields are treated as having `null` aggregates, avoiding false writes when the proposal also has no aggregate.
+- No schema or migration changes were needed, and no production database or Etsy account was accessed.
+
+### Commit
+
+Committed as part of the Task 4 fix round 2 changes; the final hash is returned in the handoff.

@@ -29,6 +29,13 @@ import {
   etsyOrdersBulkImportResponseSchema,
 } from '#contracts/routes/etsySync'
 import {
+  etsyFeeReconciliationSummaryResponseSchema,
+  etsyPaymentFeeApplyResponseSchema,
+  etsyPaymentFeePreviewResponseSchema,
+  etsyStatementFeeApplyResponseSchema,
+  etsyStatementFeePreviewResponseSchema,
+} from '#contracts/routes/etsyFees'
+import {
   etsy,
   EtsyAccount,
   EtsyBulkImportResult,
@@ -610,6 +617,99 @@ describe('etsy API', () => {
       await etsy.getAccounts()
 
       expect(mockRequestWithSchema).toHaveBeenCalledWith('/etsy/accounts', etsyAccountsResponseSchema)
+    })
+  })
+
+  describe('fee reconciliation', () => {
+    const summary = {
+      counts: {
+        NOT_APPLICABLE: 0,
+        PENDING: 1,
+        PAYMENT_SYNCED: 0,
+        STATEMENT_VERIFIED: 0,
+        MANUAL_REVIEW: 0,
+      },
+    }
+    const preview = {
+      fingerprint: 'a'.repeat(64),
+      statementChecksum: null,
+      receiptIds: ['4137418052'],
+      summary: {
+        matched: 1,
+        changed: 0,
+        unchanged: 1,
+        unmatched: 0,
+        manualReview: 0,
+        attributed: 0,
+        notAttributed: 0,
+        oldFees: 4,
+        newFees: 4,
+        marginDelta: 0,
+      },
+      changes: [],
+    }
+
+    it('gets the reconciliation status summary', async () => {
+      mockRequestWithSchema.mockResolvedValue(summary)
+
+      await etsy.getFeeReconciliationSummary()
+
+      expect(mockRequestWithSchema).toHaveBeenCalledWith(
+        '/etsy/fees/reconciliation-summary',
+        etsyFeeReconciliationSummaryResponseSchema,
+      )
+    })
+
+    it('previews Payment fees with the exact request body', async () => {
+      mockRequestWithSchema.mockResolvedValue({ ...preview, canApplyCanonicalFees: false, failures: [] })
+      const data = { receiptIds: ['4137418052'], limit: 1 }
+
+      await etsy.previewPaymentFees(data)
+
+      expect(mockRequestWithSchema).toHaveBeenCalledWith(
+        '/etsy/fees/reconcile/payments/preview',
+        etsyPaymentFeePreviewResponseSchema,
+        { method: 'POST', body: JSON.stringify(data) },
+      )
+    })
+
+    it('applies Payment fees with the exact request body', async () => {
+      mockRequestWithSchema.mockResolvedValue({ ...preview, canApplyCanonicalFees: true, failures: [], applied: true, duplicate: false, statementImportId: null })
+      const data = { receiptIds: ['4137418052'], fingerprint: 'a'.repeat(64) }
+
+      await etsy.applyPaymentFees(data)
+
+      expect(mockRequestWithSchema).toHaveBeenCalledWith(
+        '/etsy/fees/reconcile/payments/apply',
+        etsyPaymentFeeApplyResponseSchema,
+        { method: 'POST', body: JSON.stringify(data) },
+      )
+    })
+
+    it('previews and applies statement fees with exact request bodies', async () => {
+      mockRequestWithSchema.mockResolvedValue(preview)
+      const statement = {
+        statementMonth: '2025-07',
+        fileName: 'statement.csv',
+        csv: 'csv',
+        allowStatementRevision: false,
+      }
+
+      await etsy.previewStatementFees(statement)
+      expect(mockRequestWithSchema).toHaveBeenCalledWith(
+        '/etsy/fees/statements/preview',
+        etsyStatementFeePreviewResponseSchema,
+        { method: 'POST', body: JSON.stringify(statement) },
+      )
+
+      mockRequestWithSchema.mockResolvedValue({ ...preview, applied: true, duplicate: false, statementImportId: 'import-1' })
+      const apply = { ...statement, fingerprint: 'a'.repeat(64) }
+      await etsy.applyStatementFees(apply)
+      expect(mockRequestWithSchema).toHaveBeenLastCalledWith(
+        '/etsy/fees/statements/apply',
+        etsyStatementFeeApplyResponseSchema,
+        { method: 'POST', body: JSON.stringify(apply) },
+      )
     })
   })
 })

@@ -22,6 +22,13 @@ import type {
   EtsySyncComparison as ContractEtsySyncComparison,
   EtsySyncPushResult as ContractEtsySyncPushResult,
 } from '#contracts/domain/etsy'
+import type {
+  EtsyFeeReconciliationApplyResult as ContractEtsyFeeReconciliationApplyResult,
+  EtsyFeeReconciliationPreview as ContractEtsyFeeReconciliationPreview,
+  EtsyFeeReconciliationStatusCounts as ContractEtsyFeeReconciliationStatusCounts,
+  EtsyPaymentFeeApplyResult as ContractEtsyPaymentFeeApplyResult,
+  EtsyPaymentFeePreview as ContractEtsyPaymentFeePreview,
+} from '#contracts/domain/etsyFees'
 import {
   etsyAccountActionResponseSchema,
   etsyAccountsResponseSchema,
@@ -54,6 +61,17 @@ import {
   type EtsyDuplicateSkusRepairBody,
   type EtsySyncPushBody,
 } from '#contracts/routes/etsySync'
+import {
+  etsyFeeReconciliationSummaryResponseSchema,
+  etsyPaymentFeeApplyResponseSchema,
+  etsyPaymentFeePreviewResponseSchema,
+  etsyStatementFeeApplyResponseSchema,
+  etsyStatementFeePreviewResponseSchema,
+  type EtsyPaymentFeeApplyBody,
+  type EtsyPaymentFeePreviewBody,
+  type EtsyStatementFeeApplyBody,
+  type EtsyStatementFeePreviewBody,
+} from '#contracts/routes/etsyFees'
 
 export type EtsyStatus = ContractEtsyStatus
 type EtsyAuthSuccessResponse = Extract<ContractEtsyAuthResponse, { authUrl: string }>
@@ -88,6 +106,16 @@ export type EtsyPricePullResult = ContractEtsyPricePullResult
 
 export type EtsyAccount = ContractEtsyAccount
 export type EtsyProvisionalUser = ContractEtsyProvisionalUser
+
+export type EtsyFeeReconciliationStatusCounts = ContractEtsyFeeReconciliationStatusCounts
+export type EtsyFeeReconciliationPreview = ContractEtsyFeeReconciliationPreview
+export type EtsyFeeReconciliationApplyResult = ContractEtsyFeeReconciliationApplyResult
+export type EtsyPaymentFeePreview = ContractEtsyPaymentFeePreview
+export type EtsyPaymentFeeApplyResult = ContractEtsyPaymentFeeApplyResult
+export type EtsyPaymentFeePreviewRequest = EtsyPaymentFeePreviewBody
+export type EtsyPaymentFeeApplyRequest = EtsyPaymentFeeApplyBody
+export type EtsyStatementFeePreviewRequest = EtsyStatementFeePreviewBody
+export type EtsyStatementFeeApplyRequest = EtsyStatementFeeApplyBody
 
 export const etsy = {
   getStatus: () => requestWithSchema('/etsy/status', etsyStatusResponseSchema),
@@ -165,6 +193,29 @@ export const etsy = {
     requestWithSchema('/etsy/sync/prices/pull', etsyPricesPullResponseSchema, {
       method: 'POST',
       body: JSON.stringify({ updates }),
+    }),
+
+  getFeeReconciliationSummary: () =>
+    requestWithSchema('/etsy/fees/reconciliation-summary', etsyFeeReconciliationSummaryResponseSchema),
+  previewPaymentFees: (data: EtsyPaymentFeePreviewBody = {}) =>
+    requestWithSchema('/etsy/fees/reconcile/payments/preview', etsyPaymentFeePreviewResponseSchema, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+  applyPaymentFees: (data: EtsyPaymentFeeApplyBody) =>
+    requestWithSchema('/etsy/fees/reconcile/payments/apply', etsyPaymentFeeApplyResponseSchema, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+  previewStatementFees: (data: EtsyStatementFeePreviewBody) =>
+    requestWithSchema('/etsy/fees/statements/preview', etsyStatementFeePreviewResponseSchema, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+  applyStatementFees: (data: EtsyStatementFeeApplyBody) =>
+    requestWithSchema('/etsy/fees/statements/apply', etsyStatementFeeApplyResponseSchema, {
+      method: 'POST',
+      body: JSON.stringify(data),
     }),
 
   getAccounts: () => requestWithSchema('/etsy/accounts', etsyAccountsResponseSchema),

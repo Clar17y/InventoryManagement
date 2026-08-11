@@ -221,6 +221,7 @@ export function createEtsyFeeRouter(overrides: EtsyFeeRouterDependencies = {}) {
       res.json(serializePreview(result))
     } catch (error) {
       if (error instanceof ZodError) return validationError(res, error)
+      if (error instanceof StatementReconciliationConflictError) return conflictError(res, error)
       if (error instanceof StatementInputValidationError) return validationError(res, error)
       console.error('Failed to preview Etsy statement fees', error)
       res.status(500).json({ error: 'Failed to preview Etsy statement fees' })

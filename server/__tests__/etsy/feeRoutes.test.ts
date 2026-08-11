@@ -200,6 +200,37 @@ describe('Etsy fee reconciliation routes', () => {
     expect((db as typeof db & { writeCount: number }).writeCount).toBe(0)
   })
 
+  it('maps an unconfirmed statement revision during preview to a typed conflict', async () => {
+    const db = createFeeDbFixture({
+      sales: [sale({
+        id: 's1',
+        etsyOrderId: '4137418052',
+        status: 'STATEMENT_VERIFIED',
+        offsiteAdsAttributed: true,
+        previousOffsiteAdsFeePence: 100,
+        previousVatOnOffsiteAdsFeePence: 20,
+      })],
+    })
+    const started = await startRouter({ ...dependencies(), db })
+    activeServer = started.server
+
+    const response = await fetch(`${started.baseUrl}/statements/preview`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        statementMonth: '2025-07',
+        fileName: 'statement.csv',
+        csv: attributedCsv,
+      }),
+    })
+    const body = await response.json() as { code?: string; error?: string }
+
+    expect(response.status).toBe(409)
+    expect(body).toMatchObject({ code: 'RECONCILIATION_CONFLICT' })
+    expect(body.error).not.toContain(attributedCsv)
+    expect(db.writeCount).toBe(0)
+  })
+
   it('returns duplicate semantics for a repeated statement checksum', async () => {
     const started = await startRouter()
     activeServer = started.server

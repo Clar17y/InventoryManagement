@@ -293,6 +293,7 @@ npm run test:server:run   # Single run (server only)
 | 2026-05-07 | Codex | Mark missing Etsy variants hidden on import | Done | feature/etsy-visibility-toggle |
 | 2026-08-11 | Codex | Design Etsy Offsite Ads fee reconciliation | Done | codex/etsy-offsite-fee-reconciliation |
 | 2026-08-11 | Codex | Plan Etsy Offsite Ads fee reconciliation implementation | Done | codex/etsy-offsite-fee-reconciliation |
+| 2026-08-11 | Codex + subagents | Implement Etsy Offsite Ads fee reconciliation | In Progress | codex/etsy-offsite-fee-reconciliation |
 
 
 ---

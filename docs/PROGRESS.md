@@ -296,6 +296,7 @@ npm run test:server:run   # Single run (server only)
 | 2026-08-11 | Codex + subagents | Implement Etsy Offsite Ads fee reconciliation | In Progress | codex/etsy-offsite-fee-reconciliation |
 | 2026-08-11 | Codex subagent | Task 1: Persist Etsy fee reconciliation state without changing money | Done | codex/etsy-offsite-fee-reconciliation |
 | 2026-08-11 | Codex subagent | Task 2: Implement penny-exact fee deltas and historical order grouping | Done | codex/etsy-offsite-fee-reconciliation |
+| 2026-08-11 | Codex subagent | Task 3: Parse Etsy statements into explicit attribution evidence | Done | codex/etsy-offsite-fee-reconciliation |
 
 
 ---

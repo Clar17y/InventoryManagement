@@ -21,6 +21,26 @@ describe('Etsy fee calculations', () => {
     })
   })
 
+  it('rejects a fee delta whose exact integer result is outside safe pence', () => {
+    const maxSafePence = Number.MAX_SAFE_INTEGER
+
+    expect(() => calculateFeeAdjustment({
+      etsyFees: maxSafePence,
+      netRevenue: 0,
+      margin: 0,
+    }, -maxSafePence)).toThrow(RangeError)
+  })
+
+  it('rejects a net revenue result outside safe pence', () => {
+    const maxSafePence = Number.MAX_SAFE_INTEGER
+
+    expect(() => calculateFeeAdjustment({
+      etsyFees: 2,
+      netRevenue: maxSafePence,
+      margin: 0,
+    }, 1)).toThrow(RangeError)
+  })
+
   it('allocates an order fee exactly across suffixed historical rows', () => {
     const result = allocateOrderPence(576, [
       { id: 'a', grossRevenuePence: 2999 },
@@ -66,6 +86,25 @@ describe('Etsy fee calculations', () => {
       ['c', 0],
     ]))
     expect(allocateOrderPence(1, [...input].reverse())).toEqual(allocateOrderPence(1, input))
+  })
+
+  it('allocates exactly when weight products and totals exceed safe intermediates', () => {
+    const maxSafePence = Number.MAX_SAFE_INTEGER
+
+    expect(allocateOrderPence(maxSafePence, [
+      { id: 'a', grossRevenuePence: maxSafePence },
+      { id: 'b', grossRevenuePence: 2 },
+    ])).toEqual(new Map([
+      ['a', 9007199254740989],
+      ['b', 2],
+    ]))
+  })
+
+  it('rejects duplicate sale IDs before allocating into a Map', () => {
+    expect(() => allocateOrderPence(5, [
+      { id: 'duplicate', grossRevenuePence: 1 },
+      { id: 'duplicate', grossRevenuePence: 1 },
+    ])).toThrow(/unique sale ID/i)
   })
 
   it('matches only an exact receipt or numeric historical suffix', () => {

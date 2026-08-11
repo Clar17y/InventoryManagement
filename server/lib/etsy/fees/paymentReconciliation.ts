@@ -7,6 +7,7 @@ import {
   type FeeReconciliationSummary,
   type FeeReconciliationTransaction,
   type PaymentReconciliationResult,
+  StatementReconciliationConflictError,
 } from './reconciliationService'
 import { groupSalesByReceipt } from './grouping'
 import {
@@ -157,8 +158,8 @@ function penceTotal(snapshots: readonly SaleFeeSnapshot[], field: 'etsyFeesPence
 }
 
 function statusWithoutPayment(snapshots: readonly SaleFeeSnapshot[], manual: boolean): 'PENDING' | 'PAYMENT_SYNCED' | 'MANUAL_REVIEW' | 'STATEMENT_VERIFIED' | null {
-  if (manual) return 'MANUAL_REVIEW'
   if (snapshots.some((snapshot) => snapshot.status === 'STATEMENT_VERIFIED')) return 'STATEMENT_VERIFIED'
+  if (manual) return 'MANUAL_REVIEW'
   if (snapshots.some((snapshot) => snapshot.status === 'MANUAL_REVIEW')) return 'MANUAL_REVIEW'
   if (snapshots.some((snapshot) => snapshot.status === 'PAYMENT_SYNCED')) return 'PAYMENT_SYNCED'
   if (snapshots.length === 0) return null
@@ -238,6 +239,7 @@ function validEvidence(result: NormalizedReceiptPayments): boolean {
 interface BatchBuild {
   preview: PaymentReconciliationPreview
   evidenceToApply: NormalizedOrderEvidence[]
+  writeFingerprint: string
 }
 
 async function buildBatch(
@@ -288,6 +290,7 @@ async function buildBatch(
     }
   }
 
+  const evidenceToApply = evidence.filter((item) => item.paymentFeesPence !== null && item.paymentGrossPence !== null && item.paymentNetPence !== null)
   return {
     preview: {
       fingerprint: fingerprintReconciliationInput(evidence, snapshots),
@@ -298,7 +301,8 @@ async function buildBatch(
       canApplyCanonicalFees: process.env.ETSY_PAYMENT_FEES_VALIDATED === 'true',
       failures,
     },
-    evidenceToApply: evidence.filter((item) => item.paymentFeesPence !== null && item.paymentGrossPence !== null && item.paymentNetPence !== null),
+    evidenceToApply,
+    writeFingerprint: fingerprintReconciliationInput(evidenceToApply, snapshots),
   }
 }
 
@@ -322,7 +326,19 @@ export async function applyPaymentReconciliation(
     return { ...built.preview, applied: false }
   }
 
-  const appliedResult = await reconcileImportedPaymentEvidence(built.evidenceToApply, deps.db)
+  let appliedResult: PaymentReconciliationResult
+  try {
+    appliedResult = await reconcileImportedPaymentEvidence(
+      built.evidenceToApply,
+      deps.db,
+      built.writeFingerprint,
+    )
+  } catch (error) {
+    if (error instanceof StatementReconciliationConflictError) {
+      throw new PaymentReconciliationConflictError(error.message)
+    }
+    throw error
+  }
   return {
     ...built.preview,
     applied: appliedResult.applied,

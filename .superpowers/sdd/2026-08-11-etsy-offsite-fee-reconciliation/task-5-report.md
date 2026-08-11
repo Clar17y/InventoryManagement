@@ -33,3 +33,26 @@ Before production implementation, the focused command failed as expected: the re
 - Missing/API-failed records stay `PENDING`; non-GBP/mixed-currency or non-zero-adjustment records become `MANUAL_REVIEW`; statement-verified rows are not downgraded.
 - Preview uses a no-op transaction boundary and apply refetches evidence plus the current sale snapshot fingerprint before the real reconciliation transaction.
 - The lower-level `reconcileImportedPaymentEvidence` service remains intentionally reusable for the already-tested domain behavior; callers handling external Payment responses must use this Task 5 normalizer/orchestrator so the explicit gate is enforced.
+
+## Fix round 1
+
+### Findings addressed
+
+- Enforced the exact `ETSY_PAYMENT_FEES_VALIDATED === "true"` check inside `reconcileImportedPaymentEvidence`, so direct callers cannot write canonical fees, net revenue, margin, or status while the gate is missing/false.
+- Added an expected Payment write fingerprint at the service boundary; apply maps a stale sale-state conflict to the typed `PaymentReconciliationConflictError` before any transaction writes.
+- Preserved `STATEMENT_VERIFIED` as the highest status in unsafe Payment previews, including adjusted, currency-invalid, missing, and API-failure results.
+- Required the top-level and every nested Payment money object's `currency_code` to be present and exactly `GBP`.
+
+### TDD RED evidence
+
+Before the fix, `rtk npm run test:server:run -- server/__tests__/etsy/paymentReconciliation.test.ts server/__tests__/etsy/feeReconciliationService.test.ts` failed three new regressions: missing nested currency was reported `PENDING`, a direct service call applied with the gate missing, and an adjusted Payment preview proposed `MANUAL_REVIEW` over a statement-verified row. The deterministic mutation test was added alongside these cases and then turned green after the boundary check was implemented.
+
+### Fix verification
+
+- `rtk npm run test:server:run -- server/__tests__/etsy/paymentReconciliation.test.ts server/__tests__/etsy/feeReconciliationService.test.ts` — PASS, 31/31.
+- `rtk npm run test:server:run` — PASS, 17 files / 185 tests.
+- `rtk tsc -p server/tsconfig.json --noEmit --rootDir .` — PASS.
+- ESLint on all new/fix-round files — PASS. The full touched-file command still reports only the two pre-existing `mockClient.ts` unused-parameter errors (`_currentInventory`, `_options`).
+- `rtk git diff --check` — PASS.
+
+No real Etsy account or database was accessed. The existing Task 4 direct Payment-write tests now set the explicit validation gate to `true`; their default/missing-gate behavior is covered by the new direct-call regression.

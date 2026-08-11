@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import {
   applyStatementReconciliation,
   createPrismaFeeReconciliationRepository,
@@ -33,6 +33,14 @@ function input(csv: string, allowStatementRevision = false) {
 }
 
 describe('Etsy statement reconciliation service', () => {
+  beforeEach(() => {
+    delete process.env.ETSY_PAYMENT_FEES_VALIDATED
+  })
+
+  afterEach(() => {
+    delete process.env.ETSY_PAYMENT_FEES_VALIDATED
+  })
+
   it('previews a statement without writing and shows exact profit deltas', async () => {
     const db = createFeeDbFixture({
       sales: [sale({
@@ -324,6 +332,7 @@ describe('Etsy statement reconciliation service', () => {
   })
 
   it('allocates Payment gross, fees, and net exactly across historical suffix rows', async () => {
+    process.env.ETSY_PAYMENT_FEES_VALIDATED = 'true'
     const db = createFeeDbFixture({
       sales: [
         sale({
@@ -394,6 +403,7 @@ describe('Etsy statement reconciliation service', () => {
   })
 
   it('rewrites copied full Payment aggregates on already-synced suffix rows', async () => {
+    process.env.ETSY_PAYMENT_FEES_VALIDATED = 'true'
     const db = createFeeDbFixture({
       sales: [
         sale({

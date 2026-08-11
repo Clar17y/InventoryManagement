@@ -584,6 +584,7 @@ function allocatePaymentEvidence(
 export async function reconcileImportedPaymentEvidence(
   evidenceInput: NormalizedOrderEvidence | readonly NormalizedOrderEvidence[],
   db: FeeReconciliationRepository,
+  expectedFingerprint?: string,
 ): Promise<PaymentReconciliationResult> {
   const evidence = Array.isArray(evidenceInput) ? evidenceInput : [evidenceInput]
   const snapshots = await db.listEtsySaleSnapshots()
@@ -696,7 +697,22 @@ export async function reconcileImportedPaymentEvidence(
   }
 
   const fingerprint = fingerprintReconciliationInput(evidence, snapshots)
+  if (expectedFingerprint !== undefined && fingerprint !== expectedFingerprint) {
+    throw new StatementReconciliationConflictError(
+      'Payment preview is stale; reload sale state and preview again before applying',
+    )
+  }
   if (salePlans.length === 0) {
+    return {
+      fingerprint,
+      statementChecksum: null,
+      receiptIds: evidence.map((item) => item.receiptId).sort(),
+      summary,
+      changes,
+      applied: false,
+    }
+  }
+  if (process.env.ETSY_PAYMENT_FEES_VALIDATED !== 'true') {
     return {
       fingerprint,
       statementChecksum: null,

@@ -68,15 +68,25 @@ function sumPence(values: readonly number[], label: string): number {
 }
 
 function paymentCurrencies(payment: EtsyPayment): string[] {
-  return [
-    payment.currency,
-    payment.amount_gross?.currency_code,
-    payment.amount_fees?.currency_code,
-    payment.amount_net?.currency_code,
-    payment.adjusted_gross?.currency_code,
-    payment.adjusted_fees?.currency_code,
-    payment.adjusted_net?.currency_code,
-  ].filter((currency): currency is string => typeof currency === 'string')
+  if (typeof payment.currency !== 'string' || payment.currency.length === 0) {
+    throw new TypeError('Payment currency is missing')
+  }
+  const currencies: string[] = [payment.currency]
+  const moneyValues = [
+    ['gross', payment.amount_gross],
+    ['fees', payment.amount_fees],
+    ['net', payment.amount_net],
+    ['adjusted gross', payment.adjusted_gross],
+    ['adjusted fees', payment.adjusted_fees],
+    ['adjusted net', payment.adjusted_net],
+  ] as const
+  for (const [label, value] of moneyValues) {
+    if (typeof value !== 'object' || value === null || typeof value.currency_code !== 'string' || value.currency_code.length === 0) {
+      throw new TypeError(`Payment ${label} currency is missing`)
+    }
+    currencies.push(value.currency_code)
+  }
+  return currencies
 }
 
 function hasNonZeroAdjustment(payment: EtsyPayment): boolean {

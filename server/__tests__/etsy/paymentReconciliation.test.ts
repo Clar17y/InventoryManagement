@@ -9,6 +9,8 @@ import {
   PaymentReconciliationConflictError,
   type PaymentReconciliationDependencies,
 } from '../../lib/etsy/fees/paymentReconciliation';
+import { reconcileImportedPaymentEvidence } from '../../lib/etsy/fees/reconciliationService';
+import type { NormalizedOrderEvidence } from '../../lib/etsy/fees/types';
 import { createFeeDbFixture, sale } from './feeTestHelpers';
 
 const paymentFixture: EtsyPayment = {
@@ -126,9 +128,117 @@ describe('Etsy Payment normalizer', () => {
       ])
     ).toMatchObject({ status: 'MANUAL_REVIEW', canApplyCanonicalFees: false });
   });
+
+  it('rejects missing and mismatched nested money currency codes', () => {
+    expect(normalizeReceiptPayments('4137418052', [
+      payment({
+        amount_gross: {
+          amount: 3999,
+          divisor: 100,
+          currency_code: undefined as unknown as string,
+        },
+      }),
+    ])).toMatchObject({ status: 'MANUAL_REVIEW' });
+
+    expect(normalizeReceiptPayments('4137418052', [
+      payment({
+        amount_fees: { amount: 976, divisor: 100, currency_code: 'USD' },
+      }),
+    ])).toMatchObject({ status: 'MANUAL_REVIEW' });
+  });
 });
 
 describe('Etsy Payment reconciliation orchestration', () => {
+  const paymentEvidence: NormalizedOrderEvidence = {
+    receiptId: '4137418052',
+    currency: 'GBP',
+    attributed: null,
+    offsiteAdsFeePence: null,
+    vatOnOffsiteAdsFeePence: null,
+    paymentGrossPence: 3999,
+    paymentFeesPence: 976,
+    paymentNetPence: 3023,
+    source: 'ETSY_PAYMENT_API',
+  };
+
+  it('enforces the validation gate at the direct canonical write boundary', async () => {
+    for (const gate of [undefined, 'false'] as const) {
+      if (gate === undefined) delete process.env.ETSY_PAYMENT_FEES_VALIDATED;
+      else process.env.ETSY_PAYMENT_FEES_VALIDATED = gate;
+      const db = createFeeDbFixture({
+        sales: [sale({ id: 's1', etsyOrderId: '4137418052' })],
+      });
+
+      const result = await reconcileImportedPaymentEvidence(paymentEvidence, db);
+
+      expect(result.applied).toBe(false);
+      expect(db.writeCount).toBe(0);
+      expect(db.sales[0]).toMatchObject({
+        etsyFeesPence: 400,
+        netRevenuePence: 3599,
+        status: 'PENDING',
+      });
+    }
+
+    process.env.ETSY_PAYMENT_FEES_VALIDATED = 'true';
+    const enabledDb = createFeeDbFixture({
+      sales: [sale({ id: 's1', etsyOrderId: '4137418052' })],
+    });
+    const enabled = await reconcileImportedPaymentEvidence(paymentEvidence, enabledDb);
+    expect(enabled.applied).toBe(true);
+    expect(enabledDb.sales[0]).toMatchObject({
+      etsyFeesPence: 976,
+      netRevenuePence: 3023,
+      status: 'PAYMENT_SYNCED',
+    });
+  });
+
+  it('never downgrades statement-verified sales for unsafe Payment results', async () => {
+    const scenarios: Array<{
+      name: string;
+      client: IEtsyClient;
+    }> = [
+      {
+        name: 'adjustment',
+        client: clientFor(new Map([[4137418052, [payment({ adjusted_fees: { amount: 1, divisor: 100, currency_code: 'GBP' } })]]])),
+      },
+      {
+        name: 'currency',
+        client: clientFor(new Map([[4137418052, [payment({ amount_fees: { amount: 976, divisor: 100, currency_code: 'USD' } })]]])),
+      },
+      {
+        name: 'missing',
+        client: clientFor(new Map()),
+      },
+      {
+        name: 'api failure',
+        client: {
+          getPaymentsForReceipt: async () => { throw new Error('temporary failure'); },
+        } as unknown as IEtsyClient,
+      },
+    ];
+
+    for (const scenario of scenarios) {
+      const db = createFeeDbFixture({
+        sales: [sale({
+          id: 's1',
+          etsyOrderId: '4137418052',
+          status: 'STATEMENT_VERIFIED',
+          previousOffsiteAdsFeePence: 480,
+          previousVatOnOffsiteAdsFeePence: 96,
+        })],
+      });
+      const result = await previewPaymentReconciliation(
+        { receiptIds: ['4137418052'] },
+        { client: scenario.client, db },
+      );
+
+      expect(result.changes[0], scenario.name).toMatchObject({
+        newStatus: 'STATEMENT_VERIFIED',
+      });
+      expect(db.writeCount, scenario.name).toBe(0);
+    }
+  });
   it('previews a valid gated payment without writing, then applies the same evidence', async () => {
     process.env.ETSY_PAYMENT_FEES_VALIDATED = 'true';
     const db = createFeeDbFixture({
@@ -226,5 +336,42 @@ describe('Etsy Payment reconciliation orchestration', () => {
       fingerprint: preview.fingerprint,
     }, deps)).rejects.toBeInstanceOf(PaymentReconciliationConflictError);
     expect(db.writeCount).toBe(0);
+  });
+
+  it('rejects a sale-state mutation at the canonical write boundary', async () => {
+    process.env.ETSY_PAYMENT_FEES_VALIDATED = 'true';
+    const baseDb = createFeeDbFixture({
+      sales: [sale({ id: 's1', etsyOrderId: '4137418052' })],
+    });
+    let listCalls = 0;
+    const db = {
+      ...baseDb,
+      async listEtsySaleSnapshots() {
+        listCalls += 1;
+        if (listCalls === 3) {
+          baseDb.sales = [sale({
+            id: 's1',
+            etsyOrderId: '4137418052',
+            etsyFeesPence: 401,
+          })];
+        }
+        return baseDb.listEtsySaleSnapshots();
+      },
+      async transaction(work: Parameters<typeof baseDb.transaction>[0]) {
+        return baseDb.transaction(work);
+      },
+    };
+    const deps = dependencies(
+      new Map([[4137418052, [paymentFixture]]]),
+      db as unknown as ReturnType<typeof createFeeDbFixture>,
+    );
+    const preview = await previewPaymentReconciliation({ receiptIds: ['4137418052'] }, deps);
+
+    await expect(applyPaymentReconciliation({
+      receiptIds: ['4137418052'],
+      fingerprint: preview.fingerprint,
+    }, deps)).rejects.toBeInstanceOf(PaymentReconciliationConflictError);
+    expect(baseDb.writeCount).toBe(0);
+    expect(baseDb.sales[0]?.etsyFeesPence).toBe(401);
   });
 });

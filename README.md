@@ -62,6 +62,7 @@ Optional:
 
 - `ETSY_MODE=mock` to run without Etsy credentials
 - `ETSY_API_KEY` and `ETSY_REDIRECT_URI` for real Etsy integration
+- `ETSY_PAYMENT_FEES_VALIDATED=false` (keep disabled until the two-receipt Payment/statement validation in the [Etsy fee reconciliation runbook](docs/ETSY_OFFSITE_FEE_RUNBOOK.md) passes)
 
 ## Auth
 
@@ -99,7 +100,13 @@ Then open `http://localhost:3001` (or set `PORT` to choose a different port).
 ## Documentation
 
 - `docs/IMPLEMENTATION_PLAN.md` (design and technical spec)
+- [`docs/ETSY_OFFSITE_FEE_RUNBOOK.md`](docs/ETSY_OFFSITE_FEE_RUNBOOK.md) (safe preview, approval, and historical statement workflow)
+- [`docs/superpowers/specs/2026-08-11-etsy-offsite-fee-reconciliation-design.md`](docs/superpowers/specs/2026-08-11-etsy-offsite-fee-reconciliation-design.md) (Etsy Offsite Ads reconciliation design)
 - `docs/PROGRESS.md` (development notes / handoff)
+
+### Etsy Offsite Ads fee reconciliation
+
+The guarded workflow is in **Sales → Etsy order sync → Etsy fee reconciliation**. Payment and statement previews are read-only; apply buttons require the current preview fingerprint. Keep `ETSY_PAYMENT_FEES_VALIDATED=false` until one attributed and one non-attributed receipt agree with their Etsy statement gross, fees, net, Offsite fee, VAT, signs, currency, and fee categories. The runbook is the required procedure before any production apply.
 
 ## License
 

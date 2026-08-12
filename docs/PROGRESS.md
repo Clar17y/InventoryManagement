@@ -380,7 +380,7 @@ npm run test:server:run   # Single run (server only)
 - Implementation plan self-reviewed against every design section for requirement coverage, placeholder-free steps, type/signature consistency, TDD order, operational safety, and protection of the existing untracked price-pull plan.
 
 **Task 10 Verification (2026-08-12):**
-- `DATABASE_URL`/`DIRECT_URL` used dummy localhost URLs; Supabase variables used example values. No database connection, migration apply, Etsy request, backup, or production/data backfill was performed.
+- The application test/type/build commands used dummy localhost database URLs and example Supabase values; those commands made no database connection. The separate isolated Docker exercise connected only to its temporary local PostgreSQL database and applied migrations there. No production database connection, Etsy request, backup, production migration, or data backfill was performed.
 - `npm run db:generate` — PASS; `npx prisma validate` — PASS.
 - Migration/data-preservation verification — **PASS**: exact-name precheck passed; a local PostgreSQL 16 container used `tmpfs` only and no host ports; 17 earlier migrations and both reconciliation migrations applied; seeded before/after totals remained 3 sales / £4.25 fees / £79.24 net revenue / £47.24 margin; statuses were Etsy=`PENDING`, direct/fair=`NOT_APPLICABLE`; audit summary columns existed; SQL assertions passed; the exact container was removed and verified absent.
 - Focused server feature tests — PASS, 9 files / 123 tests. Full server suite — PASS, 19 files / 206 tests. Full client suite — PASS, 37 files / 544 tests.

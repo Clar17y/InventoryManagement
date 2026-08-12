@@ -8,7 +8,7 @@ Complete. Documentation and the isolated disposable migration-preservation verif
 
 - Added [`docs/ETSY_OFFSITE_FEE_RUNBOOK.md`](../../../docs/ETSY_OFFSITE_FEE_RUNBOOK.md), an operator procedure that must be followed before any production apply.
 - Updated [`README.md`](../../../README.md) with the disabled-by-default `ETSY_PAYMENT_FEES_VALIDATED=false` setting, UI location, and links to the runbook/design.
-- Updated [`docs/PROGRESS.md`](../../../docs/PROGRESS.md): the documentation portion is recorded, while the isolated disposable migration-preservation check is marked In Progress; no production data was changed, and verification evidence/known pre-existing failures are recorded.
+- Updated [`docs/PROGRESS.md`](../../../docs/PROGRESS.md): the isolated disposable migration-preservation check is recorded as complete; no production data was changed, and verification evidence/known pre-existing failures are recorded.
 
 The runbook explicitly covers:
 

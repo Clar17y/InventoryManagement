@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 // Mock dependencies before importing the module
 vi.mock('../../lib/prisma', () => ({
@@ -60,6 +60,72 @@ const mockEtsyClient = etsyClient as unknown as {
     getPaymentsForReceipt: ReturnType<typeof vi.fn>;
 };
 
+function deferred<T>() {
+    let resolve!: (value: T) => void;
+    let reject!: (reason?: unknown) => void;
+    const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+        resolve = resolvePromise;
+        reject = rejectPromise;
+    });
+    return { promise, resolve, reject };
+}
+
+function configureMinimalOrderImport(receiptId: number) {
+    mockPrisma.sale.findFirst.mockResolvedValue(null);
+    mockPrisma.etsyFeeConfig.findFirst.mockResolvedValue(null);
+    mockPrisma.packagingOverhead.findMany.mockResolvedValue([]);
+    mockPrisma.hamper.findFirst.mockResolvedValue({
+        id: 'hamper-deferred',
+        name: 'Deferred Hamper',
+        etsyListingId: '100',
+        hasVariants: false,
+        requirements: [],
+        variants: [],
+    });
+    mockEtsyClient.getReceipts.mockResolvedValue({
+        receipts: [{
+            receipt_id: receiptId,
+            name: 'Deferred Buyer',
+            is_paid: true,
+            is_shipped: false,
+            create_timestamp: Math.floor(Date.now() / 1000),
+            grandtotal: { amount: 3000, divisor: 100 },
+            subtotal: { amount: 3000, divisor: 100 },
+            total_shipping_cost: { amount: 0, divisor: 100 },
+            transactions: [{
+                transaction_id: receiptId,
+                listing_id: 100,
+                title: 'Deferred Hamper',
+                quantity: 1,
+                price: { amount: 3000, divisor: 100 },
+                sku: null,
+                product_id: null,
+                variations: [],
+            }],
+        }],
+    });
+    mockPrisma.$transaction.mockImplementation(async (callback: (tx: unknown) => Promise<unknown>) => callback({
+        sale: {
+            create: vi.fn().mockResolvedValue({
+                id: `sale-deferred-${receiptId}`,
+                etsyOrderId: String(receiptId),
+                grossRevenue: 30,
+                totalCost: 0,
+                margin: 30,
+                netRevenue: 30,
+                etsyFees: 0,
+                packagingOverhead: 0,
+            }),
+        },
+        inventoryLot: { update: vi.fn().mockResolvedValue({}) },
+        $executeRaw: vi.fn().mockResolvedValue(0),
+    }));
+}
+
+function nextEventLoopTurn() {
+    return new Promise<void>((resolve) => setTimeout(resolve, 0));
+}
+
 describe('Order Import - Stock Decrement', () => {
     beforeEach(() => {
         vi.clearAllMocks();
@@ -67,6 +133,10 @@ describe('Order Import - Stock Decrement', () => {
         mockEtsyClient.getPaymentsForReceipt.mockResolvedValue([]);
         mockPrisma.sale.findMany.mockResolvedValue([]);
         mockPrisma.sale.update.mockResolvedValue({});
+    });
+
+    afterEach(async () => {
+        await nextEventLoopTurn();
     });
 
     it.each([
@@ -82,6 +152,74 @@ describe('Order Import - Stock Decrement', () => {
         ['fair', 'abc', 'NOT_APPLICABLE'],
     ] as const)('initializes %s sales with %s reconciliation status', (channel, etsyOrderId, expected) => {
         expect(getEtsyFeeReconciliationStatus(channel, etsyOrderId)).toBe(expected);
+    });
+
+    it('returns a single import before a slow Payment lookup resolves', async () => {
+        const paymentLookup = deferred<unknown[]>();
+        const receiptId = 91001;
+        configureMinimalOrderImport(receiptId);
+        mockEtsyClient.getPaymentsForReceipt.mockReturnValue(paymentLookup.promise);
+
+        let resolved = false;
+        const importPromise = importOrder(receiptId, 0).then((result) => {
+            resolved = true;
+            return result;
+        });
+
+        try {
+            await nextEventLoopTurn();
+            expect(resolved).toBe(true);
+        } finally {
+            paymentLookup.resolve([]);
+            await importPromise;
+            await nextEventLoopTurn();
+        }
+    });
+
+    it('returns a bulk import before a slow Payment lookup resolves', async () => {
+        const paymentLookup = deferred<unknown[]>();
+        const receiptIds = [91002, 91003];
+        configureMinimalOrderImport(receiptIds[0]);
+        mockEtsyClient.getReceipts.mockResolvedValue({
+            receipts: receiptIds.map((receiptId) => ({
+                receipt_id: receiptId,
+                name: 'Deferred Buyer',
+                is_paid: true,
+                is_shipped: false,
+                create_timestamp: Math.floor(Date.now() / 1000),
+                grandtotal: { amount: 3000, divisor: 100 },
+                subtotal: { amount: 3000, divisor: 100 },
+                total_shipping_cost: { amount: 0, divisor: 100 },
+                transactions: [{
+                    transaction_id: receiptId,
+                    listing_id: 100,
+                    title: 'Deferred Hamper',
+                    quantity: 1,
+                    price: { amount: 3000, divisor: 100 },
+                    sku: null,
+                    product_id: null,
+                    variations: [],
+                }],
+            })),
+        });
+        mockEtsyClient.getPaymentsForReceipt.mockReturnValue(paymentLookup.promise);
+
+        let resolved = false;
+        const importPromise = importOrdersBulk(
+            receiptIds.map((receiptId) => ({ receiptId, postageCost: 0 })),
+        ).then((result) => {
+            resolved = true;
+            return result;
+        });
+
+        try {
+            await nextEventLoopTurn();
+            expect(resolved).toBe(true);
+        } finally {
+            paymentLookup.resolve([]);
+            await importPromise;
+            await nextEventLoopTurn();
+        }
     });
 
     it('decrements inventoryLot.remaining when importing an order', async () => {
@@ -312,9 +450,10 @@ describe('Order Import - Stock Decrement', () => {
         mockPrisma.packagingOverhead.findMany.mockResolvedValue([]);
 
         const result = await importOrder(receiptId, 0, true);
+        await nextEventLoopTurn();
 
         expect(result.success).toBe(true);
-        expect(result.feeReconciliation.status).toBe('STATEMENT_VERIFIED');
+        expect(result.feeReconciliation.status).toBe('PENDING');
         expect(persistedStatus).toBe('STATEMENT_VERIFIED');
     });
 
@@ -573,8 +712,9 @@ describe('Order Import - Stock Decrement', () => {
 
         try {
             const result = await importOrder(12349, 3.5);
+            await nextEventLoopTurn();
 
-            expect(result.feeReconciliation.status).toBe('PAYMENT_SYNCED');
+            expect(result.feeReconciliation.status).toBe('PENDING');
             expect(updateMany).toHaveBeenCalledWith(expect.objectContaining({
                 where: { id: 'sale-payment', updatedAt },
                 data: expect.objectContaining({
@@ -639,12 +779,13 @@ describe('Order Import - Stock Decrement', () => {
             [{ receiptId: 10001, postageCost: 3.5 }, { receiptId: 10002, postageCost: 3.5 }],
             true,
         );
+        await nextEventLoopTurn();
 
         expect(result.imported).toBe(2);
         expect(result.failed).toBe(0);
         expect(result.results).toEqual([
-            expect.objectContaining({ receiptId: 10001, success: true, feeReconciliation: { status: 'PENDING', message: 'Etsy unavailable' } }),
-            expect.objectContaining({ receiptId: 10002, success: true, feeReconciliation: { status: 'PENDING', message: 'No Payment record returned' } }),
+            expect.objectContaining({ receiptId: 10001, success: true, feeReconciliation: { status: 'PENDING' } }),
+            expect.objectContaining({ receiptId: 10002, success: true, feeReconciliation: { status: 'PENDING' } }),
         ]);
         expect(mockEtsyClient.getPaymentsForReceipt).toHaveBeenCalledTimes(2);
     });

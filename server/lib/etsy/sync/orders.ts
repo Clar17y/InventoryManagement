@@ -90,17 +90,44 @@ async function reconcileImportedSaleFees(
         }
       } catch (error) {
         const updateMessage = error instanceof Error ? error.message : String(error);
+        logWorkflow('IMPORT:RECONCILIATION', 'Could not persist manual Payment review status', {
+          saleId,
+          receiptId,
+          error: updateMessage,
+        });
         message = message ? `${message}; ${updateMessage}` : updateMessage;
       }
     }
 
     return message ? { status, message } : { status };
   } catch (error) {
+    logWorkflow('IMPORT:RECONCILIATION', 'Payment reconciliation failed', {
+      saleId,
+      receiptId,
+      error: error instanceof Error ? { message: error.message, stack: error.stack } : error,
+    });
     return {
       status: 'PENDING',
       message: error instanceof Error ? error.message : 'Payment reconciliation unavailable',
     };
   }
+}
+
+/**
+ * Start best-effort Payment reconciliation after the committed import has
+ * returned its response. The scheduler owns the final rejection boundary so
+ * an unexpected reconciliation error cannot become an unhandled rejection.
+ */
+export function scheduleImportedSaleFeeReconciliation(saleId: string, receiptId: number): void {
+  setTimeout(() => {
+    void reconcileImportedSaleFees(saleId, receiptId).catch((error: unknown) => {
+      logWorkflow('IMPORT:RECONCILIATION', 'Unexpected scheduled Payment reconciliation failure', {
+        saleId,
+        receiptId,
+        error: error instanceof Error ? { message: error.message, stack: error.stack } : error,
+      });
+    });
+  }, 0);
 }
 
 async function canUseSkuFallbackForTransaction(
@@ -1037,7 +1064,8 @@ export async function importOrder(
       })),
     });
 
-    const feeReconciliation = await reconcileImportedSaleFees(saleResult.id, receiptId);
+    scheduleImportedSaleFeeReconciliation(saleResult.id, receiptId);
+    const feeReconciliation: EtsyOrderFeeReconciliation = { status: 'PENDING' };
 
     endLogSession(sessionId, {
       success: true,
@@ -1165,7 +1193,8 @@ export async function importOrdersBulk(
           feeConfig,
           packagingOverhead
         );
-        const feeReconciliation = await reconcileImportedSaleFees(saleResult.id, receiptId);
+        scheduleImportedSaleFeeReconciliation(saleResult.id, receiptId);
+        const feeReconciliation: EtsyOrderFeeReconciliation = { status: 'PENDING' };
         results.push({
           receiptId,
           success: true,

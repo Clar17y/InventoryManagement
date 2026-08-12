@@ -108,6 +108,24 @@ const statementPreview = {
   ],
 }
 
+const statementPreviewWithoutRevision = {
+  ...statementPreview,
+  changes: statementPreview.changes.map((change) => ({
+    ...change,
+    oldStatus: null,
+  })),
+} as unknown as typeof statementPreview
+
+function deferred<T>() {
+  let resolve!: (value: T) => void
+  let reject!: (reason?: unknown) => void
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise
+    reject = rejectPromise
+  })
+  return { promise, resolve, reject }
+}
+
 describe('EtsyFeeReconciliationPanel', () => {
   beforeEach(() => {
     vi.clearAllMocks()
@@ -144,6 +162,52 @@ describe('EtsyFeeReconciliationPanel', () => {
     await waitFor(() => {
       expect(screen.getByText('Preview is stale')).toBeInTheDocument()
       expect(screen.getByRole('button', { name: 'Apply payment fee changes' })).toBeDisabled()
+    })
+  })
+
+  it('keeps Payment and statement actions loading independently', async () => {
+    const user = userEvent.setup()
+    const paymentRequest = deferred<typeof paymentPreview>()
+    const statementRequest = deferred<typeof statementPreview>()
+    mockPreviewPayment.mockReturnValueOnce(paymentRequest.promise)
+    mockPreviewStatement.mockReturnValueOnce(statementRequest.promise)
+    render(<EtsyFeeReconciliationPanel onImportComplete={vi.fn()} />)
+
+    const monthInput = screen.getByLabelText('Statement month')
+    const fileInput = screen.getByLabelText('Statement CSV file')
+    await user.type(monthInput, '2025-07')
+    await user.upload(fileInput, new File(['sanitized,csv'], 'statement.csv', { type: 'text/csv' }))
+
+    await user.click(screen.getByRole('button', { name: 'Check payment fees' }))
+    await user.click(screen.getByRole('button', { name: 'Preview statement' }))
+
+    expect(screen.getByRole('button', { name: 'Checking…' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Previewing…' })).toBeDisabled()
+
+    statementRequest.resolve(statementPreviewWithoutRevision)
+    await waitFor(() => expect(screen.getByText('Matched 2')).toBeInTheDocument())
+    expect(screen.getByRole('button', { name: 'Checking…' })).toBeDisabled()
+
+    paymentRequest.resolve(paymentPreview)
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Apply payment fee changes' })).toBeEnabled())
+  })
+
+  it('keeps Payment and statement errors visible independently', async () => {
+    const user = userEvent.setup()
+    mockPreviewPayment.mockRejectedValueOnce(new Error('Payment check failed'))
+    mockPreviewStatement.mockRejectedValueOnce(new Error('Statement preview failed'))
+    render(<EtsyFeeReconciliationPanel onImportComplete={vi.fn()} />)
+
+    const monthInput = screen.getByLabelText('Statement month')
+    const fileInput = screen.getByLabelText('Statement CSV file')
+    await user.type(monthInput, '2025-07')
+    await user.upload(fileInput, new File(['sanitized,csv'], 'statement.csv', { type: 'text/csv' }))
+    await user.click(screen.getByRole('button', { name: 'Check payment fees' }))
+    await user.click(screen.getByRole('button', { name: 'Preview statement' }))
+
+    await waitFor(() => {
+      expect(screen.getByText('Payment check failed')).toBeInTheDocument()
+      expect(screen.getByText('Statement preview failed')).toBeInTheDocument()
     })
   })
 
@@ -197,5 +261,84 @@ describe('EtsyFeeReconciliationPanel', () => {
       })
       expect(onImportComplete).toHaveBeenCalled()
     })
+  })
+
+  it('clears a stale statement preview and disables apply after a 409', async () => {
+    const user = userEvent.setup()
+    mockPreviewStatement.mockResolvedValueOnce(statementPreviewWithoutRevision)
+    mockApplyStatement.mockRejectedValueOnce(new ApiError('Statement preview is stale', 409, null))
+    render(<EtsyFeeReconciliationPanel onImportComplete={vi.fn()} />)
+
+    await user.type(screen.getByLabelText('Statement month'), '2025-07')
+    await user.upload(screen.getByLabelText('Statement CSV file'), new File(['sanitized,csv'], 'statement.csv', { type: 'text/csv' }))
+    await user.click(screen.getByRole('button', { name: 'Preview statement' }))
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Apply statement changes' })).toBeEnabled())
+
+    await user.click(screen.getByRole('button', { name: 'Apply statement changes' }))
+
+    await waitFor(() => {
+      expect(screen.getByText('Statement preview is stale')).toBeInTheDocument()
+      expect(screen.queryByText('Matched 2')).not.toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'Apply statement changes' })).toBeDisabled()
+    })
+  })
+
+  it('invalidates an in-flight statement preview when the selected file changes', async () => {
+    const user = userEvent.setup()
+    const statementRequest = deferred<typeof statementPreview>()
+    mockPreviewStatement.mockReturnValueOnce(statementRequest.promise)
+    render(<EtsyFeeReconciliationPanel onImportComplete={vi.fn()} />)
+
+    const monthInput = screen.getByLabelText('Statement month')
+    const fileInput = screen.getByLabelText('Statement CSV file')
+    await user.type(monthInput, '2025-07')
+    await user.upload(fileInput, new File(['first'], 'first.csv', { type: 'text/csv' }))
+    await user.click(screen.getByRole('button', { name: 'Preview statement' }))
+    await user.upload(fileInput, new File(['second'], 'second.csv', { type: 'text/csv' }))
+
+    statementRequest.resolve(statementPreviewWithoutRevision)
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Preview statement' })).toBeEnabled())
+    expect(screen.queryByText('Matched 2')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Apply statement changes' })).toBeDisabled()
+  })
+
+  it('invalidates an in-flight statement preview when the selected month changes', async () => {
+    const user = userEvent.setup()
+    const statementRequest = deferred<typeof statementPreview>()
+    mockPreviewStatement.mockReturnValueOnce(statementRequest.promise)
+    render(<EtsyFeeReconciliationPanel onImportComplete={vi.fn()} />)
+
+    const monthInput = screen.getByLabelText('Statement month')
+    const fileInput = screen.getByLabelText('Statement CSV file')
+    await user.type(monthInput, '2025-07')
+    await user.upload(fileInput, new File(['sanitized,csv'], 'statement.csv', { type: 'text/csv' }))
+    await user.click(screen.getByRole('button', { name: 'Preview statement' }))
+    await user.clear(monthInput)
+    await user.type(monthInput, '2025-08')
+
+    statementRequest.resolve(statementPreviewWithoutRevision)
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Preview statement' })).toBeEnabled())
+    expect(screen.queryByText('Matched 2')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Apply statement changes' })).toBeDisabled()
+  })
+
+  it('shows duplicate statement applies as a no-write outcome', async () => {
+    const user = userEvent.setup()
+    mockPreviewStatement.mockResolvedValueOnce(statementPreviewWithoutRevision)
+    mockApplyStatement.mockResolvedValueOnce({
+      ...statementPreviewWithoutRevision,
+      applied: false,
+      duplicate: true,
+      statementImportId: 'import-1',
+    })
+    render(<EtsyFeeReconciliationPanel onImportComplete={vi.fn()} />)
+
+    await user.type(screen.getByLabelText('Statement month'), '2025-07')
+    await user.upload(screen.getByLabelText('Statement CSV file'), new File(['sanitized,csv'], 'statement.csv', { type: 'text/csv' }))
+    await user.click(screen.getByRole('button', { name: 'Preview statement' }))
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Apply statement changes' })).toBeEnabled())
+    await user.click(screen.getByRole('button', { name: 'Apply statement changes' }))
+
+    await waitFor(() => expect(screen.getByText('This statement was already applied; no writes were made.')).toBeInTheDocument())
   })
 })

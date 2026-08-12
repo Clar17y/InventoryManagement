@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   etsy,
   type EtsyFeeReconciliationPreview,
@@ -9,13 +9,7 @@ import {
 } from '../../../lib/api'
 import { ApiError } from '../../../lib/api/request'
 
-type LoadingAction =
-  | 'summary'
-  | 'payment-preview'
-  | 'payment-apply'
-  | 'statement-preview'
-  | 'statement-apply'
-  | null
+type Action = 'preview' | 'apply' | null
 
 type SummaryResponse = Awaited<ReturnType<typeof etsy.getFeeReconciliationSummary>>
 
@@ -47,28 +41,36 @@ export interface UseEtsyFeeReconciliationOptions {
 
 export function useEtsyFeeReconciliation({ onImportComplete }: UseEtsyFeeReconciliationOptions) {
   const [summary, setSummary] = useState<SummaryResponse | null>(null)
+  const [summaryLoading, setSummaryLoading] = useState(false)
+  const [summaryError, setSummaryError] = useState<string | null>(null)
+
   const [paymentPreview, setPaymentPreview] = useState<EtsyPaymentFeePreview | null>(null)
   const [paymentResult, setPaymentResult] = useState<EtsyPaymentFeeApplyResult | null>(null)
+  const [paymentLoadingAction, setPaymentLoadingAction] = useState<Action>(null)
+  const [paymentError, setPaymentError] = useState<string | null>(null)
+
   const [statementPreview, setStatementPreview] = useState<EtsyFeeReconciliationPreview | null>(null)
   const [statementResult, setStatementResult] = useState<EtsyFeeReconciliationApplyResult | null>(null)
   const [statementFile, setStatementFile] = useState<File | null>(null)
   const [statementMonth, setStatementMonth] = useState('')
   const [statementRevisionConfirmed, setStatementRevisionConfirmed] = useState(false)
   const [statementRevisionRequired, setStatementRevisionRequired] = useState(false)
-  const [loadingAction, setLoadingAction] = useState<LoadingAction>(null)
-  const [error, setError] = useState<string | null>(null)
+  const [statementLoadingAction, setStatementLoadingAction] = useState<Action>(null)
+  const [statementError, setStatementError] = useState<string | null>(null)
+  const statementSelectionVersion = useRef(0)
 
   const loadSummary = useCallback(async () => {
-    setLoadingAction('summary')
+    setSummaryLoading(true)
+    setSummaryError(null)
     try {
       const result = await etsy.getFeeReconciliationSummary()
       setSummary(result)
       return result
     } catch (loadError) {
-      setError(errorMessage(loadError, 'Failed to load fee reconciliation status'))
+      setSummaryError(errorMessage(loadError, 'Failed to load fee reconciliation status'))
       return null
     } finally {
-      setLoadingAction((current) => (current === 'summary' ? null : current))
+      setSummaryLoading(false)
     }
   }, [])
 
@@ -77,8 +79,8 @@ export function useEtsyFeeReconciliation({ onImportComplete }: UseEtsyFeeReconci
   }, [loadSummary])
 
   const previewPaymentFees = useCallback(async () => {
-    setLoadingAction('payment-preview')
-    setError(null)
+    setPaymentLoadingAction('preview')
+    setPaymentError(null)
     setPaymentPreview(null)
     setPaymentResult(null)
     try {
@@ -86,18 +88,18 @@ export function useEtsyFeeReconciliation({ onImportComplete }: UseEtsyFeeReconci
       setPaymentPreview(result)
       return result
     } catch (previewError) {
-      setError(errorMessage(previewError, 'Failed to preview Etsy Payment fees'))
+      setPaymentError(errorMessage(previewError, 'Failed to preview Etsy Payment fees'))
       return null
     } finally {
-      setLoadingAction((current) => (current === 'payment-preview' ? null : current))
+      setPaymentLoadingAction((current) => (current === 'preview' ? null : current))
     }
   }, [])
 
   const applyPaymentFees = useCallback(async () => {
     if (!paymentPreview?.fingerprint) return null
 
-    setLoadingAction('payment-apply')
-    setError(null)
+    setPaymentLoadingAction('apply')
+    setPaymentError(null)
     try {
       const result = await etsy.applyPaymentFees({
         receiptIds: paymentPreview.receiptIds,
@@ -113,53 +115,64 @@ export function useEtsyFeeReconciliation({ onImportComplete }: UseEtsyFeeReconci
         setPaymentPreview(null)
         setPaymentResult(null)
       }
-      setError(errorMessage(applyError, 'Failed to apply Etsy Payment fees'))
+      setPaymentError(errorMessage(applyError, 'Failed to apply Etsy Payment fees'))
       return null
     } finally {
-      setLoadingAction((current) => (current === 'payment-apply' ? null : current))
+      setPaymentLoadingAction((current) => (current === 'apply' ? null : current))
     }
   }, [loadSummary, onImportComplete, paymentPreview])
 
-  const setSelectedStatementFile = useCallback((file: File | null) => {
-    setStatementFile(file)
+  const clearStatementPreview = useCallback((resetRevision = true) => {
     setStatementPreview(null)
     setStatementResult(null)
-    setStatementRevisionConfirmed(false)
-    setStatementRevisionRequired(false)
-    setError(null)
+    if (resetRevision) {
+      setStatementRevisionConfirmed(false)
+      setStatementRevisionRequired(false)
+    }
   }, [])
 
+  const setSelectedStatementFile = useCallback((file: File | null) => {
+    statementSelectionVersion.current += 1
+    setStatementFile(file)
+    clearStatementPreview()
+    setStatementError(null)
+  }, [clearStatementPreview])
+
   const setSelectedStatementMonth = useCallback((month: string) => {
+    statementSelectionVersion.current += 1
     setStatementMonth(month)
-    setStatementPreview(null)
-    setStatementResult(null)
-    setStatementRevisionConfirmed(false)
-    setStatementRevisionRequired(false)
-    setError(null)
-  }, [])
+    clearStatementPreview()
+    setStatementError(null)
+  }, [clearStatementPreview])
 
   const previewStatementFees = useCallback(async () => {
     if (!statementFile) {
-      setError('Choose an Etsy statement CSV file before previewing')
+      setStatementError('Choose an Etsy statement CSV file before previewing')
       return null
     }
     if (!/^\d{4}-(?:0[1-9]|1[0-2])$/.test(statementMonth)) {
-      setError('Choose a valid statement month')
+      setStatementError('Choose a valid statement month')
       return null
     }
 
-    setLoadingAction('statement-preview')
-    setError(null)
-    setStatementPreview(null)
-    setStatementResult(null)
+    const requestVersion = ++statementSelectionVersion.current
+    const requestedFile = statementFile
+    const requestedMonth = statementMonth
+    const requestedRevisionConfirmation = statementRevisionConfirmed
+    setStatementLoadingAction('preview')
+    setStatementError(null)
+    clearStatementPreview(false)
     try {
-      const csv = await readFileText(statementFile)
+      const csv = await readFileText(requestedFile)
+      if (requestVersion !== statementSelectionVersion.current) return null
       const result = await etsy.previewStatementFees({
-        statementMonth,
-        fileName: statementFile.name,
+        statementMonth: requestedMonth,
+        fileName: requestedFile.name,
         csv,
-        ...(statementRevisionConfirmed ? { allowStatementRevision: true } : {}),
+        ...(requestedRevisionConfirmation ? { allowStatementRevision: true } : {}),
       })
+      if (requestVersion !== statementSelectionVersion.current) return null
+
       setStatementPreview(result)
       const hasRevision = result.changes.some(
         (change) => change.oldStatus === 'STATEMENT_VERIFIED' && change.outcome !== 'unchanged',
@@ -167,57 +180,74 @@ export function useEtsyFeeReconciliation({ onImportComplete }: UseEtsyFeeReconci
       setStatementRevisionRequired(hasRevision)
       return result
     } catch (previewError) {
+      if (requestVersion !== statementSelectionVersion.current) return null
       if (isConflict(previewError)) {
         setStatementRevisionRequired(true)
       }
-      setError(errorMessage(previewError, 'Failed to preview Etsy statement fees'))
+      setStatementError(errorMessage(previewError, 'Failed to preview Etsy statement fees'))
       return null
     } finally {
-      setLoadingAction((current) => (current === 'statement-preview' ? null : current))
+      setStatementLoadingAction((current) => (current === 'preview' ? null : current))
     }
-  }, [statementFile, statementMonth, statementRevisionConfirmed])
+  }, [clearStatementPreview, statementFile, statementMonth, statementRevisionConfirmed])
 
   const applyStatementFees = useCallback(async () => {
     if (!statementPreview?.fingerprint || !statementFile || !statementMonth) return null
     if (statementRevisionRequired && !statementRevisionConfirmed) {
-      setError('Confirm the statement revision before applying these changes')
+      setStatementError('Confirm the statement revision before applying these changes')
       return null
     }
 
-    setLoadingAction('statement-apply')
-    setError(null)
+    const requestVersion = ++statementSelectionVersion.current
+    const requestedFile = statementFile
+    const requestedMonth = statementMonth
+    const requestedRevisionConfirmation = statementRevisionConfirmed
+    setStatementLoadingAction('apply')
+    setStatementError(null)
     try {
-      const csv = await readFileText(statementFile)
+      const csv = await readFileText(requestedFile)
+      if (requestVersion !== statementSelectionVersion.current) return null
       const result = await etsy.applyStatementFees({
-        statementMonth,
-        fileName: statementFile.name,
+        statementMonth: requestedMonth,
+        fileName: requestedFile.name,
         csv,
         fingerprint: statementPreview.fingerprint,
-        ...(statementRevisionConfirmed ? { allowStatementRevision: true } : {}),
+        ...(requestedRevisionConfirmation ? { allowStatementRevision: true } : {}),
       })
+      if (requestVersion !== statementSelectionVersion.current) {
+        onImportComplete()
+        return result
+      }
+
       setStatementResult(result)
       setStatementPreview(null)
+      setStatementRevisionConfirmed(false)
+      setStatementRevisionRequired(false)
       await loadSummary()
       onImportComplete()
       return result
     } catch (applyError) {
+      if (requestVersion !== statementSelectionVersion.current) return null
       if (isConflict(applyError)) {
-        setStatementPreview(null)
-        setStatementResult(null)
+        clearStatementPreview()
       }
-      setError(errorMessage(applyError, 'Failed to apply Etsy statement fees'))
+      setStatementError(errorMessage(applyError, 'Failed to apply Etsy statement fees'))
       return null
     } finally {
-      setLoadingAction((current) => (current === 'statement-apply' ? null : current))
+      setStatementLoadingAction((current) => (current === 'apply' ? null : current))
     }
-  }, [loadSummary, onImportComplete, statementFile, statementMonth, statementPreview, statementRevisionConfirmed, statementRevisionRequired])
+  }, [clearStatementPreview, loadSummary, onImportComplete, statementFile, statementMonth, statementPreview, statementRevisionConfirmed, statementRevisionRequired])
 
   const statusCounts: EtsyFeeReconciliationStatusCounts | null = summary?.counts ?? null
 
   return {
     summary: statusCounts,
+    summaryLoading,
+    summaryError,
     paymentPreview,
     paymentResult,
+    paymentLoadingAction,
+    paymentError,
     statementPreview,
     statementResult,
     statementFile,
@@ -225,9 +255,8 @@ export function useEtsyFeeReconciliation({ onImportComplete }: UseEtsyFeeReconci
     statementRevisionConfirmed,
     setStatementRevisionConfirmed,
     statementRevisionRequired,
-    loadingAction,
-    error,
-    setError,
+    statementLoadingAction,
+    statementError,
     loadSummary,
     previewPaymentFees,
     applyPaymentFees,

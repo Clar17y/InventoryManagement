@@ -50,6 +50,7 @@ const mockGetPendingOrders = vi.mocked(etsy.getPendingOrders)
 const mockImportOrder = vi.mocked(etsy.importOrder)
 const mockImportOrdersBulk = vi.mocked(etsy.importOrdersBulk)
 const mockGetFeeReconciliationSummary = vi.mocked(etsy.getFeeReconciliationSummary)
+const mockPreviewPayment = vi.mocked(etsy.previewPaymentFees)
 const mockLotsByCategory = vi.mocked(inventory.lotsByCategory)
 const mockGetPostageTiers = vi.mocked(settings.getPostageTiers)
 
@@ -241,6 +242,55 @@ describe('EtsyOrdersSyncPanel', () => {
       })
       expect(mockOnImportComplete).toHaveBeenCalled()
       expect(screen.getByText('Fees checked')).toBeInTheDocument()
+    })
+  })
+
+  it('keeps an order import failure visible when fee reconciliation also fails', async () => {
+    const user = userEvent.setup()
+    mockGetStatus.mockResolvedValue({ connected: true, shopId: '123', shopName: 'Shop' })
+    mockGetPendingOrders.mockResolvedValue({
+      orders: [
+        {
+          receiptId: 12345,
+          buyerName: 'John Doe',
+          createdAt: '2024-01-15T10:00:00Z',
+          isPaid: true,
+          isShipped: false,
+          grandTotal: 35,
+          subtotal: 30,
+          shippingCost: 5,
+          items: [
+            {
+              transactionId: 1,
+              listingId: 123,
+              title: 'Test Listing',
+              quantity: 1,
+              price: 30,
+              sku: null,
+              productId: null,
+              variantName: null,
+            },
+          ],
+        },
+      ],
+    })
+    mockImportOrdersBulk.mockRejectedValueOnce(new Error('Order import failed'))
+    mockPreviewPayment.mockRejectedValueOnce(new Error('Payment check failed'))
+
+    render(
+      <EtsyOrdersSyncPanel isOpen={true} onClose={mockOnClose} onImportComplete={mockOnImportComplete} />
+    )
+
+    await waitFor(() => expect(screen.getByText('Order #12345')).toBeInTheDocument())
+    await user.click(screen.getByRole('checkbox', { name: /select order 12345/i }))
+    await user.click(screen.getByRole('button', { name: /import selected/i }))
+
+    await waitFor(() => expect(screen.getByText('Order import failed')).toBeInTheDocument())
+    await user.click(screen.getByRole('button', { name: 'Check payment fees' }))
+
+    await waitFor(() => {
+      expect(screen.getByText('Order import failed')).toBeInTheDocument()
+      expect(screen.getByText('Payment check failed')).toBeInTheDocument()
     })
   })
 

@@ -110,8 +110,8 @@ function PaymentReport({ preview }: { preview: EtsyPaymentFeePreview }) {
 
 export default function EtsyFeeReconciliationPanel({ onImportComplete }: EtsyFeeReconciliationPanelProps) {
   const reconciliation = useEtsyFeeReconciliation({ onImportComplete })
-  const paymentBusy = reconciliation.loadingAction === 'payment-preview' || reconciliation.loadingAction === 'payment-apply'
-  const statementBusy = reconciliation.loadingAction === 'statement-preview' || reconciliation.loadingAction === 'statement-apply'
+  const paymentBusy = reconciliation.paymentLoadingAction !== null
+  const statementBusy = reconciliation.statementLoadingAction !== null
   const pendingCount = reconciliation.summary
     ? reconciliation.summary.PENDING + reconciliation.summary.PAYMENT_SYNCED + reconciliation.summary.MANUAL_REVIEW
     : 0
@@ -123,15 +123,15 @@ export default function EtsyFeeReconciliationPanel({ onImportComplete }: EtsyFee
           <h3 id="etsy-fee-reconciliation-title" className="text-base font-semibold text-gray-900">Etsy fee reconciliation</h3>
           <p className="mt-1 text-sm text-gray-600">Review Etsy Payment aggregates and statements before changing sale fees.</p>
         </div>
-        <button type="button" className="btn-secondary text-xs" onClick={() => void reconciliation.loadSummary()} disabled={reconciliation.loadingAction === 'summary'}>
+        <button type="button" className="btn-secondary text-xs" onClick={() => void reconciliation.loadSummary()} disabled={reconciliation.summaryLoading}>
           Refresh status
         </button>
       </div>
 
-      {reconciliation.error && (
+      {reconciliation.summaryError && (
         <div role="alert" className="alert-danger mt-3 flex items-start gap-2">
           <ExclamationTriangleIcon className="h-5 w-5 flex-shrink-0" />
-          <span>{reconciliation.error}</span>
+          <span>{reconciliation.summaryError}</span>
         </div>
       )}
 
@@ -155,16 +155,26 @@ export default function EtsyFeeReconciliationPanel({ onImportComplete }: EtsyFee
         <p className="mt-1 text-xs text-gray-500">Checks up to 25 pending receipts. Payment data is aggregate and not itemized.</p>
         <div className="mt-3 flex flex-wrap gap-2">
           <button type="button" className="btn-secondary text-sm" onClick={() => void reconciliation.previewPaymentFees()} disabled={paymentBusy}>
-            {reconciliation.loadingAction === 'payment-preview' ? 'Checking…' : 'Check payment fees'}
+            {reconciliation.paymentLoadingAction === 'preview' ? 'Checking…' : 'Check payment fees'}
           </button>
           <button type="button" className="btn-primary text-sm" onClick={() => void reconciliation.applyPaymentFees()} disabled={!reconciliation.paymentPreview?.fingerprint || paymentBusy}>
-            {reconciliation.loadingAction === 'payment-apply' ? 'Applying…' : 'Apply payment fee changes'}
+            {reconciliation.paymentLoadingAction === 'apply' ? 'Applying…' : 'Apply payment fee changes'}
           </button>
         </div>
+        {reconciliation.paymentError && (
+          <div role="alert" className="alert-danger mt-3 flex items-start gap-2">
+            <ExclamationTriangleIcon className="h-5 w-5 flex-shrink-0" />
+            <span>{reconciliation.paymentError}</span>
+          </div>
+        )}
         {reconciliation.paymentPreview && <PaymentReport preview={reconciliation.paymentPreview} />}
         {reconciliation.paymentResult && (
           <div className="mt-3 rounded-lg border border-green-200 bg-green-50 p-3 text-sm text-green-800">
-            {reconciliation.paymentResult.applied ? 'Payment fee changes applied.' : 'Payment result recorded as observe-only; profit was not changed.'}
+            {reconciliation.paymentResult.duplicate
+              ? 'This Payment result was already applied; no writes were made.'
+              : reconciliation.paymentResult.applied
+                ? 'Payment fee changes applied.'
+                : 'Payment result recorded as observe-only; profit was not changed.'}
           </div>
         )}
       </div>
@@ -208,12 +218,18 @@ export default function EtsyFeeReconciliationPanel({ onImportComplete }: EtsyFee
         )}
         <div className="mt-3 flex flex-wrap gap-2">
           <button type="button" className="btn-secondary text-sm" onClick={() => void reconciliation.previewStatementFees()} disabled={!reconciliation.statementFile || !reconciliation.statementMonth || statementBusy}>
-            {reconciliation.loadingAction === 'statement-preview' ? 'Previewing…' : 'Preview statement'}
+            {reconciliation.statementLoadingAction === 'preview' ? 'Previewing…' : 'Preview statement'}
           </button>
           <button type="button" className="btn-primary text-sm" onClick={() => void reconciliation.applyStatementFees()} disabled={!reconciliation.statementPreview?.fingerprint || statementBusy || (reconciliation.statementRevisionRequired && !reconciliation.statementRevisionConfirmed)}>
-            {reconciliation.loadingAction === 'statement-apply' ? 'Applying…' : 'Apply statement changes'}
+            {reconciliation.statementLoadingAction === 'apply' ? 'Applying…' : 'Apply statement changes'}
           </button>
         </div>
+        {reconciliation.statementError && (
+          <div role="alert" className="alert-danger mt-3 flex items-start gap-2">
+            <ExclamationTriangleIcon className="h-5 w-5 flex-shrink-0" />
+            <span>{reconciliation.statementError}</span>
+          </div>
+        )}
         {reconciliation.statementPreview && <ReportSummary preview={reconciliation.statementPreview} />}
         {reconciliation.statementResult && (
           <div className="mt-3 rounded-lg border border-green-200 bg-green-50 p-3 text-sm text-green-800">

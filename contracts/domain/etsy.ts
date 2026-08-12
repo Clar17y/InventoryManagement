@@ -216,6 +216,25 @@ export const etsyOrderImportSaleSchema = z.object({
 
 export type EtsyOrderImportSale = z.infer<typeof etsyOrderImportSaleSchema>
 
+const etsyOrdersBulkImportSuccessSchema = z.object({
+  receiptId: z.number().int(),
+  success: z.literal(true),
+  saleId: cuidSchema.optional(),
+  feeReconciliation: etsyOrderFeeReconciliationSchema,
+  error: z.string().optional(),
+})
+
+const etsyOrdersBulkImportFailureSchema = z.object({
+  receiptId: z.number().int(),
+  success: z.literal(false),
+  error: z.string().optional(),
+})
+
+const etsyOrdersBulkImportRowSchema = z.discriminatedUnion('success', [
+  etsyOrdersBulkImportSuccessSchema,
+  etsyOrdersBulkImportFailureSchema,
+])
+
 export const etsyOrderImportResultSchema = z.object({
   success: z.literal(true),
   sale: etsyOrderImportSaleSchema,
@@ -229,15 +248,7 @@ export const etsyOrdersBulkImportResultSchema = z.object({
   success: z.literal(true),
   imported: z.number().int().nonnegative(),
   failed: z.number().int().nonnegative(),
-  results: z.array(
-    z.object({
-      receiptId: z.number().int(),
-      success: z.boolean(),
-      saleId: cuidSchema.optional(),
-      feeReconciliation: etsyOrderFeeReconciliationSchema.optional(),
-      error: z.string().optional(),
-    })
-  ),
+  results: z.array(etsyOrdersBulkImportRowSchema),
 })
 
 export type EtsyOrdersBulkImportResult = z.infer<typeof etsyOrdersBulkImportResultSchema>

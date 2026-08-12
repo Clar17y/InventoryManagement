@@ -400,7 +400,12 @@ describe('etsy API', () => {
       success: true,
       imported: 1,
       failed: 0,
-      results: [{ receiptId: 12345, success: true, saleId: 'clx0q2p1w0000s1l1n4m9n9n9n9' }],
+      results: [{
+        receiptId: 12345,
+        success: true,
+        saleId: 'clx0q2p1w0000s1l1n4m9n9n9n9',
+        feeReconciliation: { status: 'PENDING' },
+      }],
     }
 
     it('calls requestWithSchema with POST and bulk order data', async () => {
@@ -414,6 +419,24 @@ describe('etsy API', () => {
         method: 'POST',
         body: JSON.stringify(data),
       })
+    })
+
+    it('requires fee reconciliation on successful rows but not failed rows', () => {
+      const successfulWithoutFees = etsyOrdersBulkImportResponseSchema.safeParse({
+        success: true,
+        imported: 1,
+        failed: 0,
+        results: [{ receiptId: 12345, success: true, saleId: 'clx0q2p1w0000s1l1n4m9n9n9n9' }],
+      })
+      const failedWithoutFees = etsyOrdersBulkImportResponseSchema.safeParse({
+        success: true,
+        imported: 0,
+        failed: 1,
+        results: [{ receiptId: 12345, success: false, error: 'Receipt not found on Etsy' }],
+      })
+
+      expect(successfulWithoutFees.success).toBe(false)
+      expect(failedWithoutFees.success).toBe(true)
     })
   })
 

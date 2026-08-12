@@ -3,7 +3,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 // Mock dependencies before importing the module
 vi.mock('../../lib/prisma', () => ({
     prisma: {
-        sale: { findFirst: vi.fn(), findMany: vi.fn(), create: vi.fn(), update: vi.fn(), updateMany: vi.fn() },
+        sale: { findFirst: vi.fn(), findMany: vi.fn(), findUnique: vi.fn(), create: vi.fn(), update: vi.fn(), updateMany: vi.fn() },
         hamper: { findFirst: vi.fn() },
         hamperVariant: { findFirst: vi.fn(), update: vi.fn() },
         etsyFeeConfig: { findFirst: vi.fn() },
@@ -39,6 +39,7 @@ const mockPrisma = prisma as unknown as {
     sale: {
         findFirst: ReturnType<typeof vi.fn>;
         findMany: ReturnType<typeof vi.fn>;
+        findUnique: ReturnType<typeof vi.fn>;
         create: ReturnType<typeof vi.fn>;
         update: ReturnType<typeof vi.fn>;
         updateMany: ReturnType<typeof vi.fn>;
@@ -207,6 +208,108 @@ describe('Order Import - Stock Decrement', () => {
             where: { id: 'lot-1' },
             data: { remaining: { decrement: 1 } },
         });
+    });
+
+    it('preserves statement authority when manual Payment review races a statement update', async () => {
+        const receiptId = 12350;
+        let persistedStatus: 'PENDING' | 'STATEMENT_VERIFIED' | 'MANUAL_REVIEW' = 'PENDING';
+        const updatedAt = new Date('2026-08-12T00:00:00.000Z');
+        const money = (amount: number) => ({ amount, divisor: 100 });
+        const saleSnapshot = {
+            id: 'sale-race',
+            etsyOrderId: String(receiptId),
+            grossRevenue: { toNumber: () => 30 },
+            etsyFees: { toNumber: () => 5 },
+            netRevenue: { toNumber: () => 25 },
+            margin: { toNumber: () => 20 },
+            offsiteAdsFee: null,
+            vatOnOffsiteAdsFee: null,
+            etsyPaymentGross: null,
+            etsyPaymentFees: null,
+            etsyPaymentNet: null,
+            offsiteAdsAttributed: null,
+            get etsyFeeReconciliationStatus() { return persistedStatus; },
+            updatedAt,
+        };
+
+        mockPrisma.sale.findMany.mockResolvedValue([saleSnapshot]);
+        mockPrisma.sale.findUnique.mockImplementation(async () => ({
+            etsyFeeReconciliationStatus: persistedStatus,
+        }));
+        mockPrisma.sale.update.mockImplementation(async ({ data }: { data: { etsyFeeReconciliationStatus: typeof persistedStatus } }) => {
+            persistedStatus = 'STATEMENT_VERIFIED';
+            persistedStatus = data.etsyFeeReconciliationStatus;
+            return {};
+        });
+        mockPrisma.sale.updateMany.mockImplementation(async () => {
+            persistedStatus = 'STATEMENT_VERIFIED';
+            return { count: 0 };
+        });
+        mockPrisma.$transaction.mockImplementation(async (callback: (tx: any) => Promise<unknown>) => callback({
+            $executeRaw: vi.fn().mockResolvedValue(0),
+            sale: {
+                create: vi.fn().mockResolvedValue({
+                    id: 'sale-race',
+                    etsyOrderId: String(receiptId),
+                    grossRevenue: 30,
+                    totalCost: 0,
+                    margin: 20,
+                    netRevenue: 25,
+                    etsyFees: 5,
+                    packagingOverhead: 0,
+                }),
+            },
+        }));
+        mockEtsyClient.getReceipts.mockResolvedValue({
+            receipts: [{
+                receipt_id: receiptId,
+                name: 'Race Buyer',
+                is_paid: true,
+                is_shipped: false,
+                create_timestamp: Math.floor(Date.now() / 1000),
+                grandtotal: money(3000),
+                subtotal: money(2500),
+                total_shipping_cost: money(500),
+                transactions: [{
+                    transaction_id: receiptId,
+                    listing_id: 100,
+                    title: 'Race Hamper',
+                    quantity: 1,
+                    price: money(2500),
+                    sku: null,
+                    product_id: null,
+                    variations: [],
+                }],
+            }],
+        });
+        mockEtsyClient.getPaymentsForReceipt.mockResolvedValue([{
+            payment_id: 1,
+            receipt_id: receiptId + 1,
+            currency: 'GBP',
+            amount_gross: { ...money(3000), currency_code: 'GBP' },
+            amount_fees: { ...money(650), currency_code: 'GBP' },
+            amount_net: { ...money(2350), currency_code: 'GBP' },
+            adjusted_gross: { ...money(0), currency_code: 'GBP' },
+            adjusted_fees: { ...money(0), currency_code: 'GBP' },
+            adjusted_net: { ...money(0), currency_code: 'GBP' },
+        }]);
+        mockPrisma.sale.findFirst.mockResolvedValue(null);
+        mockPrisma.hamper.findFirst.mockResolvedValue({
+            id: 'hamper-race',
+            name: 'Race Hamper',
+            etsyListingId: '100',
+            hasVariants: false,
+            requirements: [],
+            variants: [],
+        });
+        mockPrisma.etsyFeeConfig.findFirst.mockResolvedValue(null);
+        mockPrisma.packagingOverhead.findMany.mockResolvedValue([]);
+
+        const result = await importOrder(receiptId, 0, true);
+
+        expect(result.success).toBe(true);
+        expect(result.feeReconciliation.status).toBe('STATEMENT_VERIFIED');
+        expect(persistedStatus).toBe('STATEMENT_VERIFIED');
     });
 
     it('decrements multiple lots when order requires more than one allocation (FIFO)', async () => {

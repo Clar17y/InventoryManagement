@@ -70,14 +70,28 @@ async function reconcileImportedSaleFees(
     // This update is outside the import transaction and is itself best effort.
     if (status === 'MANUAL_REVIEW') {
       try {
-        await prisma.sale.update({
-          where: { id: saleId },
+        await prisma.sale.updateMany({
+          where: {
+            id: saleId,
+            etsyFeeReconciliationStatus: { not: 'STATEMENT_VERIFIED' },
+          },
           data: {
             etsyFeeReconciliationStatus: 'MANUAL_REVIEW',
             etsyFeeReconciliationSource: 'ETSY_PAYMENT_API',
             etsyFeeReconciledAt: new Date(),
           },
         });
+
+        // Statement reconciliation is authoritative. Re-read after the
+        // guarded write so a concurrent statement update wins in the result
+        // returned to the importer as well as in the database.
+        const authoritativeSale = await prisma.sale.findUnique({
+          where: { id: saleId },
+          select: { etsyFeeReconciliationStatus: true },
+        });
+        if (authoritativeSale) {
+          status = authoritativeSale.etsyFeeReconciliationStatus;
+        }
       } catch (error) {
         const updateMessage = error instanceof Error ? error.message : String(error);
         message = message ? `${message}; ${updateMessage}` : updateMessage;

@@ -31,3 +31,26 @@ The first focused RED run was intentional: `rtk npm run test:server:run -- serve
 - `rtk git diff --check` — PASS.
 
 Statement precedence is covered by the existing Payment/reconciliation regression (`feeReconciliationService.test.ts` and `paymentReconciliation.test.ts`) asserting that Payment evidence never downgrades a `STATEMENT_VERIFIED` sale.
+
+## Fix round 1 — guarded manual-review status update
+
+### Status
+
+Complete. No production database, Etsy account, or real Etsy/Payment calls were used.
+
+### Changes
+
+- Replaced the import-side manual-review `sale.update` with an atomic `sale.updateMany` guarded by `etsyFeeReconciliationStatus != STATEMENT_VERIFIED`.
+- Re-read the sale status after the guarded write so a concurrent statement reconciliation remains authoritative in the returned import result.
+- Updated the Prisma test mock with `sale.findUnique` and added a race regression covering the statement-winning path.
+- Changed bulk import result rows to a `success` discriminated union: successful rows require `feeReconciliation`; failed rows do not include or require it.
+
+### Verification
+
+- `npm run test:server:run -- server/__tests__/etsy/orderImport.test.ts` — PASS, 17 tests.
+- `npm run test:client:run -- src/__tests__/lib/api/etsy.test.ts` — PASS, 37 tests.
+- `npm run test:client:run -- src/__tests__/components/EtsyOrdersSyncPanel.test.tsx` — PASS, 8 tests.
+- `npm run test:server:run` — PASS, 18 files / 204 tests.
+- `npx tsc -p server/tsconfig.json --noEmit --rootDir .` — PASS.
+- Touched-file ESLint — PASS, no issues.
+- `git diff --check` — PASS.

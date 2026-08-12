@@ -2,7 +2,7 @@
 
 ## Status
 
-Documentation is complete; the isolated disposable migration-preservation verification is pending. No Etsy account, live receipt, production database, disposable database, backup, migration apply, Payment apply, statement apply, or historical backfill was accessed or executed in this documentation pass.
+Documentation is complete; the isolated disposable migration-preservation verification is **BLOCKED/PENDING** because the local Docker engine did not answer bounded health or exact-name queries. Task 10 must not be marked complete from this evidence. No Etsy account, live receipt, production database, disposable database, backup, migration apply, Payment apply, statement apply, historical backfill, or container lifecycle operation was accessed or executed in this blocked attempt.
 
 ## Documentation changes
 
@@ -55,7 +55,35 @@ GROUP BY "saleChannel", "etsyFeeReconciliationStatus"
 ORDER BY "saleChannel", "etsyFeeReconciliationStatus";
 ```
 
-The isolated disposable migration-preservation check is **In Progress** and remains required before Task 10 can be marked complete. It must use the unique no-volume Docker container `inventorymanager-etsy-fee-migration-check-20260812`, verify that the name is absent before creation and after exact removal, seed representative Etsy/direct/fair sales, capture the before queries, apply all pending migrations with `npx prisma migrate deploy`, capture the after queries, and prove money totals are unchanged while statuses become Etsy=`PENDING` and direct/fair=`NOT_APPLICABLE`. It must not touch any other container, database, or production URL.
+The isolated disposable migration-preservation check is **BLOCKED/PENDING** and remains required before Task 10 can be marked complete. It must use the unique no-volume Docker container `inventorymanager-etsy-fee-migration-check-20260812`, verify that the name is absent before creation and after exact removal, seed representative Etsy/direct/fair sales, capture the before queries, apply all pending migrations with `npx prisma migrate deploy`, capture the after queries, and prove money totals are unchanged while statuses become Etsy=`PENDING` and direct/fair=`NOT_APPLICABLE`. It must not touch any other container, database, or production URL.
+
+### Bounded Docker blocker evidence (2026-08-12)
+
+The checks below were run from the isolated worktree `D:\Code\InventoryManager\.worktrees\etsy-offsite-fee-reconciliation` using only the active local Docker Desktop context. They are recorded so a later attempt can resume safely:
+
+```text
+docker --version
+Docker version 28.3.3, build 980b856
+
+docker context ls
+NAME              DESCRIPTION                               DOCKER ENDPOINT                             ERROR
+default           Current DOCKER_HOST based configuration   npipe:////./pipe/docker_engine
+desktop-linux *   Docker Desktop                            npipe:////./pipe/dockerDesktopLinuxEngine
+
+docker --context desktop-linux version --format '{{.Server.Version}}'
+TIMEOUT_AFTER_5000MS
+NO_SERVER_VERSION
+
+docker --context desktop-linux ps -aq --filter "name=^inventorymanager-etsy-fee-migration-check-20260812$"
+TIMEOUT_AFTER_5000MS
+NO_CONTAINER_ID_RETURNED
+
+GET /_ping over \\.\pipe\dockerDesktopLinuxEngine (bounded 3-second read)
+PIPE_CONNECT=PASS
+PING_RESPONSE=TIMEOUT_AFTER_3000MS
+```
+
+No `docker create`, `docker run`, `docker exec`, or migration command was issued, so no disposable container was created and no database was seeded. The required exact-name absence precondition and post-cleanup absence proof are **unverified**, not passed; no absence claim is made. No `docker rm` command was issued against an unverified target. Do not retry against production or another Docker context. Resume only after the local `desktop-linux` engine responds, then repeat the exact-name precheck before creating the no-volume container and remove/verify only that exact name if creation begins.
 
 Until that isolated check is run, the schema and migration surface have only been checked without a database:
 

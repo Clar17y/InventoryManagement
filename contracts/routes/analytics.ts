@@ -62,6 +62,8 @@ export const analyticsProfitResponseSchema = z.object({
     postage: z.number().finite().nonnegative(),
     stock: z.number().finite().nonnegative(),
     packaging: z.number().finite().nonnegative(),
+    offsiteAds: z.number().finite().nonnegative(),
+    offsiteAdsVat: z.number().finite().nonnegative(),
   }),
   marginByHamper: z.array(
     z.object({
@@ -74,6 +76,7 @@ export const analyticsProfitResponseSchema = z.object({
 })
 
 export const analyticsSalesResponseSchema = z.object({
+  unverifiedEtsySales: z.number().int().nonnegative(),
   volumeTrend: z.array(
     z.object({
       date: isoDateSchema,

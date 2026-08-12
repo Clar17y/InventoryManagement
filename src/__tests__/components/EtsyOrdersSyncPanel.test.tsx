@@ -13,6 +13,11 @@ vi.mock('../../lib/api', () => ({
     getPendingOrders: vi.fn(),
     importOrder: vi.fn(),
     importOrdersBulk: vi.fn(),
+    getFeeReconciliationSummary: vi.fn(),
+    previewPaymentFees: vi.fn(),
+    applyPaymentFees: vi.fn(),
+    previewStatementFees: vi.fn(),
+    applyStatementFees: vi.fn(),
   },
   inventory: {
     lotsByCategory: vi.fn(),
@@ -44,6 +49,8 @@ const mockGetStatus = vi.mocked(etsy.getStatus)
 const mockGetPendingOrders = vi.mocked(etsy.getPendingOrders)
 const mockImportOrder = vi.mocked(etsy.importOrder)
 const mockImportOrdersBulk = vi.mocked(etsy.importOrdersBulk)
+const mockGetFeeReconciliationSummary = vi.mocked(etsy.getFeeReconciliationSummary)
+const mockPreviewPayment = vi.mocked(etsy.previewPaymentFees)
 const mockLotsByCategory = vi.mocked(inventory.lotsByCategory)
 const mockGetPostageTiers = vi.mocked(settings.getPostageTiers)
 
@@ -60,12 +67,22 @@ describe('EtsyOrdersSyncPanel', () => {
     mockImportOrder.mockResolvedValue({
       success: true,
       sale: { id: 'sale-1', etsyOrderId: '12345', totalCost: 0, margin: 0, lines: 1 },
+      feeReconciliation: { status: 'PAYMENT_SYNCED' },
     })
     mockImportOrdersBulk.mockResolvedValue({
       success: true,
       imported: 1,
       failed: 0,
-      results: [{ receiptId: 12345, success: true, saleId: 'sale-1' }],
+      results: [{ receiptId: 12345, success: true, saleId: 'sale-1', feeReconciliation: { status: 'PAYMENT_SYNCED' } }],
+    })
+    mockGetFeeReconciliationSummary.mockResolvedValue({
+      counts: {
+        NOT_APPLICABLE: 0,
+        PENDING: 0,
+        PAYMENT_SYNCED: 0,
+        STATEMENT_VERIFIED: 0,
+        MANUAL_REVIEW: 0,
+      },
     })
   })
 
@@ -224,6 +241,56 @@ describe('EtsyOrdersSyncPanel', () => {
         isHistorical: false,
       })
       expect(mockOnImportComplete).toHaveBeenCalled()
+      expect(screen.getByText('Fees checked')).toBeInTheDocument()
+    })
+  })
+
+  it('keeps an order import failure visible when fee reconciliation also fails', async () => {
+    const user = userEvent.setup()
+    mockGetStatus.mockResolvedValue({ connected: true, shopId: '123', shopName: 'Shop' })
+    mockGetPendingOrders.mockResolvedValue({
+      orders: [
+        {
+          receiptId: 12345,
+          buyerName: 'John Doe',
+          createdAt: '2024-01-15T10:00:00Z',
+          isPaid: true,
+          isShipped: false,
+          grandTotal: 35,
+          subtotal: 30,
+          shippingCost: 5,
+          items: [
+            {
+              transactionId: 1,
+              listingId: 123,
+              title: 'Test Listing',
+              quantity: 1,
+              price: 30,
+              sku: null,
+              productId: null,
+              variantName: null,
+            },
+          ],
+        },
+      ],
+    })
+    mockImportOrdersBulk.mockRejectedValueOnce(new Error('Order import failed'))
+    mockPreviewPayment.mockRejectedValueOnce(new Error('Payment check failed'))
+
+    render(
+      <EtsyOrdersSyncPanel isOpen={true} onClose={mockOnClose} onImportComplete={mockOnImportComplete} />
+    )
+
+    await waitFor(() => expect(screen.getByText('Order #12345')).toBeInTheDocument())
+    await user.click(screen.getByRole('checkbox', { name: /select order 12345/i }))
+    await user.click(screen.getByRole('button', { name: /import selected/i }))
+
+    await waitFor(() => expect(screen.getByText('Order import failed')).toBeInTheDocument())
+    await user.click(screen.getByRole('button', { name: 'Check payment fees' }))
+
+    await waitFor(() => {
+      expect(screen.getByText('Order import failed')).toBeInTheDocument()
+      expect(screen.getByText('Payment check failed')).toBeInTheDocument()
     })
   })
 
@@ -280,6 +347,7 @@ describe('EtsyOrdersSyncPanel', () => {
       .mockResolvedValueOnce({
         success: true,
         sale: { id: 'sale-1', etsyOrderId: '12345', totalCost: 0, margin: 0, lines: 1 },
+        feeReconciliation: { status: 'PAYMENT_SYNCED' },
       })
 
     mockLotsByCategory.mockResolvedValue([
@@ -323,7 +391,7 @@ describe('EtsyOrdersSyncPanel', () => {
 
     await user.clear(qtyInput)
     await user.type(qtyInput, '2')
-    await user.click(screen.getByRole('button', { name: /apply/i }))
+    await user.click(screen.getByRole('button', { name: /^apply$/i }))
 
     await waitFor(() => {
       expect(screen.getByRole('button', { name: /import with substitutions/i })).toBeEnabled()
@@ -457,7 +525,7 @@ describe('EtsyOrdersSyncPanel', () => {
     const qtyInputA = editorRootA.querySelector('input[type="number"][placeholder="0"]') as HTMLInputElement
     await user.clear(qtyInputA)
     await user.type(qtyInputA, '2')
-    await user.click(screen.getByRole('button', { name: /apply/i }))
+    await user.click(screen.getByRole('button', { name: /^apply$/i }))
 
     expect(screen.getByRole('button', { name: /import with substitutions/i })).toBeDisabled()
 
@@ -469,7 +537,7 @@ describe('EtsyOrdersSyncPanel', () => {
     const qtyInputB = editorRootB.querySelector('input[type="number"][placeholder="0"]') as HTMLInputElement
     await user.clear(qtyInputB)
     await user.type(qtyInputB, '1')
-    await user.click(screen.getByRole('button', { name: /apply/i }))
+    await user.click(screen.getByRole('button', { name: /^apply$/i }))
 
     await waitFor(() => {
       expect(screen.getByRole('button', { name: /import with substitutions/i })).toBeEnabled()

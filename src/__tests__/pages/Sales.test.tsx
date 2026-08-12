@@ -75,7 +75,22 @@ describe('Sales', () => {
     },
   ];
 
+  const saleWithFeeEvidence = (overrides: Record<string, unknown> = {}) => ({
+    ...sampleSales[0],
+    offsiteAdsAttributed: null,
+    offsiteAdsFee: null,
+    vatOnOffsiteAdsFee: null,
+    etsyPaymentGross: null,
+    etsyPaymentFees: null,
+    etsyPaymentNet: null,
+    etsyFeeReconciliationStatus: 'PENDING',
+    etsyFeeReconciliationSource: null,
+    etsyFeeReconciledAt: null,
+    ...overrides,
+  });
+
   const sampleSummary = {
+    unverifiedEtsySales: 0,
     totals: {
       salesCount: 1,
       totalRevenue: 35,
@@ -215,6 +230,74 @@ describe('Sales', () => {
         expect(screen.getByText('Stock Cost')).toBeInTheDocument();
       });
     });
+
+    it('shows not checked attribution without turning unknown fees into zero', async () => {
+      const user = userEvent.setup();
+      mockSalesList.mockResolvedValue({ sales: [saleWithFeeEvidence()], total: 1 });
+      render(<Sales />);
+
+      await waitFor(() => {
+        expect(screen.getByText(/Chocolate Lovers/)).toBeInTheDocument();
+      });
+      await user.click(screen.getByText(/Chocolate Lovers/));
+
+      expect(screen.getByText('Offsite Ads: Not checked')).toBeInTheDocument();
+      expect(screen.queryByText('Offsite Ads fee: £0.00')).not.toBeInTheDocument();
+    });
+
+    it('shows verified no attribution and statement source', async () => {
+      const user = userEvent.setup();
+      mockSalesList.mockResolvedValue({
+        sales: [saleWithFeeEvidence({
+          offsiteAdsAttributed: false,
+          offsiteAdsFee: 0,
+          vatOnOffsiteAdsFee: 0,
+          etsyFeeReconciliationStatus: 'STATEMENT_VERIFIED',
+          etsyFeeReconciliationSource: 'ETSY_STATEMENT',
+          etsyFeeReconciledAt: '2024-02-01T10:00:00Z',
+        })],
+        total: 1,
+      });
+      render(<Sales />);
+
+      await waitFor(() => {
+        expect(screen.getByText(/Chocolate Lovers/)).toBeInTheDocument();
+      });
+      await user.click(screen.getByText(/Chocolate Lovers/));
+
+      expect(screen.getByText('Offsite Ads: No')).toBeInTheDocument();
+      expect(screen.getByText('Status: Statement verified')).toBeInTheDocument();
+      expect(screen.getByText('Source: Etsy statement')).toBeInTheDocument();
+      expect(screen.getByText('Offsite Ads fee: £0.00')).toBeInTheDocument();
+      expect(screen.getByText('VAT on Offsite Ads fee: £0.00')).toBeInTheDocument();
+    });
+
+    it('shows verified attribution with Offsite fee, VAT, and Payment source', async () => {
+      const user = userEvent.setup();
+      mockSalesList.mockResolvedValue({
+        sales: [saleWithFeeEvidence({
+          offsiteAdsAttributed: true,
+          offsiteAdsFee: 4.8,
+          vatOnOffsiteAdsFee: 0.96,
+          etsyFeeReconciliationStatus: 'PAYMENT_SYNCED',
+          etsyFeeReconciliationSource: 'ETSY_PAYMENT_API',
+          etsyFeeReconciledAt: '2024-02-01T10:00:00Z',
+        })],
+        total: 1,
+      });
+      render(<Sales />);
+
+      await waitFor(() => {
+        expect(screen.getByText(/Chocolate Lovers/)).toBeInTheDocument();
+      });
+      await user.click(screen.getByText(/Chocolate Lovers/));
+
+      expect(screen.getByText('Offsite Ads: Yes')).toBeInTheDocument();
+      expect(screen.getByText('Offsite Ads fee: £4.80')).toBeInTheDocument();
+      expect(screen.getByText('VAT on Offsite Ads fee: £0.96')).toBeInTheDocument();
+      expect(screen.getByText('Status: Payment synced')).toBeInTheDocument();
+      expect(screen.getByText('Source: Etsy Payment API')).toBeInTheDocument();
+    });
   });
 
   describe('summary toggle', () => {
@@ -239,6 +322,19 @@ describe('Sales', () => {
         expect(screen.getByText('Sales Summary')).toBeInTheDocument();
         expect(screen.getByText('Total Sales')).toBeInTheDocument();
       });
+    });
+
+    it('warns when Etsy sales still need statement verification', async () => {
+      const user = userEvent.setup();
+      mockSalesSummary.mockResolvedValue({ ...sampleSummary, unverifiedEtsySales: 12 });
+      render(<Sales />);
+
+      await waitFor(() => {
+        expect(screen.getByTitle('Toggle summary')).toBeInTheDocument();
+      });
+      await user.click(screen.getByTitle('Toggle summary'));
+
+      expect(screen.getByText('12 Etsy sales in this period still need statement verification')).toBeInTheDocument();
     });
   });
 

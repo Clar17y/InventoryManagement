@@ -10,6 +10,7 @@ import DateSearchFilter from '../../../components/filters/DateSearchFilter'
 import type { Sale, SaleChannel, SalesSummary } from '../../../lib/api'
 import { formatCurrency } from '../../../lib/formatting'
 import MarginBadge from './MarginBadge'
+import EtsyFeeDetails from './EtsyFeeDetails'
 import { channelColors, channelLabels } from '../constants'
 import { formatDate } from '../utils'
 
@@ -98,6 +99,12 @@ export default function SalesListView({
       />
 
       {error && <div className="alert-danger">{error}</div>}
+
+      {(summary?.unverifiedEtsySales ?? 0) > 0 && (
+        <div className="card border-amber-200 bg-amber-50 text-sm text-amber-800">
+          {summary?.unverifiedEtsySales} Etsy sales in this period still need statement verification
+        </div>
+      )}
 
       {/* Sales Summary */}
       {showSummary && summary && (
@@ -234,6 +241,8 @@ export default function SalesListView({
                       </div>
                     )}
                   </div>
+
+                  {sale.saleChannel === 'etsy' && <EtsyFeeDetails sale={sale} />}
 
                   {/* Postage breakdown */}
                   {(Number(sale.postageCharged) > 0 || Number(sale.postageCost) > 0) && (

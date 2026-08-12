@@ -96,6 +96,19 @@ export interface EtsyReceipt {
   transactions: EtsyTransaction[];
 }
 
+/** Aggregate payment values returned by Etsy's read-only receipt payments endpoint. */
+export interface EtsyPayment {
+  payment_id: number;
+  receipt_id: number;
+  currency: string;
+  amount_gross: EtsyMoney;
+  amount_fees: EtsyMoney;
+  amount_net: EtsyMoney;
+  adjusted_gross: EtsyMoney;
+  adjusted_fees: EtsyMoney;
+  adjusted_net: EtsyMoney;
+}
+
 export interface EtsyTransactionVariation {
   property_id: number;
   value_id: number;
@@ -177,6 +190,7 @@ export interface IEtsyClient {
     minCreated?: number,
     limit?: number
   ): Promise<{ receipts: EtsyReceipt[]; count: number }>;
+  getPaymentsForReceipt(receiptId: number): Promise<EtsyPayment[]>;
   isConnected(): Promise<boolean>;
   disconnect(): Promise<void>;
 }
@@ -221,6 +235,7 @@ export interface MockEtsyClientConfig {
   listings?: EtsyListing[];
   inventoryByListingId?: Map<number, EtsyInventory>;
   receipts?: EtsyReceipt[];
+  paymentsByReceiptId?: Map<number, EtsyPayment[]>;
 }
 
 // =============================================================================

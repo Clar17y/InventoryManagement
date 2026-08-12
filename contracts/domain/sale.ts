@@ -2,6 +2,10 @@ import { z } from 'zod'
 import { cuidSchema, decimalSchema, isoDateTimeSchema } from '../http/primitives'
 import { hamperBaseSchema } from './hamper'
 import { productSchema } from './product'
+import {
+  etsyFeeReconciliationSourceSchema,
+  etsyFeeReconciliationStatusSchema,
+} from './etsyFees'
 
 export const saleChannelSchema = z.enum(['etsy', 'direct', 'fair'])
 
@@ -65,6 +69,16 @@ export const saleSchema = z.object({
   processingFee: decimalSchema,
   vatOnProcessingFee: decimalSchema,
   listingFee: decimalSchema,
+  offsiteAdsAttributed: z.boolean().nullable(),
+  offsiteAdsFee: decimalSchema.nullable(),
+  vatOnOffsiteAdsFee: decimalSchema.nullable(),
+  etsyPaymentGross: decimalSchema.nullable(),
+  etsyPaymentFees: decimalSchema.nullable(),
+  etsyPaymentNet: decimalSchema.nullable(),
+  etsyFeeReconciliationStatus: etsyFeeReconciliationStatusSchema,
+  etsyFeeReconciliationSource: etsyFeeReconciliationSourceSchema.nullable(),
+  etsyFeeReconciledAt: isoDateTimeSchema.nullable(),
+  etsyStatementImportId: cuidSchema.nullable(),
   packagingOverhead: decimalSchema,
   netRevenue: decimalSchema,
   totalCost: decimalSchema,

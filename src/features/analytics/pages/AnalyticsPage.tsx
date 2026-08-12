@@ -127,6 +127,12 @@ export default function Analytics() {
         </div>
       )}
 
+      {(sales?.unverifiedEtsySales ?? 0) > 0 && (
+        <div className="card border-amber-200 bg-amber-50 text-sm text-amber-800">
+          {sales?.unverifiedEtsySales} Etsy sales in this period still need statement verification
+        </div>
+      )}
+
       <OverviewCards data={overview} loading={loading} />
 
       {tab === 'overview' && (

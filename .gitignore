@@ -42,6 +42,8 @@ backups/
 # AI agent working directories
 .agent/
 .claude/
+.superpowers/sdd/
+.worktrees/
 
 # Business data files
 *.xlsx

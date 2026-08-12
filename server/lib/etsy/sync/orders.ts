@@ -16,10 +16,123 @@ import { getListingInventoryCached } from '../inventoryCache';
 import { hasDuplicateEtsySku } from '../matching';
 import type { EtsyTransaction } from '../types';
 import { decodeHtmlEntities } from '../utils';
+import {
+  applyPaymentReconciliation,
+  previewPaymentReconciliation,
+} from '../fees/paymentReconciliation';
+import { createPrismaFeeReconciliationRepository } from '../fees/reconciliationService';
+import type { EtsyOrderFeeReconciliation } from '#contracts/domain/etsy';
 
 type AllocationOverride = Array<{ lotId: string; quantity: number }>
 type AllocationOverridesByNeedKey = Record<string, AllocationOverride>
 type SkuFallbackSafetyCache = Map<string, Promise<boolean>>
+
+/**
+ * Reconcile one newly-created Etsy sale after its stock/sale transaction has
+ * committed. Payment lookup and normalization are deliberately best effort:
+ * a failed lookup must never undo a successful local import.
+ */
+async function reconcileImportedSaleFees(
+  saleId: string,
+  receiptId: number,
+): Promise<EtsyOrderFeeReconciliation> {
+  try {
+    const db = createPrismaFeeReconciliationRepository(prisma);
+    const input = { receiptIds: [String(receiptId)] };
+    const preview = await previewPaymentReconciliation(input, {
+      client: etsyClient,
+      db,
+    });
+    const change = preview.changes.find((candidate) => candidate.receiptId === String(receiptId));
+    const failure = preview.failures.find((candidate) => candidate.receiptId === String(receiptId));
+    let status = change?.newStatus ?? failure?.status ?? 'PENDING';
+    let message = failure?.message ?? change?.message;
+
+    // Only validated Payment evidence is allowed to update canonical money.
+    // The apply path refetches evidence and checks the sale snapshot fingerprint.
+    if (status === 'PAYMENT_SYNCED' && preview.canApplyCanonicalFees) {
+      const applied = await applyPaymentReconciliation(
+        { receiptIds: input.receiptIds, fingerprint: preview.fingerprint },
+        { client: etsyClient, db },
+      );
+      const appliedChange = applied.changes.find((candidate) => candidate.receiptId === String(receiptId));
+      status = appliedChange?.newStatus ?? status;
+      message = applied.failures.find((candidate) => candidate.receiptId === String(receiptId))?.message
+        ?? appliedChange?.message
+        ?? message;
+    }
+
+    // Invalid/ambiguous Payment evidence is retained as a manual-review state.
+    // This update is outside the import transaction and is itself best effort.
+    if (status === 'MANUAL_REVIEW') {
+      try {
+        await prisma.sale.updateMany({
+          where: {
+            id: saleId,
+            etsyFeeReconciliationStatus: { not: 'STATEMENT_VERIFIED' },
+          },
+          data: {
+            etsyFeeReconciliationStatus: 'MANUAL_REVIEW',
+            etsyFeeReconciliationSource: 'ETSY_PAYMENT_API',
+            etsyFeeReconciledAt: new Date(),
+          },
+        });
+
+        // Statement reconciliation is authoritative. Re-read after the
+        // guarded write so a concurrent statement update wins in the result
+        // returned to the importer as well as in the database.
+        const authoritativeSale = await prisma.sale.findUnique({
+          where: { id: saleId },
+          select: { etsyFeeReconciliationStatus: true },
+        });
+        if (authoritativeSale) {
+          status = authoritativeSale.etsyFeeReconciliationStatus;
+        }
+      } catch (error) {
+        const updateMessage = error instanceof Error ? error.message : String(error);
+        logWorkflow('IMPORT:RECONCILIATION', 'Could not persist manual Payment review status', {
+          saleId,
+          receiptId,
+          error: updateMessage,
+        });
+        message = message ? `${message}; ${updateMessage}` : updateMessage;
+      }
+    }
+
+    return message ? { status, message } : { status };
+  } catch (error) {
+    logWorkflow('IMPORT:RECONCILIATION', 'Payment reconciliation failed', {
+      saleId,
+      receiptId,
+      error: error instanceof Error ? { message: error.message, stack: error.stack } : error,
+    });
+    return {
+      status: 'PENDING',
+      message: error instanceof Error ? error.message : 'Payment reconciliation unavailable',
+    };
+  }
+}
+
+/**
+ * Start best-effort Payment reconciliation after the committed import has
+ * returned its response. The scheduler owns the final rejection boundary so
+ * an unexpected reconciliation error cannot become an unhandled rejection.
+ */
+export function scheduleImportedSaleFeeReconciliation(saleId: string, receiptId: number): void {
+  setTimeout(() => {
+    void reconcileImportedSaleFees(saleId, receiptId).catch((error: unknown) => {
+      try {
+        logWorkflow('IMPORT:RECONCILIATION', 'Unexpected scheduled Payment reconciliation failure', {
+          saleId,
+          receiptId,
+          error: error instanceof Error ? { message: error.message, stack: error.stack } : error,
+        });
+      } catch {
+        // Logging is best effort; never let the terminal boundary reject again.
+      }
+    });
+  }, 0);
+}
 
 async function canUseSkuFallbackForTransaction(
   tx: Pick<EtsyTransaction, 'listing_id' | 'sku'>,
@@ -889,6 +1002,7 @@ export async function importOrder(
           vatOnProcessingFee: fees.vatOnProcessingFee,
           listingFee: fees.listingFee,
           etsyFees: fees.etsyFees,
+          etsyFeeReconciliationStatus: 'PENDING',
           postageCost,
           postageCharged,
           packagingOverhead,
@@ -954,6 +1068,9 @@ export async function importOrder(
       })),
     });
 
+    scheduleImportedSaleFeeReconciliation(saleResult.id, receiptId);
+    const feeReconciliation: EtsyOrderFeeReconciliation = { status: 'PENDING' };
+
     endLogSession(sessionId, {
       success: true,
       saleId: saleResult.id,
@@ -970,6 +1087,7 @@ export async function importOrder(
         margin: Number(saleResult.margin),
         lines: saleLinesResult.length,
       },
+      feeReconciliation,
       warnings:
         variantFallbackWarnings.length > 0 ? variantFallbackWarnings : undefined,
     };
@@ -1042,6 +1160,7 @@ export async function importOrdersBulk(
       receiptId: number;
       success: boolean;
       saleId?: string;
+      feeReconciliation?: EtsyOrderFeeReconciliation;
       error?: string;
     }> = [];
 
@@ -1078,10 +1197,13 @@ export async function importOrdersBulk(
           feeConfig,
           packagingOverhead
         );
+        scheduleImportedSaleFeeReconciliation(saleResult.id, receiptId);
+        const feeReconciliation: EtsyOrderFeeReconciliation = { status: 'PENDING' };
         results.push({
           receiptId,
           success: true,
           saleId: saleResult.id,
+          feeReconciliation,
         });
       } catch (err) {
         results.push({
@@ -1374,6 +1496,7 @@ async function processReceiptImport(
         vatOnProcessingFee: fees.vatOnProcessingFee,
         listingFee: fees.listingFee,
         etsyFees: fees.etsyFees,
+        etsyFeeReconciliationStatus: 'PENDING',
         postageCost,
         postageCharged,
         packagingOverhead,

@@ -95,6 +95,7 @@ export const salesListResponseSchema = z.object({
 })
 
 export const salesSummaryResponseSchema = z.object({
+  unverifiedEtsySales: z.number().int().nonnegative(),
   totals: z.object({
     salesCount: z.number().int().nonnegative(),
     totalRevenue: z.number().finite().nonnegative(),
@@ -126,6 +127,7 @@ export const salesMarginAnalyticsResponseSchema = z.object({
   }),
   summary: z.object({
     salesCount: z.number().int().nonnegative(),
+    unverifiedEtsySales: z.number().int().nonnegative(),
     totalRevenue: z.number().finite().nonnegative(),
     totalPostageCharged: z.number().finite().nonnegative(),
     totalPostageCost: z.number().finite().nonnegative(),

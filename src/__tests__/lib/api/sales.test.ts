@@ -37,6 +37,16 @@ describe('sales API', () => {
     processingFee: 1.6,
     vatOnProcessingFee: 0.32,
     listingFee: 0.15,
+    offsiteAdsAttributed: null,
+    offsiteAdsFee: null,
+    vatOnOffsiteAdsFee: null,
+    etsyPaymentGross: null,
+    etsyPaymentFees: null,
+    etsyPaymentNet: null,
+    etsyFeeReconciliationStatus: 'PENDING',
+    etsyFeeReconciliationSource: null,
+    etsyFeeReconciledAt: null,
+    etsyStatementImportId: null,
     packagingOverhead: 1.5,
     netRevenue: 30.5,
     totalCost: 15,
@@ -190,6 +200,7 @@ describe('sales API', () => {
 
   describe('summary', () => {
     const sampleSummary: SalesSummary = {
+      unverifiedEtsySales: 0,
       totals: {
         salesCount: 10,
         totalRevenue: 350,
@@ -232,6 +243,7 @@ describe('sales API', () => {
       period: { days: 30, startDate: '2024-01-01', endDate: '2024-01-31' },
       summary: {
         salesCount: 10,
+        unverifiedEtsySales: 0,
         totalRevenue: 350,
         totalPostageCharged: 50,
         totalPostageCost: 35,

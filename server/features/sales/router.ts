@@ -1,5 +1,6 @@
 import { Router } from 'express'
 import { z } from 'zod'
+import type { EtsyFeeReconciliationStatus } from '@prisma/client'
 import { prisma } from '../../lib/prisma'
 import { allocateStockForRequirement, allocateStockForVariantRequirement, type AllocationLine } from '../../lib/sales/allocation'
 import { calculateEtsyFees, calculatePackagingOverhead } from '../../lib/sales/fees'
@@ -8,6 +9,14 @@ import { groupSalesByChannel, groupSalesByHamper } from '../../lib/sales/groupin
 import { salesCreateBodySchema, salesPreviewBodySchema } from '#contracts/routes/sales'
 
 const router = Router()
+
+export function getEtsyFeeReconciliationStatus(
+  saleChannel: string,
+  etsyOrderId?: string | null,
+): EtsyFeeReconciliationStatus {
+  if (saleChannel !== 'etsy') return 'NOT_APPLICABLE'
+  return /^[0-9]+$/u.test(etsyOrderId?.trim() ?? '') ? 'PENDING' : 'MANUAL_REVIEW'
+}
 
 // POST preview sale allocation (before confirming)
 router.post('/preview', async (req, res) => {
@@ -168,6 +177,12 @@ router.post('/', async (req, res) => {
 
     // Calculate packaging overhead
     const packagingOverhead = calculatePackagingOverhead(overheads)
+
+    const etsyOrderId = data.etsyOrderId?.trim() || undefined
+    const etsyFeeReconciliationStatus = getEtsyFeeReconciliationStatus(
+      data.saleChannel,
+      etsyOrderId,
+    )
 
     // Net revenue = gross + postage - fees - overhead
     // Note: For Etsy, postageCharged is what we receive, but postageCost is what we pay
@@ -341,7 +356,8 @@ router.post('/', async (req, res) => {
           netRevenue,
           totalCost,
           margin,
-          etsyOrderId: data.etsyOrderId,
+          etsyOrderId,
+          etsyFeeReconciliationStatus,
           notes: data.notes,
           isHistorical: data.isHistorical,
           lines: {
@@ -438,14 +454,23 @@ router.get('/summary', async (req, res) => {
 
     const where = buildSalesWhereClause({ startDate, endDate, search })
 
-    const sales = await prisma.sale.findMany({
-      where,
-      include: {
-        lines: {
-          include: { hamper: true },
+    const [sales, unverifiedEtsySales] = await Promise.all([
+      prisma.sale.findMany({
+        where,
+        include: {
+          lines: {
+            include: { hamper: true },
+          },
         },
-      },
-    })
+      }),
+      prisma.sale.count({
+        where: {
+          ...where,
+          saleChannel: 'etsy',
+          etsyFeeReconciliationStatus: { not: 'STATEMENT_VERIFIED' },
+        },
+      }),
+    ])
 
     const totals = {
       salesCount: sales.length,
@@ -458,6 +483,7 @@ router.get('/summary', async (req, res) => {
     }
 
     res.json({
+      unverifiedEtsySales,
       totals,
       byChannel: groupSalesByChannel(sales),
       byHamper: groupSalesByHamper(sales),
@@ -517,6 +543,10 @@ router.get('/analytics/margins', async (req, res) => {
       orderBy: { saleDate: 'asc' },
     })
 
+    const unverifiedEtsySales = sales.filter(
+      (sale) => sale.saleChannel === 'etsy' && sale.etsyFeeReconciliationStatus !== 'STATEMENT_VERIFIED',
+    ).length
+
     const totalRevenue = sales.reduce((sum, s) => sum + Number(s.grossRevenue), 0)
     const totalPostageCharged = sales.reduce((sum, s) => sum + Number(s.postageCharged), 0)
     const totalPostageCost = sales.reduce((sum, s) => sum + Number(s.postageCost), 0)
@@ -532,6 +562,7 @@ router.get('/analytics/margins', async (req, res) => {
       period: { days: Number(days), startDate, endDate: new Date() },
       summary: {
         salesCount: sales.length,
+        unverifiedEtsySales,
         totalRevenue,
         totalPostageCharged,
         totalPostageCost,

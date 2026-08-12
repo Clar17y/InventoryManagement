@@ -81,6 +81,8 @@ describe('analytics API', () => {
         postage: 0,
         stock: 0,
         packaging: 0,
+        offsiteAds: 0,
+        offsiteAdsVat: 0,
       },
       marginByHamper: [{ name: 'Hamper', revenue: 100, profit: 40, marginPercent: 40 }],
     }
@@ -99,6 +101,7 @@ describe('analytics API', () => {
 
   describe('sales', () => {
     const sample: AnalyticsSalesResponse = {
+      unverifiedEtsySales: 0,
       volumeTrend: [{ date: '2024-01-01', count: 1, revenue: 20 }],
       bestSellers: [{ name: 'Hamper', unitsSold: 1, revenue: 20 }],
       byChannel: [{ channel: 'etsy', count: 1, revenue: 20, profit: 10 }],

@@ -22,7 +22,7 @@ function formatShortDate(label: string) {
   return d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short' })
 }
 
-const feeColors = ['#16a34a', '#0ea5e9', '#a855f7', '#f59e0b', '#ef4444', '#64748b', '#334155']
+const feeColors = ['#16a34a', '#0ea5e9', '#a855f7', '#f59e0b', '#ef4444', '#64748b', '#334155', '#c2410c', '#7c3aed']
 
 export default function ProfitCharts({ data }: { data: AnalyticsProfitResponse | null }) {
   if (!data) {
@@ -41,6 +41,8 @@ export default function ProfitCharts({ data }: { data: AnalyticsProfitResponse |
     { name: 'Postage', value: data.feeBreakdown.postage },
     { name: 'Stock (COGS)', value: data.feeBreakdown.stock },
     { name: 'Packaging', value: data.feeBreakdown.packaging },
+    { name: 'Offsite Ads', value: data.feeBreakdown.offsiteAds },
+    { name: 'VAT on Offsite Ads', value: data.feeBreakdown.offsiteAdsVat },
   ].filter((d) => Number(d.value) > 0)
 
   const hasNetProfit = data.dailyTrend.every((p) => typeof p.netProfit === 'number')

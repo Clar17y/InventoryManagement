@@ -231,4 +231,37 @@ describe('RealEtsyClient request safety', () => {
     );
     expect(refreshCalls).toHaveLength(1);
   });
+
+  it('gets receipt payments using a read-only GET', async () => {
+    const paymentFixture = {
+      payment_id: 9001,
+      receipt_id: 4137418052,
+      currency: 'GBP',
+      amount_gross: { amount: 3999, divisor: 100, currency_code: 'GBP' },
+      amount_fees: { amount: 976, divisor: 100, currency_code: 'GBP' },
+      amount_net: { amount: 3023, divisor: 100, currency_code: 'GBP' },
+      adjusted_gross: { amount: 0, divisor: 100, currency_code: 'GBP' },
+      adjusted_fees: { amount: 0, divisor: 100, currency_code: 'GBP' },
+      adjusted_net: { amount: 0, divisor: 100, currency_code: 'GBP' },
+    };
+    const fetchMock = vi.fn(async () =>
+      jsonResponse({ results: [paymentFixture], count: 1 })
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    const client = new RealEtsyClient();
+
+    await client.getPaymentsForReceipt(4137418052);
+
+    const [url, options] = fetchMock.mock.calls[0]! as unknown as [string, RequestInit | undefined];
+    expect(String(url)).toContain(
+      '/application/shops/shop-1/receipts/4137418052/payments'
+    );
+    expect(options?.method ?? 'GET').toBe('GET');
+    expect(
+      (fetchMock.mock.calls as unknown as Array<[unknown, unknown]>).every(([, requestOptions]) => {
+        const method = (requestOptions as unknown as RequestInit | undefined)?.method ?? 'GET';
+        return !['PUT', 'POST', 'PATCH', 'DELETE'].includes(method);
+      })
+    ).toBe(true);
+  });
 });

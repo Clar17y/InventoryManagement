@@ -7,6 +7,7 @@ import {
   EtsyListingWithInventory,
   EtsyInventory,
   EtsyReceipt,
+  EtsyPayment,
   EtsyInventoryUpdateProduct,
   EtsyTokenResponse,
   EtsyCredentialsRecord,
@@ -358,6 +359,21 @@ export class RealEtsyClient implements IEtsyClient {
       count: number;
     }>(url);
     return { receipts: response.results || [], count: response.count };
+  }
+
+  async getPaymentsForReceipt(receiptId: number): Promise<EtsyPayment[]> {
+    const credentials = await this.getCredentialsInternal();
+    if (!credentials) {
+      throw new EtsyApiError(401, 'Not connected to Etsy');
+    }
+
+    const response = await this.request<{
+      results: EtsyPayment[];
+      count: number;
+    }>(
+      `/application/shops/${credentials.shopId}/receipts/${receiptId}/payments`
+    );
+    return response.results ?? [];
   }
 
   async isConnected(): Promise<boolean> {

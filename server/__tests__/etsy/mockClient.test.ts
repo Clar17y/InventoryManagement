@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { MockEtsyClient } from '../../lib/etsy/mockClient';
-import { EtsyApiError } from '../../lib/etsy/types';
+import { EtsyApiError, type EtsyPayment } from '../../lib/etsy/types';
 import {
   SINGLE_VARIANT_LISTING,
   SINGLE_VARIANT_INVENTORY,
@@ -171,6 +171,44 @@ describe('MockEtsyClient', () => {
     it('respects limit', async () => {
       const { receipts } = await client.getReceipts(undefined, 2);
       expect(receipts.length).toBeLessThanOrEqual(2);
+    });
+  });
+
+  describe('getPaymentsForReceipt', () => {
+    it('returns cloned configured payment fixtures without mutating the mock', async () => {
+      const payment: EtsyPayment = {
+        payment_id: 9001,
+        receipt_id: 4137418052,
+        currency: 'GBP',
+        amount_gross: { amount: 3999, divisor: 100, currency_code: 'GBP' },
+        amount_fees: { amount: 976, divisor: 100, currency_code: 'GBP' },
+        amount_net: { amount: 3023, divisor: 100, currency_code: 'GBP' },
+        adjusted_gross: { amount: 0, divisor: 100, currency_code: 'GBP' },
+        adjusted_fees: { amount: 0, divisor: 100, currency_code: 'GBP' },
+        adjusted_net: { amount: 0, divisor: 100, currency_code: 'GBP' },
+      };
+      const customClient = new MockEtsyClient({
+        paymentsByReceiptId: new Map([[payment.receipt_id, [payment]]]),
+      });
+
+      const first = await customClient.getPaymentsForReceipt(payment.receipt_id);
+      first[0]!.amount_gross.amount = 1;
+      const second = await customClient.getPaymentsForReceipt(payment.receipt_id);
+
+      expect(second).toEqual([payment]);
+      await expect(customClient.getPaymentsForReceipt(99999)).resolves.toEqual([]);
+    });
+
+    it('honors the connection and error guards', async () => {
+      const customClient = new MockEtsyClient({ errorMode: '404' });
+      await expect(customClient.getPaymentsForReceipt(4137418052)).rejects.toMatchObject({
+        status: 404,
+      });
+      customClient.setErrorMode(null);
+      customClient.setConnected(false);
+      await expect(customClient.getPaymentsForReceipt(4137418052)).rejects.toMatchObject({
+        status: 401,
+      });
     });
   });
 

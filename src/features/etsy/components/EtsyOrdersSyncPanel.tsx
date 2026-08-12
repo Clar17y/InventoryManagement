@@ -6,10 +6,19 @@ import {
   LinkIcon,
   XMarkIcon,
 } from '@heroicons/react/24/outline'
-import { etsy, EtsyPendingOrder, EtsyStatus, inventory, settings, type CategoryLot } from '../../../lib/api'
+import {
+  etsy,
+  EtsyOrderFeeReconciliation,
+  EtsyPendingOrder,
+  EtsyStatus,
+  inventory,
+  settings,
+  type CategoryLot,
+} from '../../../lib/api'
 import { ApiError } from '../../../lib/api/request'
 import OverrideEditor from '../../sales/components/OverrideEditor'
 import type { LotOverride } from '../../sales/types'
+import EtsyFeeReconciliationPanel from './EtsyFeeReconciliationPanel'
 import EtsyPendingOrdersList from './EtsyPendingOrdersList'
 
 type InsufficientStockShortage = {
@@ -52,6 +61,10 @@ function isInsufficientStockErrorBody(body: unknown): body is InsufficientStockE
   })
 }
 
+function feesAreChecked(status: EtsyOrderFeeReconciliation['status']): boolean {
+  return status === 'PAYMENT_SYNCED' || status === 'STATEMENT_VERIFIED'
+}
+
 interface EtsyOrdersSyncPanelProps {
   isOpen: boolean
   onClose: () => void
@@ -67,8 +80,16 @@ export default function EtsyOrdersSyncPanel({ isOpen, onClose, onImportComplete 
   const [selectedOrders, setSelectedOrders] = useState<Set<number>>(new Set())
   const [importingOrderId, setImportingOrderId] = useState<number | null>(null)
   const [importingSelected, setImportingSelected] = useState(false)
-  const [lastImport, setLastImport] = useState<{ receiptId: number; saleId: string } | null>(null)
-  const [bulkImportResult, setBulkImportResult] = useState<{ imported: number; failed: number } | null>(null)
+  const [lastImport, setLastImport] = useState<{
+    receiptId: number
+    saleId: string
+    feeReconciliation: EtsyOrderFeeReconciliation
+  } | null>(null)
+  const [bulkImportResult, setBulkImportResult] = useState<{
+    imported: number
+    failed: number
+    feesPending: number
+  } | null>(null)
   const [isHistorical, setIsHistorical] = useState(false)
   const pendingOrdersLoadingRef = useRef(false)
   const [pendingOrdersLoading, setPendingOrdersLoading] = useState(false)
@@ -255,7 +276,7 @@ export default function EtsyOrdersSyncPanel({ isOpen, onClose, onImportComplete 
 
     try {
       const result = await etsy.importOrder({ receiptId, postageCost, isHistorical })
-      setLastImport({ receiptId, saleId: result.sale.id })
+      setLastImport({ receiptId, saleId: result.sale.id, feeReconciliation: result.feeReconciliation })
       setPendingOrders((prev) => prev.filter((o) => o.receiptId !== receiptId))
       onImportComplete()
     } catch (err) {
@@ -338,7 +359,11 @@ export default function EtsyOrdersSyncPanel({ isOpen, onClose, onImportComplete 
         allocationOverrides,
       })
 
-      setLastImport({ receiptId: insufficientStock.receiptId, saleId: result.sale.id })
+      setLastImport({
+        receiptId: insufficientStock.receiptId,
+        saleId: result.sale.id,
+        feeReconciliation: result.feeReconciliation,
+      })
       setPendingOrders((prev) => prev.filter((o) => o.receiptId !== insufficientStock.receiptId))
       cancelSubstitutionFlow()
       onImportComplete()
@@ -397,7 +422,10 @@ export default function EtsyOrdersSyncPanel({ isOpen, onClose, onImportComplete 
         onImportComplete()
       }
 
-      setBulkImportResult({ imported: result.imported, failed: result.failed })
+      const feesPending = result.results.filter(
+        (row) => row.success && (!row.feeReconciliation || !feesAreChecked(row.feeReconciliation.status)),
+      ).length
+      setBulkImportResult({ imported: result.imported, failed: result.failed, feesPending })
       if (result.failed > 0) {
         const firstFailed = result.results.find((r) => !r.success)
         if (firstFailed) {
@@ -534,6 +562,9 @@ export default function EtsyOrdersSyncPanel({ isOpen, onClose, onImportComplete 
             <div className="bg-green-50 p-3 rounded-lg text-sm text-green-800">
               <CheckCircleIcon className="h-5 w-5 inline mr-2" />
               Imported order #{lastImport.receiptId} (sale {lastImport.saleId})
+              <span className="ml-2 font-medium">
+                {feesAreChecked(lastImport.feeReconciliation.status) ? 'Fees checked' : 'Fees pending'}
+              </span>
             </div>
           )}
 
@@ -542,6 +573,9 @@ export default function EtsyOrdersSyncPanel({ isOpen, onClose, onImportComplete 
               <CheckCircleIcon className="h-5 w-5 inline mr-2" />
               Imported {bulkImportResult.imported} order(s)
               {bulkImportResult.failed > 0 && ` (${bulkImportResult.failed} failed)`}
+              <span className="ml-2 font-medium">
+                {bulkImportResult.feesPending > 0 ? 'Fees pending' : 'Fees checked'}
+              </span>
             </div>
           )}
 
@@ -618,6 +652,8 @@ export default function EtsyOrdersSyncPanel({ isOpen, onClose, onImportComplete 
                   </button>
                 </div>
               </div>
+
+              <EtsyFeeReconciliationPanel onImportComplete={onImportComplete} />
 
               {/* Historical Mode Toggle */}
               <div className="bg-gray-50 p-3 rounded-lg">

@@ -146,28 +146,22 @@ npx prisma migrate deploy
 
 Save the two query outputs and the disposable database identifier in the change record. If money totals differ, stop and investigate; do not proceed to statement apply.
 
-### Current disposable-check blocker (2026-08-12)
+### Completed disposable check (2026-08-12)
 
-The repository's required disposable migration-preservation check is **BLOCKED/PENDING** until the local Docker Desktop Linux engine responds. The bounded checks below were run from `D:\Code\InventoryManager\.worktrees\etsy-offsite-fee-reconciliation` using only the active `desktop-linux` context:
+After Docker Desktop was restarted, the required preservation exercise passed in the uniquely named local container `inventorymanager-etsy-fee-migration-check-20260812`. PostgreSQL data used a 512 MB `tmpfs`; no host port or persistent volume was used.
 
-```text
-docker --version
-Docker version 28.3.3, build 980b856
+- The exact container name was verified absent before creation.
+- All 17 migrations preceding the reconciliation feature were applied in order.
+- Representative Etsy, direct, and fair sales were seeded.
+- Before totals were: 3 sales, £4.25 Etsy fees, £79.24 net revenue, and £47.24 margin.
+- Both reconciliation migrations were then applied.
+- After totals were identical: 3 sales, £4.25 Etsy fees, £79.24 net revenue, and £47.24 margin.
+- Statuses became Etsy=`PENDING`, direct=`NOT_APPLICABLE`, and fair=`NOT_APPLICABLE`.
+- `EtsyStatementImport` and its complete summary columns were present.
+- A SQL assertion independently verified the money totals and statuses.
+- The exact temporary container was removed and verified absent. Two unrelated running containers were not touched.
 
-docker --context desktop-linux version --format '{{.Server.Version}}'
-TIMEOUT_AFTER_5000MS
-NO_SERVER_VERSION
-
-docker --context desktop-linux ps -aq --filter "name=^inventorymanager-etsy-fee-migration-check-20260812$"
-TIMEOUT_AFTER_5000MS
-NO_CONTAINER_ID_RETURNED
-
-GET /_ping over \\.\pipe\dockerDesktopLinuxEngine (bounded 3-second read)
-PIPE_CONNECT=PASS
-PING_RESPONSE=TIMEOUT_AFTER_3000MS
-```
-
-The exact-name absence precondition is **unverified**, not passed, and no absence claim is made. No `docker create`, `docker run`, `docker exec`, migration, seed, SQL capture, or `docker rm` command was issued; therefore no disposable container or database was created or changed in this attempt. Do not use another Docker context or any production/external database to work around this blocker. Once the local engine responds, repeat the exact-name precheck first; if creation begins, use no persistent volume and remove/verify only `inventorymanager-etsy-fee-migration-check-20260812`.
+This local exercise verifies the migration behavior on representative data. Production still requires immediate authorization and a recorded provider PITR/recovery point before any migration or apply action.
 
 ## 5. Chronological monthly statement previews
 

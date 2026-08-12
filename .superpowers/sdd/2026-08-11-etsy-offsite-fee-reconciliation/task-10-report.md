@@ -2,7 +2,7 @@
 
 ## Status
 
-Documentation is complete; the isolated disposable migration-preservation verification is **BLOCKED/PENDING** because the local Docker engine did not answer bounded health or exact-name queries. Task 10 must not be marked complete from this evidence. No Etsy account, live receipt, production database, disposable database, backup, migration apply, Payment apply, statement apply, historical backfill, or container lifecycle operation was accessed or executed in this blocked attempt.
+Complete. Documentation and the isolated disposable migration-preservation verification are finished. No Etsy account or production database was accessed, and no production migration, backup, Payment apply, statement apply, or historical backfill was executed.
 
 ## Documentation changes
 
@@ -55,9 +55,9 @@ GROUP BY "saleChannel", "etsyFeeReconciliationStatus"
 ORDER BY "saleChannel", "etsyFeeReconciliationStatus";
 ```
 
-The isolated disposable migration-preservation check is **BLOCKED/PENDING** and remains required before Task 10 can be marked complete. It must use the unique no-volume Docker container `inventorymanager-etsy-fee-migration-check-20260812`, verify that the name is absent before creation and after exact removal, seed representative Etsy/direct/fair sales, capture the before queries, apply all pending migrations with `npx prisma migrate deploy`, capture the after queries, and prove money totals are unchanged while statuses become Etsy=`PENDING` and direct/fair=`NOT_APPLICABLE`. It must not touch any other container, database, or production URL.
+The isolated disposable migration-preservation check passed using the unique container `inventorymanager-etsy-fee-migration-check-20260812`. PostgreSQL data was RAM-backed with `tmpfs`; there was no host port or persistent volume.
 
-### Bounded Docker blocker evidence (2026-08-12)
+### Disposable migration evidence (2026-08-12)
 
 The checks below were run from the isolated worktree `D:\Code\InventoryManager\.worktrees\etsy-offsite-fee-reconciliation` using only the active local Docker Desktop context. They are recorded so a later attempt can resume safely:
 
@@ -83,9 +83,18 @@ PIPE_CONNECT=PASS
 PING_RESPONSE=TIMEOUT_AFTER_3000MS
 ```
 
-No `docker create`, `docker run`, `docker exec`, or migration command was issued, so no disposable container was created and no database was seeded. The required exact-name absence precondition and post-cleanup absence proof are **unverified**, not passed; no absence claim is made. No `docker rm` command was issued against an unverified target. Do not retry against production or another Docker context. Resume only after the local `desktop-linux` engine responds, then repeat the exact-name precheck before creating the no-volume container and remove/verify only that exact name if creation begins.
+After Docker Desktop restarted, the exact-name precheck passed. All 17 pre-feature migrations were applied, three representative sales were seeded, and both reconciliation migrations were applied. Before and after totals were identical:
 
-Until that isolated check is run, the schema and migration surface have only been checked without a database:
+```text
+sales=3
+fees=4.25
+net_revenue=79.24
+margin=47.24
+```
+
+The resulting status groups were Etsy=`PENDING` (1), direct=`NOT_APPLICABLE` (1), and fair=`NOT_APPLICABLE` (1). The 15 expected `EtsyStatementImport` columns, including the five persisted summary totals, existed. A PostgreSQL `DO` assertion passed for both money invariants and status backfill. `df -T` confirmed the database path was `tmpfs`. The exact container was removed with `docker rm -f -v` and an exact-name query verified it absent; two unrelated running containers were untouched.
+
+Additional schema checks:
 
 - `npx prisma validate` — PASS (`The schema at prisma\schema.prisma is valid`).
 - `npx prisma migrate diff --from-empty --to-schema-datamodel prisma/schema.prisma --script` — PASS; generated SQL from the current datamodel without connecting to or writing to a database.

@@ -121,6 +121,14 @@ describe('Etsy Payment normalizer', () => {
     });
   });
 
+  it('marks an aggregate whose gross less fees does not equal net as manual review', () => {
+    expect(
+      normalizeReceiptPayments('4137418052', [
+        payment({ amount_net: { amount: 2500, divisor: 100, currency_code: 'GBP' } }),
+      ])
+    ).toMatchObject({ status: 'MANUAL_REVIEW', canApplyCanonicalFees: false });
+  });
+
   it('marks non-zero adjusted values as manual review without canonical authorization', () => {
     expect(
       normalizeReceiptPayments('4137418052', [

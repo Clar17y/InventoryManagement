@@ -155,15 +155,28 @@ export function normalizeReceiptPayments(
     const gross = payments.map((payment) => moneyPence(payment.amount_gross, 'gross payment value'))
     const fees = payments.map((payment) => moneyPence(payment.amount_fees, 'fee payment value'))
     const net = payments.map((payment) => moneyPence(payment.amount_net, 'net payment value'))
+    const grossPence = sumPence(gross, 'Payment gross')
+    const feesPence = sumPence(fees, 'Payment fees')
+    const netPence = sumPence(net, 'Payment net')
+    // Gross less fees must equal net within the documented one-penny rounding
+    // tolerance. An aggregate that fails this is not trustworthy evidence, so it
+    // never reaches the canonical fee write.
+    if (Math.abs(grossPence - feesPence - netPence) > 1) {
+      return manualResult(
+        receiptId,
+        payments.length,
+        'Payment gross, fees, and net do not reconcile within one penny',
+      )
+    }
     const evidence: NormalizedOrderEvidence = {
       receiptId,
       currency: 'GBP',
       attributed: null,
       offsiteAdsFeePence: null,
       vatOnOffsiteAdsFeePence: null,
-      paymentGrossPence: sumPence(gross, 'Payment gross'),
-      paymentFeesPence: sumPence(fees, 'Payment fees'),
-      paymentNetPence: sumPence(net, 'Payment net'),
+      paymentGrossPence: grossPence,
+      paymentFeesPence: feesPence,
+      paymentNetPence: netPence,
       source: PAYMENT_SOURCE,
     }
     return {

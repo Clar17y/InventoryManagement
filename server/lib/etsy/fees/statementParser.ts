@@ -80,7 +80,10 @@ function rowValue(row: Record<string, unknown>, column: string | null): string {
   return value === null || value === undefined ? '' : String(value).trim()
 }
 
-/** Parse a decimal statement value into absolute integer pence. */
+/**
+ * Parse a decimal statement value into signed integer pence. The sign is
+ * retained so a fee credit or reversal cannot be read as a fee charge.
+ */
 function parsePence(value: string, label: string): number | null {
   const trimmed = value.trim()
   if (trimmed === '') return null
@@ -99,7 +102,7 @@ function parsePence(value: string, label: string): number | null {
   if (pence > BigInt(Number.MAX_SAFE_INTEGER)) {
     throw new RangeError(`${label} exceeds the safe integer pence range`)
   }
-  return Number(pence)
+  return trimmed.startsWith('-') ? -Number(pence) : Number(pence)
 }
 
 function parseRows(csv: string): StatementRow[] {
@@ -141,9 +144,18 @@ function selectChargePence(row: StatementRow, receiptId: string, kind: string): 
   if (row.feesAndTaxes === null && row.amount === null) {
     throw new Error(`${kind} row for order ${receiptId} has blank money cells`)
   }
-  return row.feesAndTaxes !== null && row.feesAndTaxes !== 0
+  const signed = row.feesAndTaxes !== null && row.feesAndTaxes !== 0
     ? row.feesAndTaxes
     : (row.amount ?? 0)
+  // Charges are negative on an Etsy statement. A positive value is a credit or
+  // reversal, which cannot be aggregated as a charge without netting it against
+  // the original row, so the operator reconciles that order manually instead.
+  if (signed > 0) {
+    throw new Error(
+      `${kind} row for order ${receiptId} is a credit or reversal and must be reconciled manually`,
+    )
+  }
+  return Math.abs(signed)
 }
 
 function isSaleCoverageRow(row: StatementRow, combinedText: string): boolean {

@@ -210,6 +210,16 @@ describe('Etsy statement parser', () => {
     expect(result.evidenceByReceipt.get('4137418124')).toBeUndefined()
   })
 
+  it('rejects an Offsite Ads fee reversal instead of reading it as another charge', () => {
+    const csv = `Date,Type,Description,Info,Currency,Amount,Fees & Taxes,Net
+31 Jul 2025,Sale,Payment for Order #4137418052,,GBP,39.99,-4.00,35.99
+31 Jul 2025,Marketing,Marketing Fee for sale made through Offsite Ads Order #4137418052,,GBP,0,-4.80,-4.80
+31 Jul 2025,Refund,Refund of Offsite Ads fee Order #4137418052,,GBP,0,4.80,4.80`
+
+    expect(() => parseEtsyStatement({ csv, statementMonth: '2025-07' }))
+      .toThrow(/credit or reversal/i)
+  })
+
   it('requires a Sale or payment-for-order row to establish coverage', () => {
     const csv = `Date,Type,Description,Info,Currency,Amount,Fees & Taxes,Net
 31 Jul 2025,Adjustment,Adjustment for Order #4137418123,,GBP,0,0,0

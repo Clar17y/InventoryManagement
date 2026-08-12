@@ -232,6 +232,8 @@ router.get('/profit', async (req, res) => {
           processingFee: true,
           vatOnProcessingFee: true,
           listingFee: true,
+          offsiteAdsFee: true,
+          vatOnOffsiteAdsFee: true,
           postageCost: true,
           totalCost: true,
           packagingOverhead: true,
@@ -313,6 +315,8 @@ router.get('/profit', async (req, res) => {
     const postage = Number(feesAgg._sum.postageCost) || 0
     const stock = Number(feesAgg._sum.totalCost) || 0
     const packaging = Number(feesAgg._sum.packagingOverhead) || 0
+    const offsiteAds = Number(feesAgg._sum.offsiteAdsFee) || 0
+    const offsiteAdsVat = Number(feesAgg._sum.vatOnOffsiteAdsFee) || 0
 
     const marginByHamper = marginByHamperRows.map((r) => {
       const revenue = toNumber(r.revenue)
@@ -328,7 +332,17 @@ router.get('/profit', async (req, res) => {
 
     res.json({
       dailyTrend,
-      feeBreakdown: { transaction, processing, regulatory, listing, postage, stock, packaging },
+      feeBreakdown: {
+        transaction,
+        processing,
+        regulatory,
+        listing,
+        postage,
+        stock,
+        packaging,
+        offsiteAds,
+        offsiteAdsVat,
+      },
       marginByHamper,
     })
   } catch (error) {
@@ -350,7 +364,7 @@ router.get('/sales', async (req, res) => {
     const query = analyticsPeriodQuerySchema.parse(req.query)
     const period = getPeriod(query)
 
-    const [volumeRows, bestSellerRows, byChannelRows] = await Promise.all([
+    const [volumeRows, bestSellerRows, byChannelRows, unverifiedEtsySales] = await Promise.all([
       prisma.$queryRaw<Array<{ date: string | Date; count: unknown; revenue: unknown }>>`
         SELECT DATE("saleDate") as date,
                COUNT(*) as count,
@@ -385,6 +399,13 @@ router.get('/sales', async (req, res) => {
         _sum: { grossRevenue: true, margin: true },
         _count: true,
       }),
+      prisma.sale.count({
+        where: {
+          saleChannel: 'etsy',
+          saleDate: { gte: period.start, lte: period.end },
+          etsyFeeReconciliationStatus: { not: 'STATEMENT_VERIFIED' },
+        },
+      }),
     ])
 
     const volumeByDate = new Map<string, { count: number; revenue: number }>()
@@ -406,6 +427,7 @@ router.get('/sales', async (req, res) => {
     }
 
     res.json({
+      unverifiedEtsySales,
       volumeTrend,
       bestSellers: bestSellerRows.map((r) => ({
         name: r.name ?? 'Unknown',

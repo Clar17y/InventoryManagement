@@ -462,6 +462,10 @@ router.get('/summary', async (req, res) => {
       },
     })
 
+    const unverifiedEtsySales = sales.filter(
+      (sale) => sale.saleChannel === 'etsy' && sale.etsyFeeReconciliationStatus !== 'STATEMENT_VERIFIED',
+    ).length
+
     const totals = {
       salesCount: sales.length,
       totalRevenue: sales.reduce((sum, s) => sum + Number(s.grossRevenue), 0),
@@ -473,6 +477,7 @@ router.get('/summary', async (req, res) => {
     }
 
     res.json({
+      unverifiedEtsySales,
       totals,
       byChannel: groupSalesByChannel(sales),
       byHamper: groupSalesByHamper(sales),
@@ -532,6 +537,10 @@ router.get('/analytics/margins', async (req, res) => {
       orderBy: { saleDate: 'asc' },
     })
 
+    const unverifiedEtsySales = sales.filter(
+      (sale) => sale.saleChannel === 'etsy' && sale.etsyFeeReconciliationStatus !== 'STATEMENT_VERIFIED',
+    ).length
+
     const totalRevenue = sales.reduce((sum, s) => sum + Number(s.grossRevenue), 0)
     const totalPostageCharged = sales.reduce((sum, s) => sum + Number(s.postageCharged), 0)
     const totalPostageCost = sales.reduce((sum, s) => sum + Number(s.postageCost), 0)
@@ -547,6 +556,7 @@ router.get('/analytics/margins', async (req, res) => {
       period: { days: Number(days), startDate, endDate: new Date() },
       summary: {
         salesCount: sales.length,
+        unverifiedEtsySales,
         totalRevenue,
         totalPostageCharged,
         totalPostageCost,

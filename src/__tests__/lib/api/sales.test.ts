@@ -200,6 +200,7 @@ describe('sales API', () => {
 
   describe('summary', () => {
     const sampleSummary: SalesSummary = {
+      unverifiedEtsySales: 0,
       totals: {
         salesCount: 10,
         totalRevenue: 350,
@@ -242,6 +243,7 @@ describe('sales API', () => {
       period: { days: 30, startDate: '2024-01-01', endDate: '2024-01-31' },
       summary: {
         salesCount: 10,
+        unverifiedEtsySales: 0,
         totalRevenue: 350,
         totalPostageCharged: 50,
         totalPostageCost: 35,

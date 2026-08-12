@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest'
-import { screen, waitFor } from '@testing-library/react'
+import { act, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { render } from '../utils/test-utils'
 
@@ -340,5 +340,91 @@ describe('EtsyFeeReconciliationPanel', () => {
     await user.click(screen.getByRole('button', { name: 'Apply statement changes' }))
 
     await waitFor(() => expect(screen.getByText('This statement was already applied; no writes were made.')).toBeInTheDocument())
+  })
+
+  it('keeps summary refresh disabled until concurrent applies finish reloading status', async () => {
+    const user = userEvent.setup()
+    const firstReload = deferred<typeof summary>()
+    const secondReload = deferred<typeof summary>()
+    mockSummary
+      .mockResolvedValueOnce(summary)
+      .mockReturnValueOnce(firstReload.promise)
+      .mockReturnValueOnce(secondReload.promise)
+    mockPreviewStatement.mockResolvedValueOnce(statementPreviewWithoutRevision)
+    render(<EtsyFeeReconciliationPanel onImportComplete={vi.fn()} />)
+
+    await screen.findByText('2,411 Etsy sales need statement verification')
+    await user.click(screen.getByRole('button', { name: 'Check payment fees' }))
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Apply payment fee changes' })).toBeEnabled())
+
+    await user.type(screen.getByLabelText('Statement month'), '2025-07')
+    await user.upload(screen.getByLabelText('Statement CSV file'), new File(['sanitized,csv'], 'statement.csv', { type: 'text/csv' }))
+    await user.click(screen.getByRole('button', { name: 'Preview statement' }))
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Apply statement changes' })).toBeEnabled())
+
+    await user.click(screen.getByRole('button', { name: 'Apply payment fee changes' }))
+    await waitFor(() => expect(mockSummary).toHaveBeenCalledTimes(2))
+    await user.click(screen.getByRole('button', { name: 'Apply statement changes' }))
+    await waitFor(() => expect(mockSummary).toHaveBeenCalledTimes(3))
+
+    const refreshButton = screen.getByRole('button', { name: /refresh/i })
+    expect(refreshButton).toBeDisabled()
+
+    await act(async () => {
+      firstReload.resolve(summary)
+      await Promise.resolve()
+    })
+    await waitFor(() => expect(refreshButton).toBeDisabled())
+
+    await act(async () => {
+      secondReload.resolve(summary)
+      await Promise.resolve()
+    })
+    await waitFor(() => expect(refreshButton).toBeEnabled())
+  })
+
+  it('ignores an older summary failure after a newer reload succeeds', async () => {
+    const user = userEvent.setup()
+    const olderFailure = deferred<typeof summary>()
+    const newerSuccess = deferred<typeof summary>()
+    const newerSummary = {
+      ...summary,
+      counts: {
+        ...summary.counts,
+        PENDING: 7,
+      },
+    }
+    mockSummary
+      .mockResolvedValueOnce(summary)
+      .mockReturnValueOnce(olderFailure.promise)
+      .mockReturnValueOnce(newerSuccess.promise)
+    mockPreviewStatement.mockResolvedValueOnce(statementPreviewWithoutRevision)
+    render(<EtsyFeeReconciliationPanel onImportComplete={vi.fn()} />)
+
+    await screen.findByText('2,411 Etsy sales need statement verification')
+    await user.click(screen.getByRole('button', { name: 'Check payment fees' }))
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Apply payment fee changes' })).toBeEnabled())
+
+    await user.type(screen.getByLabelText('Statement month'), '2025-07')
+    await user.upload(screen.getByLabelText('Statement CSV file'), new File(['sanitized,csv'], 'statement.csv', { type: 'text/csv' }))
+    await user.click(screen.getByRole('button', { name: 'Preview statement' }))
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Apply statement changes' })).toBeEnabled())
+
+    await user.click(screen.getByRole('button', { name: 'Apply payment fee changes' }))
+    await waitFor(() => expect(mockSummary).toHaveBeenCalledTimes(2))
+    await user.click(screen.getByRole('button', { name: 'Apply statement changes' }))
+    await waitFor(() => expect(mockSummary).toHaveBeenCalledTimes(3))
+
+    await act(async () => {
+      newerSuccess.resolve(newerSummary)
+      await Promise.resolve()
+    })
+    await waitFor(() => expect(screen.getByText('7 Etsy sales need statement verification')).toBeInTheDocument())
+
+    await act(async () => {
+      olderFailure.reject(new Error('stale summary failure'))
+      await Promise.resolve()
+    })
+    await waitFor(() => expect(screen.queryByText('stale summary failure')).not.toBeInTheDocument())
   })
 })

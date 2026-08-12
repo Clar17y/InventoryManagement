@@ -43,6 +43,8 @@ export function useEtsyFeeReconciliation({ onImportComplete }: UseEtsyFeeReconci
   const [summary, setSummary] = useState<SummaryResponse | null>(null)
   const [summaryLoading, setSummaryLoading] = useState(false)
   const [summaryError, setSummaryError] = useState<string | null>(null)
+  const summaryPendingCount = useRef(0)
+  const summaryRequestVersion = useRef(0)
 
   const [paymentPreview, setPaymentPreview] = useState<EtsyPaymentFeePreview | null>(null)
   const [paymentResult, setPaymentResult] = useState<EtsyPaymentFeeApplyResult | null>(null)
@@ -60,17 +62,24 @@ export function useEtsyFeeReconciliation({ onImportComplete }: UseEtsyFeeReconci
   const statementSelectionVersion = useRef(0)
 
   const loadSummary = useCallback(async () => {
+    const requestVersion = ++summaryRequestVersion.current
+    summaryPendingCount.current += 1
     setSummaryLoading(true)
     setSummaryError(null)
     try {
       const result = await etsy.getFeeReconciliationSummary()
-      setSummary(result)
+      if (requestVersion === summaryRequestVersion.current) {
+        setSummary(result)
+      }
       return result
     } catch (loadError) {
-      setSummaryError(errorMessage(loadError, 'Failed to load fee reconciliation status'))
+      if (requestVersion === summaryRequestVersion.current) {
+        setSummaryError(errorMessage(loadError, 'Failed to load fee reconciliation status'))
+      }
       return null
     } finally {
-      setSummaryLoading(false)
+      summaryPendingCount.current -= 1
+      setSummaryLoading(summaryPendingCount.current > 0)
     }
   }, [])
 

@@ -42,3 +42,31 @@ The initial focused run was intentionally red because `EtsyFeeReconciliationPane
 - `npm run build` — PASS.
 - Touched-file ESLint — PASS. Full `npm run lint` still reports the repository's pre-existing errors in `server/lib/etsy/debugLogger.ts`, `server/lib/etsy/inventoryCache.ts`, `server/lib/etsy/mockClient.ts`, and `src/lib/api/request.ts` (plus existing warnings in test-utils/filter/products/sales/auth files).
 - `git diff --check` — PASS (only the repository's existing LF/CRLF conversion warnings).
+
+## Fix round 2 — concurrent summary refreshes
+
+### Status
+
+Complete. No production database, Etsy account, or real Etsy/Payment calls were used.
+
+### Changes
+
+- Summary loading now tracks the number of active reload requests, so Refresh remains disabled until all concurrent Payment/statement-triggered reloads settle.
+- Summary responses and errors are guarded by a monotonically increasing request version. A stale response can no longer replace newer summary data or surface an older error after a newer request succeeds.
+- Added deferred panel regressions for overlapping reload completion and stale failure ordering.
+
+### TDD evidence
+
+- RED: both new regressions failed against the prior hook: the first completed reload re-enabled Refresh while another was pending, and an older failed reload overwrote the newer successful summary with an error.
+- GREEN: the same two tests passed after adding the pending-request counter and request-version guards.
+
+### Fix round 2 verification
+
+- `npm run test:client:run -- src/__tests__/components/EtsyFeeReconciliationPanel.test.tsx src/__tests__/components/EtsySyncPanel.test.tsx src/__tests__/components/EtsyOrdersSyncPanel.test.tsx` — PASS, 3 files / 51 tests.
+- `DATABASE_URL=postgresql://user:pass@localhost:5432/test DIRECT_URL=postgresql://user:pass@localhost:5432/test VITE_SUPABASE_URL=https://example.supabase.co VITE_SUPABASE_ANON_KEY=dummy-anon-key npm run test:client:run` — PASS, 37 files / 544 tests. Existing React act, scanner, and Recharts warnings remain; no test failures.
+- `npx tsc -p tsconfig.json --noEmit` — PASS.
+- `npx tsc -p server/tsconfig.json --noEmit --rootDir .` — PASS.
+- `npm run build` — PASS.
+- `npx eslint src/features/etsy/hooks/useEtsyFeeReconciliation.ts src/__tests__/components/EtsyFeeReconciliationPanel.test.tsx` — PASS.
+- `npm run lint` — BLOCKED only by pre-existing errors in `server/lib/etsy/debugLogger.ts`, `server/lib/etsy/inventoryCache.ts`, `server/lib/etsy/mockClient.ts`, and `src/lib/api/request.ts`; existing warnings are unchanged.
+- `git diff --check` — PASS (Git reports only the repository's existing LF/CRLF conversion warnings).

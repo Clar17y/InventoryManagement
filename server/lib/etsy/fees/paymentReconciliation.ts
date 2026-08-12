@@ -271,10 +271,6 @@ async function buildBatch(
       const result = await reconcileImportedPaymentEvidence(normalized.evidence, previewDb)
       addSummary(summary, result.summary)
       changes.push(...result.changes)
-      if (result.changes[0]?.saleIds.length) {
-        // Keep only fully validated Payment evidence for the eventual apply.
-        evidence[evidence.length - 1] = normalized.evidence
-      }
       continue
     }
 

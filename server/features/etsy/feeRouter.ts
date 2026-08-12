@@ -16,6 +16,7 @@ import {
   StatementReconciliationConflictError,
   createPrismaFeeReconciliationRepository,
   type FeeReconciliationRepository,
+  type FeeReconciliationStatusCount,
   type FeeOrderChange,
   type StatementReconciliationResult,
   type FeeReconciliationPreview,
@@ -33,6 +34,7 @@ export interface EtsyFeeRouterDependencies {
   db?: FeeReconciliationRepository
   paymentClient?: Pick<IEtsyClient, 'getPaymentsForReceipt'>
   summary?: () => Promise<EtsyFeeReconciliationStatusCounts>
+  countEtsyFeeReconciliationStatuses?: () => Promise<FeeReconciliationStatusCount[]>
 }
 
 const RECONCILIATION_STATUSES = [
@@ -140,7 +142,9 @@ function conflictError(res: Response, error: Error) {
   return res.status(409).json({ error: error.message, code: 'RECONCILIATION_CONFLICT' })
 }
 
-function createDefaultSummaryProvider(): () => Promise<EtsyFeeReconciliationStatusCounts> {
+function createDefaultSummaryProvider(
+  aggregate?: () => Promise<FeeReconciliationStatusCount[]>,
+): () => Promise<EtsyFeeReconciliationStatusCounts> {
   return async () => {
     const counts: EtsyFeeReconciliationStatusCounts = {
       NOT_APPLICABLE: 0,
@@ -149,12 +153,19 @@ function createDefaultSummaryProvider(): () => Promise<EtsyFeeReconciliationStat
       STATEMENT_VERIFIED: 0,
       MANUAL_REVIEW: 0,
     }
-    const rows = await prisma.sale.findMany({
-      select: { etsyFeeReconciliationStatus: true },
-    })
+    const rows = await (aggregate ?? (async () => {
+      const grouped = await prisma.sale.groupBy({
+        by: ['etsyFeeReconciliationStatus'],
+        _count: { _all: true },
+      })
+      return grouped.map((row) => ({
+        status: row.etsyFeeReconciliationStatus,
+        count: row._count._all,
+      }))
+    }))()
     for (const row of rows) {
-      if (RECONCILIATION_STATUSES.includes(row.etsyFeeReconciliationStatus)) {
-        counts[row.etsyFeeReconciliationStatus] += 1
+      if (RECONCILIATION_STATUSES.includes(row.status)) {
+        counts[row.status] += row.count
       }
     }
     return counts
@@ -178,7 +189,10 @@ export function createEtsyFeeRouter(overrides: EtsyFeeRouterDependencies = {}) {
   const router = Router()
   const db = overrides.db ?? createPrismaFeeReconciliationRepository(prisma)
   const paymentClient = overrides.paymentClient ?? getEtsyClient()
-  const summary = overrides.summary ?? createDefaultSummaryProvider()
+  const summary = overrides.summary ?? createDefaultSummaryProvider(
+    overrides.countEtsyFeeReconciliationStatuses
+      ?? db.countEtsyFeeReconciliationStatuses?.bind(db),
+  )
 
   router.get('/reconciliation-summary', async (_req, res) => {
     try {

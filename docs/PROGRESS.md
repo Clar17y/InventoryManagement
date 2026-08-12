@@ -310,6 +310,7 @@ npm run test:server:run   # Single run (server only)
 | 2026-08-12 | Codex subagent | Task 9 fix round 2: make summary refresh concurrency-safe | Done | codex/etsy-offsite-fee-reconciliation |
 | 2026-08-12 | Codex subagent | Task 10: Document and exercise the safe historical rollout | Done | codex/etsy-offsite-fee-reconciliation |
 | 2026-08-12 | Codex subagent | Task 10 review follow-up: isolated disposable migration-preservation verification | Blocked/Pending — local Docker engine unresponsive | codex/etsy-offsite-fee-reconciliation |
+| 2026-08-12 | Codex subagent | Final simplify cleanup: fee summary aggregation, payment no-op, shared order contract | Done | codex/etsy-offsite-fee-reconciliation |
 
 
 ---

@@ -305,4 +305,38 @@ describe('Etsy fee reconciliation routes', () => {
       MANUAL_REVIEW: 0,
     })
   })
+
+  it('uses grouped status counts without loading sale snapshots', async () => {
+    const listEtsySaleSnapshots = vi.fn(async () => {
+      throw new Error('status summary must not load sale snapshots')
+    })
+    const countEtsyFeeReconciliationStatuses = vi.fn(async () => ([
+      { status: 'PENDING' as const, count: 3 },
+      { status: 'STATEMENT_VERIFIED' as const, count: 2 },
+    ]))
+    const started = await startRouter({
+      ...dependencies(),
+      db: {
+        ...createFeeDbFixture({ sales: [] }),
+        listEtsySaleSnapshots,
+        countEtsyFeeReconciliationStatuses,
+      },
+      summary: undefined,
+    })
+    activeServer = started.server
+
+    const response = await fetch(`${started.baseUrl}/reconciliation-summary`)
+    const body = await response.json() as { counts: Record<string, number> }
+
+    expect(response.status).toBe(200)
+    expect(body.counts).toEqual({
+      NOT_APPLICABLE: 0,
+      PENDING: 3,
+      PAYMENT_SYNCED: 0,
+      STATEMENT_VERIFIED: 2,
+      MANUAL_REVIEW: 0,
+    })
+    expect(countEtsyFeeReconciliationStatuses).toHaveBeenCalledOnce()
+    expect(listEtsySaleSnapshots).not.toHaveBeenCalled()
+  })
 })

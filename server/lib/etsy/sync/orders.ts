@@ -5,7 +5,7 @@ import {
   allocateStockForVariantRequirement,
 } from '../../sales/allocation';
 import { calculateEtsyFees, calculatePackagingOverhead, SaleChannel } from '../../sales/fees';
-import { PickRule, type EtsyFeeReconciliationStatus } from '@prisma/client';
+import { PickRule } from '@prisma/client';
 import {
   logWorkflow,
   startLogSession,
@@ -21,15 +21,11 @@ import {
   previewPaymentReconciliation,
 } from '../fees/paymentReconciliation';
 import { createPrismaFeeReconciliationRepository } from '../fees/reconciliationService';
+import type { EtsyOrderFeeReconciliation } from '#contracts/domain/etsy';
 
 type AllocationOverride = Array<{ lotId: string; quantity: number }>
 type AllocationOverridesByNeedKey = Record<string, AllocationOverride>
 type SkuFallbackSafetyCache = Map<string, Promise<boolean>>
-
-export interface EtsyFeeReconciliationResult {
-  status: EtsyFeeReconciliationStatus
-  message?: string
-}
 
 /**
  * Reconcile one newly-created Etsy sale after its stock/sale transaction has
@@ -39,7 +35,7 @@ export interface EtsyFeeReconciliationResult {
 async function reconcileImportedSaleFees(
   saleId: string,
   receiptId: number,
-): Promise<EtsyFeeReconciliationResult> {
+): Promise<EtsyOrderFeeReconciliation> {
   try {
     const db = createPrismaFeeReconciliationRepository(prisma);
     const input = { receiptIds: [String(receiptId)] };
@@ -1132,7 +1128,7 @@ export async function importOrdersBulk(
       receiptId: number;
       success: boolean;
       saleId?: string;
-      feeReconciliation?: EtsyFeeReconciliationResult;
+      feeReconciliation?: EtsyOrderFeeReconciliation;
       error?: string;
     }> = [];
 

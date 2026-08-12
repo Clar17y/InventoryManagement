@@ -27,6 +27,11 @@ export interface FeeReconciliationSummary {
   marginDeltaPence: number
 }
 
+export interface FeeReconciliationStatusCount {
+  status: EtsyFeeReconciliationStatus
+  count: number
+}
+
 export interface FeeOrderAllocation {
   saleId: string
   offsiteAdsFeePence: number
@@ -94,6 +99,7 @@ export interface NewStatementImport {
 
 export interface FeeReconciliationRepository {
   listEtsySaleSnapshots(): Promise<SaleFeeSnapshot[]>
+  countEtsyFeeReconciliationStatuses?(): Promise<FeeReconciliationStatusCount[]>
   findStatementImportByChecksum(checksum: string): Promise<SavedStatementImport | null>
   transaction<T>(work: (tx: FeeReconciliationTransaction) => Promise<T>): Promise<T>
 }
@@ -795,6 +801,16 @@ function snapshotFromPrisma(row: {
 
 export function createPrismaFeeReconciliationRepository(prisma: PrismaClient): FeeReconciliationRepository {
   return {
+    async countEtsyFeeReconciliationStatuses() {
+      const rows = await prisma.sale.groupBy({
+        by: ['etsyFeeReconciliationStatus'],
+        _count: { _all: true },
+      })
+      return rows.map((row) => ({
+        status: row.etsyFeeReconciliationStatus,
+        count: row._count._all,
+      }))
+    },
     async listEtsySaleSnapshots() {
       const rows = await prisma.sale.findMany({
         where: { saleChannel: 'etsy' },

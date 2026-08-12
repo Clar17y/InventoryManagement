@@ -8,6 +8,7 @@ import { allocateOrderPence } from './calculations'
 import { fingerprintReconciliationInput } from './fingerprint'
 import { groupSalesByReceipt } from './grouping'
 import { parseEtsyStatement } from './statementParser'
+import { isPaymentFeeValidationEnabled } from './paymentNormalizer'
 import type {
   NormalizedOrderEvidence,
   SaleFeeProposal,
@@ -135,17 +136,19 @@ interface ReconciliationPlan extends FeeReconciliationPreview {
   salePlans: SalePlan[]
 }
 
-const EMPTY_SUMMARY: FeeReconciliationSummary = {
-  matched: 0,
-  changed: 0,
-  unchanged: 0,
-  unmatched: 0,
-  manualReview: 0,
-  attributed: 0,
-  notAttributed: 0,
-  oldFeesPence: 0,
-  newFeesPence: 0,
-  marginDeltaPence: 0,
+export function createEmptyFeeReconciliationSummary(): FeeReconciliationSummary {
+  return {
+    matched: 0,
+    changed: 0,
+    unchanged: 0,
+    unmatched: 0,
+    manualReview: 0,
+    attributed: 0,
+    notAttributed: 0,
+    oldFeesPence: 0,
+    newFeesPence: 0,
+    marginDeltaPence: 0,
+  }
 }
 
 function cloneSummary(summary: FeeReconciliationSummary): FeeReconciliationSummary {
@@ -202,6 +205,28 @@ function proposalChanged(snapshot: SaleFeeSnapshot, proposal: SaleFeeProposal): 
     || (snapshot.etsyPaymentFeesPence ?? null) !== proposal.etsyPaymentFeesPence
     || (snapshot.etsyPaymentNetPence ?? null) !== proposal.etsyPaymentNetPence
     || snapshot.status !== proposal.status
+}
+
+function unchangedProposal(
+  snapshot: SaleFeeSnapshot,
+  status: EtsyFeeReconciliationStatus,
+  source: EtsyFeeReconciliationSource,
+): SaleFeeProposal {
+  return {
+    saleId: snapshot.id,
+    feeDeltaPence: 0,
+    etsyFeesPence: snapshot.etsyFeesPence,
+    netRevenuePence: snapshot.netRevenuePence,
+    marginPence: snapshot.marginPence,
+    offsiteAdsAttributed: null,
+    offsiteAdsFeePence: snapshot.previousOffsiteAdsFeePence,
+    vatOnOffsiteAdsFeePence: snapshot.previousVatOnOffsiteAdsFeePence,
+    etsyPaymentGrossPence: snapshot.etsyPaymentGrossPence ?? null,
+    etsyPaymentFeesPence: snapshot.etsyPaymentFeesPence ?? null,
+    etsyPaymentNetPence: snapshot.etsyPaymentNetPence ?? null,
+    status,
+    source,
+  }
 }
 
 function createUnmatchedChange(receiptId: string, evidence: NormalizedOrderEvidence): FeeOrderChange {
@@ -282,21 +307,7 @@ function buildStatementGroupPlan(
   const plans: SalePlan[] = snapshots.map((snapshot, index) => {
     const allocation = allocations[index]!
     if (paymentContradiction) {
-      const proposal: SaleFeeProposal = {
-        saleId: snapshot.id,
-        feeDeltaPence: 0,
-        etsyFeesPence: snapshot.etsyFeesPence,
-        netRevenuePence: snapshot.netRevenuePence,
-        marginPence: snapshot.marginPence,
-        offsiteAdsAttributed: null,
-        offsiteAdsFeePence: snapshot.previousOffsiteAdsFeePence,
-        vatOnOffsiteAdsFeePence: snapshot.previousVatOnOffsiteAdsFeePence,
-        etsyPaymentGrossPence: snapshot.etsyPaymentGrossPence ?? null,
-        etsyPaymentFeesPence: snapshot.etsyPaymentFeesPence ?? null,
-        etsyPaymentNetPence: snapshot.etsyPaymentNetPence ?? null,
-        status: 'MANUAL_REVIEW',
-        source: 'ETSY_STATEMENT',
-      }
+      const proposal = unchangedProposal(snapshot, 'MANUAL_REVIEW', 'ETSY_STATEMENT')
       return {
         snapshot,
         proposal,
@@ -394,7 +405,7 @@ async function buildStatementPlan(
   const parsed = parseEtsyStatement({ csv: input.csv, statementMonth: input.statementMonth })
   const snapshots = await db.listEtsySaleSnapshots()
   const evidence = [...parsed.evidenceByReceipt.values()]
-  const summary = cloneSummary(EMPTY_SUMMARY)
+  const summary = createEmptyFeeReconciliationSummary()
   const changes: FeeOrderChange[] = []
   const salePlans: SalePlan[] = []
 
@@ -606,7 +617,7 @@ export async function reconcileImportedPaymentEvidence(
   const snapshots = await db.listEtsySaleSnapshots()
   const changes: FeeOrderChange[] = []
   const salePlans: SalePlan[] = []
-  const summary = cloneSummary(EMPTY_SUMMARY)
+  const summary = createEmptyFeeReconciliationSummary()
 
   for (const evidenceItem of evidence) {
     const grouped = groupSalesByReceipt(evidenceItem.receiptId, snapshots)
@@ -620,21 +631,7 @@ export async function reconcileImportedPaymentEvidence(
     const allocatedPayment = allocatePaymentEvidence(evidenceItem, grouped)
     for (const snapshot of grouped) {
       if (snapshot.status === 'STATEMENT_VERIFIED') {
-        const proposal: SaleFeeProposal = {
-          saleId: snapshot.id,
-          feeDeltaPence: 0,
-          etsyFeesPence: snapshot.etsyFeesPence,
-          netRevenuePence: snapshot.netRevenuePence,
-          marginPence: snapshot.marginPence,
-          offsiteAdsAttributed: null,
-          offsiteAdsFeePence: snapshot.previousOffsiteAdsFeePence,
-          vatOnOffsiteAdsFeePence: snapshot.previousVatOnOffsiteAdsFeePence,
-          etsyPaymentGrossPence: snapshot.etsyPaymentGrossPence ?? null,
-          etsyPaymentFeesPence: snapshot.etsyPaymentFeesPence ?? null,
-          etsyPaymentNetPence: snapshot.etsyPaymentNetPence ?? null,
-          status: snapshot.status,
-          source: 'ETSY_PAYMENT_API',
-        }
+        const proposal = unchangedProposal(snapshot, snapshot.status, 'ETSY_PAYMENT_API')
         plans.push({
           snapshot,
           proposal,
@@ -646,21 +643,7 @@ export async function reconcileImportedPaymentEvidence(
       if (evidenceItem.paymentFeesPence === null
         || evidenceItem.paymentGrossPence === null
         || evidenceItem.paymentNetPence === null) {
-        const proposal: SaleFeeProposal = {
-          saleId: snapshot.id,
-          feeDeltaPence: 0,
-          etsyFeesPence: snapshot.etsyFeesPence,
-          netRevenuePence: snapshot.netRevenuePence,
-          marginPence: snapshot.marginPence,
-          offsiteAdsAttributed: null,
-          offsiteAdsFeePence: snapshot.previousOffsiteAdsFeePence,
-          vatOnOffsiteAdsFeePence: snapshot.previousVatOnOffsiteAdsFeePence,
-          etsyPaymentGrossPence: snapshot.etsyPaymentGrossPence ?? null,
-          etsyPaymentFeesPence: snapshot.etsyPaymentFeesPence ?? null,
-          etsyPaymentNetPence: snapshot.etsyPaymentNetPence ?? null,
-          status: 'PENDING',
-          source: 'ETSY_PAYMENT_API',
-        }
+        const proposal = unchangedProposal(snapshot, 'PENDING', 'ETSY_PAYMENT_API')
         plans.push({
           snapshot,
           proposal,
@@ -728,7 +711,7 @@ export async function reconcileImportedPaymentEvidence(
       applied: false,
     }
   }
-  if (process.env.ETSY_PAYMENT_FEES_VALIDATED !== 'true') {
+  if (!isPaymentFeeValidationEnabled()) {
     return {
       fingerprint,
       statementChecksum: null,

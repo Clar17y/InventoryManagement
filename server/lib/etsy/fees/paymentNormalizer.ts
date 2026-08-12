@@ -14,7 +14,7 @@ export interface NormalizedReceiptPayments {
 
 const PAYMENT_SOURCE = 'ETSY_PAYMENT_API' as const
 
-function gateEnabled(): boolean {
+export function isPaymentFeeValidationEnabled(): boolean {
   return process.env.ETSY_PAYMENT_FEES_VALIDATED === 'true'
 }
 
@@ -115,7 +115,7 @@ export function normalizeReceiptPayments(
   payments: readonly EtsyPayment[],
 ): NormalizedReceiptPayments {
   const receiptId = safeReceiptId(receiptIdInput)
-  const canApplyCanonicalFees = gateEnabled()
+  const canApplyCanonicalFees = isPaymentFeeValidationEnabled()
 
   if (payments.length === 0) {
     return {

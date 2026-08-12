@@ -2,7 +2,7 @@ import type { Sale } from '../../../lib/api'
 import { formatCurrency } from '../../../lib/formatting'
 import { formatDate } from '../utils'
 
-const statusLabels: Record<string, string> = {
+const statusLabels: Record<Sale['etsyFeeReconciliationStatus'], string> = {
   NOT_APPLICABLE: 'Not applicable',
   PENDING: 'Pending',
   PAYMENT_SYNCED: 'Payment synced',
@@ -10,7 +10,7 @@ const statusLabels: Record<string, string> = {
   MANUAL_REVIEW: 'Manual review',
 }
 
-const sourceLabels: Record<string, string> = {
+const sourceLabels: Record<NonNullable<Sale['etsyFeeReconciliationSource']>, string> = {
   ETSY_PAYMENT_API: 'Etsy Payment API',
   ETSY_STATEMENT: 'Etsy statement',
 }
@@ -22,7 +22,7 @@ function formatAttribution(value: Sale['offsiteAdsAttributed']) {
 }
 
 export default function EtsyFeeDetails({ sale }: { sale: Sale }) {
-  const status = sale.etsyFeeReconciliationStatus ?? 'PENDING'
+  const status = sale.etsyFeeReconciliationStatus
   const source = sale.etsyFeeReconciliationSource
 
   return (
@@ -36,8 +36,8 @@ export default function EtsyFeeDetails({ sale }: { sale: Sale }) {
         {sale.vatOnOffsiteAdsFee != null && (
           <div>VAT on Offsite Ads fee: {formatCurrency(Number(sale.vatOnOffsiteAdsFee))}</div>
         )}
-        <div>Status: {statusLabels[status] ?? status}</div>
-        {source && <div>Source: {sourceLabels[source] ?? source}</div>}
+        <div>Status: {statusLabels[status]}</div>
+        {source && <div>Source: {sourceLabels[source]}</div>}
         {sale.etsyFeeReconciledAt && <div>Reconciled: {formatDate(sale.etsyFeeReconciledAt)}</div>}
       </div>
     </div>

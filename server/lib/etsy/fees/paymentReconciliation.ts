@@ -1,6 +1,7 @@
 import type { IEtsyClient } from '../types'
 import { fingerprintReconciliationInput } from './fingerprint'
 import {
+  createEmptyFeeReconciliationSummary,
   reconcileImportedPaymentEvidence,
   type FeeOrderChange,
   type FeeReconciliationRepository,
@@ -11,6 +12,7 @@ import {
 } from './reconciliationService'
 import { groupSalesByReceipt } from './grouping'
 import {
+  isPaymentFeeValidationEnabled,
   normalizeReceiptPayments,
   type NormalizedReceiptPayments,
 } from './paymentNormalizer'
@@ -53,23 +55,6 @@ export class PaymentReconciliationConflictError extends Error {
     super(message)
     this.name = 'PaymentReconciliationConflictError'
   }
-}
-
-const EMPTY_SUMMARY: FeeReconciliationSummary = {
-  matched: 0,
-  changed: 0,
-  unchanged: 0,
-  unmatched: 0,
-  manualReview: 0,
-  attributed: 0,
-  notAttributed: 0,
-  oldFeesPence: 0,
-  newFeesPence: 0,
-  marginDeltaPence: 0,
-}
-
-function cloneSummary(): FeeReconciliationSummary {
-  return { ...EMPTY_SUMMARY }
 }
 
 function addSummary(target: FeeReconciliationSummary, source: FeeReconciliationSummary): void {
@@ -218,10 +203,10 @@ function noOpChange(
 
 function noOpSummary(change: FeeOrderChange, manual: boolean): FeeReconciliationSummary {
   if (change.saleIds.length === 0) {
-    return { ...EMPTY_SUMMARY, unmatched: 1 }
+    return { ...createEmptyFeeReconciliationSummary(), unmatched: 1 }
   }
   return {
-    ...EMPTY_SUMMARY,
+    ...createEmptyFeeReconciliationSummary(),
     matched: 1,
     changed: 0,
     unchanged: manual ? 0 : change.saleIds.length,
@@ -248,7 +233,7 @@ async function buildBatch(
 ): Promise<BatchBuild> {
   const snapshots = await deps.db.listEtsySaleSnapshots()
   const receiptIds = selectReceiptIds(snapshots, input)
-  const summary = cloneSummary()
+  const summary = createEmptyFeeReconciliationSummary()
   const changes: FeeOrderChange[] = []
   const failures: PaymentReconciliationFailure[] = []
   const evidence: NormalizedOrderEvidence[] = []
@@ -294,7 +279,7 @@ async function buildBatch(
       receiptIds,
       summary,
       changes,
-      canApplyCanonicalFees: process.env.ETSY_PAYMENT_FEES_VALIDATED === 'true',
+      canApplyCanonicalFees: isPaymentFeeValidationEnabled(),
       failures,
     },
     evidenceToApply,
@@ -318,7 +303,7 @@ export async function applyPaymentReconciliation(
     throw new PaymentReconciliationConflictError()
   }
 
-  if (process.env.ETSY_PAYMENT_FEES_VALIDATED !== 'true' || built.evidenceToApply.length === 0) {
+  if (!isPaymentFeeValidationEnabled() || built.evidenceToApply.length === 0) {
     return { ...built.preview, applied: false }
   }
 

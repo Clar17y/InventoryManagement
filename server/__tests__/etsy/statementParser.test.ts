@@ -84,9 +84,31 @@ describe('Etsy statement parser', () => {
     })
   })
 
+  it('covers an attributed Offsite order even when the statement has no Sale row', () => {
+    const csv = `Date,Type,Description,Info,Currency,Amount,Fees & Taxes,Net
+31 Jul 2025,Marketing,Marketing Fee for sale made through Offsite Ads Order #4137418123,,GBP,0,-4.80,-4.80
+31 Jul 2025,Tax,VAT: Offsite Ads fee Order #4137418123,,GBP,0,-0.96,-0.96`
+
+    const result = parseEtsyStatement({ csv, statementMonth: '2025-07' })
+
+    expect(result.coveredReceiptIds).toEqual(['4137418123'])
+    expect(result.evidenceByReceipt.get('4137418123')).toMatchObject({
+      attributed: true,
+      offsiteAdsFeePence: 480,
+      vatOnOffsiteAdsFeePence: 96,
+    })
+  })
+
   it('rejects VAT evidence when no Offsite fee exists for that order', () => {
     const csv = `Date,Type,Description,Info,Currency,Amount,Fees & Taxes,Net
 31 Jul 2025,Sale,Payment for Order #4137418123,,GBP,39.99,-4.00,35.99
+31 Jul 2025,Tax,VAT: Offsite Ads fee Order #4137418123,,GBP,0,-0.96,-0.96`
+
+    expect(() => parseEtsyStatement({ csv, statementMonth: '2025-07' })).toThrow(/VAT.*fee|fee.*VAT/i)
+  })
+
+  it('rejects VAT-only evidence without an Offsite fee even when no Sale row exists', () => {
+    const csv = `Date,Type,Description,Info,Currency,Amount,Fees & Taxes,Net
 31 Jul 2025,Tax,VAT: Offsite Ads fee Order #4137418123,,GBP,0,-0.96,-0.96`
 
     expect(() => parseEtsyStatement({ csv, statementMonth: '2025-07' })).toThrow(/VAT.*fee|fee.*VAT/i)
@@ -117,6 +139,13 @@ describe('Etsy statement parser', () => {
 31 Jul 2025,Sale,Payment for Order #4137418123,,GBP,not-a-number,-4.00,35.99`
 
     expect(() => parseEtsyStatement({ csv, statementMonth: '2025-07' })).toThrow(/amount|finite|number/i)
+  })
+
+  it.each(['-4.805', '0.009'])('rejects statement amounts with more than two decimal places (%s)', (amount) => {
+    const csv = `Date,Type,Description,Info,Currency,Amount,Fees & Taxes,Net
+31 Jul 2025,Sale,Payment for Order #4137418123,,GBP,${amount},-4.00,35.99`
+
+    expect(() => parseEtsyStatement({ csv, statementMonth: '2025-07' })).toThrow(/decimal|fraction|number/i)
   })
 
   it('rejects an Offsite row without an order ID', () => {

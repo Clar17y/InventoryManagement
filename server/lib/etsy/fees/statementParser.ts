@@ -85,19 +85,21 @@ function parsePence(value: string, label: string): number | null {
   const trimmed = value.trim()
   if (trimmed === '') return null
 
-  // Etsy's CSV uses a decimal point. Commas are accepted as thousands separators
-  // because quoted statement exports can contain them in numeric cells.
-  const normalized = trimmed.replace(/,/g, '')
-  const numeric = Number(normalized)
-  if (!Number.isFinite(numeric)) {
-    throw new TypeError(`${label} must be a finite number`)
+  // Accept either plain digits or correctly grouped thousands, followed by an
+  // optional fractional part with one or two digits. Parse as a string so a
+  // value such as 0.009 cannot be silently rounded to a penny.
+  if (!/^[+-]?(?:(?:\d{1,3}(?:,\d{3})+)|\d+)(?:\.\d{1,2})?$/u.test(trimmed)) {
+    throw new TypeError(`${label} must be a decimal number with at most two decimal places`)
   }
 
-  const pence = Math.round(Math.abs(numeric) * 100)
-  if (!Number.isSafeInteger(pence)) {
+  const unsigned = trimmed.replace(/^[+-]/u, '')
+  const [integerPart, fractionPart = ''] = unsigned.split('.')
+  const pounds = BigInt(integerPart!.replace(/,/g, ''))
+  const pence = pounds * 100n + BigInt(fractionPart.padEnd(2, '0') || '0')
+  if (pence > BigInt(Number.MAX_SAFE_INTEGER)) {
     throw new RangeError(`${label} exceeds the safe integer pence range`)
   }
-  return pence
+  return Number(pence)
 }
 
 function parseRows(csv: string): StatementRow[] {
@@ -183,7 +185,10 @@ export function parseEtsyStatement(input: ParseEtsyStatementInput): ParsedEtsySt
       hasOffsiteFeeRow: false,
       hasVatRow: false,
     }
-    existing.covered ||= isCoverageRow
+    // An Offsite Ads fee row is positive attribution evidence in its own
+    // right. Sale/payment rows remain the only basis for explicit
+    // non-attribution, so refunds and adjustments do not provide coverage.
+    existing.covered ||= isCoverageRow || (isOffsiteRow && !isVatRow)
 
     if (isVatRow) {
       const vat = selectChargePence(row, receiptId, 'VAT on Offsite Ads fee')
@@ -205,6 +210,12 @@ export function parseEtsyStatement(input: ParseEtsyStatementInput): ParsedEtsySt
     receipts.set(receiptId, existing)
   }
 
+  for (const [receiptId, receipt] of receipts) {
+    if (receipt.hasVatRow && receipt.vatOnOffsiteAdsFeePence > 0 && (!receipt.hasOffsiteFeeRow || receipt.offsiteAdsFeePence <= 0)) {
+      throw new Error(`VAT on Offsite Ads fee has no matching fee for order ${receiptId}`)
+    }
+  }
+
   const coveredReceiptIds = [...receipts.entries()]
     .filter(([, receipt]) => receipt.covered)
     .map(([receiptId]) => receiptId)
@@ -212,9 +223,6 @@ export function parseEtsyStatement(input: ParseEtsyStatementInput): ParsedEtsySt
   const evidenceByReceipt = new Map<string, NormalizedOrderEvidence>()
   for (const receiptId of coveredReceiptIds) {
     const receipt = receipts.get(receiptId)!
-    if (receipt.hasVatRow && receipt.vatOnOffsiteAdsFeePence > 0 && receipt.offsiteAdsFeePence <= 0) {
-      throw new Error(`VAT on Offsite Ads fee has no matching fee for order ${receiptId}`)
-    }
     evidenceByReceipt.set(receiptId, {
       receiptId,
       currency: 'GBP',

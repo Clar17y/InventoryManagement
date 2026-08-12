@@ -26,8 +26,30 @@ The initial focused client run was intentionally red: Sales had three missing de
 - Same dummy-env `npm run test:client:run` — PASS, 36 files / 531 tests.
 - `npm run test:server:run` — PASS, 18 files / 204 tests.
 - `npx tsc -p server/tsconfig.json --noEmit --rootDir .` — PASS.
-- `npx tsc -p tsconfig.json --noEmit` — PASS.
+- `npx tsc -p tsconfig.json --noEmit` — the current worktree has one pre-existing error in `src/__tests__/components/EtsySyncPanel.test.tsx:163` (`window.location` assignment); this is not a Task 8 file.
 - `npm run build` — PASS.
 - Touched-file ESLint — PASS, no issues.
 - `npm run lint` — the repository still reports eight pre-existing errors in untouched Etsy/request files and nine existing warnings; no Task 8 files are reported.
 - `git diff --check` — PASS (Git only reports the repository's existing LF/CRLF conversion warnings).
+
+## Fix round 1 — route-level reporting regressions
+
+The Sales summary now runs a separate `sale.count` query using the same period/search `where` clause as the summary's sales query, narrowed to `saleChannel: 'etsy'` and statuses other than `STATEMENT_VERIFIED`. This keeps the warning count correct when search filters match sales outside the selected set and avoids loading every matching sale just to count it.
+
+Added `server/__tests__/reporting/router.test.ts`, which mounts the actual Sales and Analytics routers with mocked Prisma and verifies:
+
+- summary count query composition and returned unverified count;
+- Decimal Offsite Ads mapping, null VAT mapping to zero, and preservation of existing profit trend/fee/margin values;
+- the profit aggregate explicitly selects both Offsite Ads fields.
+
+TDD evidence: the new Sales test first failed with `unverifiedEtsySales` equal to `0` because the route had no count query; after the minimal route change, the focused file passed with 2/2 tests.
+
+Fix-round verification:
+
+- `rtk npm run test:server:run -- server/__tests__/reporting/router.test.ts` — PASS, 2 tests.
+- `rtk npm run test:server:run` — PASS, 19 files / 206 tests.
+- `rtk tsc -p server/tsconfig.json --noEmit --rootDir .` — PASS.
+- `rtk tsc -p tsconfig.json --noEmit` — FAIL only on the pre-existing `EtsySyncPanel.test.tsx:163` error noted above.
+- `npx eslint server/features/sales/router.ts server/__tests__/reporting/router.test.ts` — PASS.
+- `rtk npm run lint` — the repository still reports eight pre-existing errors in untouched Etsy/request files and nine existing warnings.
+- `git diff --check` — PASS (CRLF conversion warnings only).

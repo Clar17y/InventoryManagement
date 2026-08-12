@@ -453,18 +453,23 @@ router.get('/summary', async (req, res) => {
 
     const where = buildSalesWhereClause({ startDate, endDate, search })
 
-    const sales = await prisma.sale.findMany({
-      where,
-      include: {
-        lines: {
-          include: { hamper: true },
+    const [sales, unverifiedEtsySales] = await Promise.all([
+      prisma.sale.findMany({
+        where,
+        include: {
+          lines: {
+            include: { hamper: true },
+          },
         },
-      },
-    })
-
-    const unverifiedEtsySales = sales.filter(
-      (sale) => sale.saleChannel === 'etsy' && sale.etsyFeeReconciliationStatus !== 'STATEMENT_VERIFIED',
-    ).length
+      }),
+      prisma.sale.count({
+        where: {
+          ...where,
+          saleChannel: 'etsy',
+          etsyFeeReconciliationStatus: { not: 'STATEMENT_VERIFIED' },
+        },
+      }),
+    ])
 
     const totals = {
       salesCount: sales.length,

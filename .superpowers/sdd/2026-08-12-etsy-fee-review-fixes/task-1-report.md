@@ -42,3 +42,18 @@ No known concerns in the assigned parser scope. Existing unrelated worktree chan
 ## Commit
 
 The scoped commit hash is returned to the parent agent with this report.
+
+## Review follow-up (2026-08-12)
+
+Added parser regressions for the remaining numeric-cell boundaries:
+
+- quoted grouped comma value `-1,234.50` is parsed as exactly 123,450 pence;
+- malformed grouping `12,34.50` is rejected;
+- `-90071992547409.91` is accepted and observable as `Number.MAX_SAFE_INTEGER` pence;
+- one penny over that limit (`-90071992547409.92`) is rejected.
+
+The current strict string/`BigInt` parser passed all four cases, so no production code change was needed.
+
+Follow-up verification:
+
+- `rtk vitest run --project server server/__tests__/etsy/statementParser.test.ts` — PASS (26 tests).

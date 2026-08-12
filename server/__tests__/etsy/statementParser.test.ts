@@ -72,6 +72,40 @@ describe('Etsy statement parser', () => {
     expect(result.evidenceByReceipt.get('4137418123')).toMatchObject({ attributed: false })
   })
 
+  it('parses a quoted grouped-comma money value exactly', () => {
+    const csv = `Date,Type,Description,Info,Currency,Amount,Fees & Taxes,Net
+31 Jul 2025,Marketing,Marketing Fee for sale made through Offsite Ads Order #4137418123,,GBP,0,"-1,234.50","-1,234.50"`
+
+    expect(parseEtsyStatement({ csv, statementMonth: '2025-07' }).evidenceByReceipt.get('4137418123')).toMatchObject({
+      attributed: true,
+      offsiteAdsFeePence: 123450,
+    })
+  })
+
+  it('rejects malformed thousands grouping in a money value', () => {
+    const csv = `Date,Type,Description,Info,Currency,Amount,Fees & Taxes,Net
+31 Jul 2025,Marketing,Marketing Fee for sale made through Offsite Ads Order #4137418123,,GBP,0,"12,34.50","12,34.50"`
+
+    expect(() => parseEtsyStatement({ csv, statementMonth: '2025-07' })).toThrow(/decimal|number/i)
+  })
+
+  it('accepts the exact safe integer pence maximum', () => {
+    const csv = `Date,Type,Description,Info,Currency,Amount,Fees & Taxes,Net
+31 Jul 2025,Marketing,Marketing Fee for sale made through Offsite Ads Order #4137418123,,GBP,0,"-90071992547409.91","-90071992547409.91"`
+
+    expect(parseEtsyStatement({ csv, statementMonth: '2025-07' }).evidenceByReceipt.get('4137418123')).toMatchObject({
+      attributed: true,
+      offsiteAdsFeePence: Number.MAX_SAFE_INTEGER,
+    })
+  })
+
+  it('rejects one penny above the safe integer pence maximum', () => {
+    const csv = `Date,Type,Description,Info,Currency,Amount,Fees & Taxes,Net
+31 Jul 2025,Marketing,Marketing Fee for sale made through Offsite Ads Order #4137418123,,GBP,0,"-90071992547409.92","-90071992547409.92"`
+
+    expect(() => parseEtsyStatement({ csv, statementMonth: '2025-07' })).toThrow(/safe integer|range/i)
+  })
+
   it('accepts an Offsite fee when no VAT row is present', () => {
     const csv = `Date,Type,Description,Info,Currency,Amount,Fees & Taxes,Net
 31 Jul 2025,Sale,Payment for Order #4137418123,,GBP,39.99,-4.00,35.99

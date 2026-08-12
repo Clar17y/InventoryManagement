@@ -4,11 +4,12 @@ This procedure is the operator gate for a historical Etsy fee reconciliation. It
 
 ## Safety boundary (read before every run)
 
-> **All Etsy endpoints used by this feature are read-only. The statement apply changes only local database sale records (and the local statement-import audit row); it never changes an Etsy order, listing, shop, advert, or budget. Payment apply also writes only local sale reconciliation fields when the validation gate is enabled.**
+> **All Etsy endpoints used by this feature are read-only. The statement apply changes only local database sale records (and the local statement-import audit row); it never changes an Etsy order, listing, shop, advert, or budget. A validated Payment apply changes only local `Sale` rows, including canonical `etsyFees`, `netRevenue`, and `margin` plus reconciliation evidence fields.**
 
 - Do not paste live receipt IDs, customer information, or statement CSV contents into the repository, an issue, or a commit. Keep review exports outside the repository.
 - `ETSY_PAYMENT_FEES_VALIDATED=false` is the safe default. A Payment preview is an observation; while the flag is false, Payment apply returns `applied: false` and does not change canonical fees or profit.
 - Every statement change requires a fresh preview fingerprint. A preview is no-write. Apply is atomic and idempotent, but there is no in-app reverse/rollback endpoint.
+- No production migration, Payment apply, statement apply, or historical backfill is authorized by this document. Each production action requires immediate, explicit written authorization for that exact action and a provider backup/PITR recovery point recorded immediately beforehand.
 - Stop if a command would use a production `DATABASE_URL` or a real Etsy mutation endpoint. This runbook does not authorize production apply; obtain explicit approval from the data owner at the approval gate below.
 
 ## Where the workflow lives
@@ -108,13 +109,13 @@ When the controlled diagnostic is available, compare its normalized Payment `gro
 3. included fee categories: Payment `fees` includes exactly the normal Etsy categories expected for this account, and does not double-count statement Offsite Ads fee or VAT;
 4. attributed example: statement Offsite fee and VAT are present and the Payment aggregate is consistent;
 5. non-attributed example: statement proves no Offsite Ads charge and the Payment aggregate is still consistent;
-6. totals: gross − fees = net within the documented penny rounding tolerance.
+6. totals: gross − fees = net within an absolute tolerance of **at most 1 pence (£0.01)** after normalization. This is a fixed rounding tolerance, not a percentage; stop for any difference greater than 1 pence.
 
 If the diagnostic is unavailable, or any comparison is uncertain, leave the gate false, keep the Payment result observe-only, and continue with statement evidence/manual review. **The shipped UI/API do not currently satisfy this prerequisite, so `ETSY_PAYMENT_FEES_VALIDATED` must remain `false`. Enable `ETSY_PAYMENT_FEES_VALIDATED=true` only after the controlled diagnostic exists and signs, currency, included categories, and totals agree for both examples.** Restart the server after changing the flag and record who approved the validation.
 
 ## 4. Disposable migration/data-preservation check
 
-Before touching real data, create a disposable database copy using the provider's approved clone process. Use only that URL for this check. Capture the following queries before migration, apply the two reconciliation migrations to the disposable copy, and run the same queries after migration:
+Before touching real data, create a disposable database copy using the provider's approved clone process. Use only that URL for this check. Capture the following queries before migration, deploy all pending migrations to the disposable copy, and run the same queries after migration:
 
 ```sql
 SELECT COUNT(*) AS sales,
@@ -135,7 +136,7 @@ The expected result after migration only is:
 - Etsy rows are `PENDING`;
 - direct and fair rows are `NOT_APPLICABLE`.
 
-The migration command belongs only on the disposable URL, never on production during this runbook:
+Deploy **all pending migrations**, including both Etsy reconciliation migrations; do not manually select only these two migration directories. The migration command belongs only on the disposable URL, never on production during this runbook:
 
 ```powershell
 $env:DATABASE_URL = '<DISPOSABLE_RUNTIME_DATABASE_URL>'
@@ -174,7 +175,9 @@ $preview | ConvertTo-Json -Depth 12 |
   Set-Content (Join-Path $ReviewDir "$Month-statement-preview.json")
 ```
 
-Preview is the dry-run boundary: it parses and calculates, but does not create an import or update a sale. Review and record `matched`, `changed`, `unchanged`, `unmatched`, `manualReview`, `attributed`, `notAttributed`, old/new fee totals, and margin delta before considering apply.
+Preview is the dry-run boundary: it parses and calculates, but does not create an import or update a sale. Review and record `matched`, `changed`, `unchanged`, `unmatched`, `manualReview`, `attributed`, `notAttributed`, old/new fee totals, and margin delta before considering apply. The unmatched count is the preview's `summary.unmatched` value; it is not a separate status-summary count.
+
+Malformed CSV input is rejected with HTTP 400 during preview or apply and performs no writes.
 
 After **every** preview, copy the unmatched and manual-review IDs. The UI's **Copy receipt IDs** button is preferred. The following keeps the structured IDs outside source control:
 
@@ -189,7 +192,7 @@ Investigate every ID before apply. A statement row with an ambiguous/malformed m
 
 ## 6. Compare monthly totals before apply
 
-For each selected month, capture the current local totals and compare them with the preview's old/new totals. Run on the disposable copy first and on production only as a read-only query after approval to inspect the baseline:
+For each selected month, capture the current local totals and compare them with the preview's old/new totals. Run on the disposable copy first and on production only as a read-only query after the immediate approval gate to inspect the baseline:
 
 ```sql
 SELECT date_trunc('month', "saleDate") AS month,
@@ -209,9 +212,22 @@ ORDER BY 1;
 
 Reconcile the preview's proposed new fee and margin delta to the monthly statement totals. Confirm direct/fair rows are not in scope. Do not apply a month whose old totals, proposed totals, statement totals, or review IDs are not explained.
 
+Use these explicit baseline-and-delta checks for the same sale scope as the preview:
+
+```text
+baselineEtsyFees   = oldFees
+baselineNetRevenue = oldNetRevenue
+baselineMargin     = oldMargin
+expectedEtsyFees   = baselineEtsyFees + feeDelta
+expectedNetRevenue = baselineNetRevenue - feeDelta
+expectedMargin     = baselineMargin - feeDelta
+```
+
+The preview's `newFees`, `newNetRevenue`, and `marginDelta` must satisfy those formulas. A positive fee delta lowers net revenue and margin by the same amount; a negative delta raises them. Compare persisted post-apply totals to the expected values and stop on any unexplained difference.
+
 ## 7. Explicit approval gate and apply
 
-Before any production apply, obtain written, explicit approval from the data owner that names the reviewed months, backup filename, validation examples, expected monthly totals, and the remaining unmatched/manual-review IDs. This documentation task does not grant that approval.
+Before any production apply, obtain immediate, written, explicit authorization from the data owner that names the exact action, reviewed months, provider PITR/recovery-point evidence, backup filename, validation examples, expected monthly totals, and the remaining unmatched/manual-review IDs. This documentation task does not grant that authorization.
 
 Only after approval, submit the exact fingerprint returned by the latest preview. Do not edit the CSV, month, or file after preview. A UI **Apply statement changes** click is equivalent to this request:
 
@@ -235,7 +251,7 @@ $applied | ConvertTo-Json -Depth 12 |
   Set-Content (Join-Path $ReviewDir "$Month-statement-apply.json")
 ```
 
-Apply is atomic per statement transaction. It updates only unambiguous local Etsy sale groups and the local `EtsyStatementImport` summary; malformed statements fail without financial writes.
+Apply is atomic per statement transaction. It updates only unambiguous local Etsy sale groups and the local `EtsyStatementImport` summary. A malformed CSV is rejected with HTTP 400 and performs no writes to `Sale` or `EtsyStatementImport` (and no financial writes).
 
 Payment apply is separate. It must use the latest Payment preview fingerprint and must remain disabled/observe-only until the validation gate is approved. A response with `applied: false` is a no-write result, not proof that itemized Offsite attribution is known.
 
@@ -243,7 +259,7 @@ Payment apply is separate. It must use the latest Payment preview fingerprint an
 
 ### Stale preview (`409 RECONCILIATION_CONFLICT`)
 
-A sale update, changed file, changed month, statement revision, or concurrent apply can invalidate a fingerprint. Treat HTTP 409 as a safety stop: do not retry the old body. Discard the old preview, reload the status summary, upload/select the unchanged source again, preview again, recopy review IDs, and repeat the approval comparison.
+A selected file or month change only invalidates/clears the statement preview in the UI; filename and month are not themselves inputs to the server reconciliation fingerprint. The server fingerprint covers normalized evidence and the current sale snapshots, so changed evidence or sale state/concurrent apply can produce HTTP 409. Treat HTTP 409 as a safety stop: do not retry the old body. Discard the old preview, reload the status summary, upload/select the unchanged source again, preview again, recopy review IDs, and repeat the approval comparison.
 
 ### Duplicate statement (`duplicate: true`)
 
@@ -264,7 +280,7 @@ After each approved apply:
 1. save the apply response and statement import ID outside the repository;
 2. rerun the monthly SQL and compare saved Offsite fee and VAT totals with Etsy's statement totals;
 3. confirm canonical `etsyFees`, `netRevenue`, and `margin` moved by the preview's exact fee delta and that direct/fair rows are unchanged;
-4. refresh the reconciliation summary and record remaining `PENDING`, `MANUAL_REVIEW`, and unmatched counts;
+4. refresh the reconciliation status summary and record remaining `PENDING` and `MANUAL_REVIEW` counts; record the unmatched count from each statement preview (`summary.unmatched`), because the status summary does not expose an unmatched dimension;
 5. submit the same statement again as a controlled duplicate check and confirm `duplicate: true` with no writes;
 6. retain the backup filename, preview/apply fingerprints, checksums, review-ID files, and approval record according to the normal operations retention policy.
 
@@ -275,3 +291,6 @@ There is no application-level rollback endpoint. If a preview is malformed, stal
 ## Production boundary for this task
 
 This runbook was written and verified without accessing Etsy, a production database, a live receipt, or a statement. No migration, backup, backfill, Payment apply, or statement apply was performed by this task. Production execution remains a separately approved operator action.
+## Production recovery prerequisite
+
+Before any production reconciliation or migration, the database provider must have point-in-time recovery (PITR) enabled and a verified recovery-point timestamp recorded immediately before the authorized action. The repository's `npm run db:backup` JSON export is supplemental only: it is incomplete (it omits `EtsyStatementImport`) and has no restore procedure, so it does not satisfy this mandatory provider backup/PITR gate.

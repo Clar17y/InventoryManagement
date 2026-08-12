@@ -2,13 +2,13 @@
 
 ## Status
 
-Complete for the documentation/verification scope. No Etsy account, live receipt, production database, disposable database, backup, migration apply, Payment apply, statement apply, or historical backfill was accessed or executed.
+Documentation is complete; the isolated disposable migration-preservation verification is pending. No Etsy account, live receipt, production database, disposable database, backup, migration apply, Payment apply, statement apply, or historical backfill was accessed or executed in this documentation pass.
 
 ## Documentation changes
 
 - Added [`docs/ETSY_OFFSITE_FEE_RUNBOOK.md`](../../../docs/ETSY_OFFSITE_FEE_RUNBOOK.md), an operator procedure that must be followed before any production apply.
 - Updated [`README.md`](../../../README.md) with the disabled-by-default `ETSY_PAYMENT_FEES_VALIDATED=false` setting, UI location, and links to the runbook/design.
-- Updated [`docs/PROGRESS.md`](../../../docs/PROGRESS.md): Task 10 is Done, handoff state is final, no production data was changed, and verification evidence/known pre-existing failures are recorded.
+- Updated [`docs/PROGRESS.md`](../../../docs/PROGRESS.md): the documentation portion is recorded, while the isolated disposable migration-preservation check is marked In Progress; no production data was changed, and verification evidence/known pre-existing failures are recorded.
 
 The runbook explicitly covers:
 
@@ -19,8 +19,13 @@ The runbook explicitly covers:
 - chronological statement uploads from `2022-01` to the latest complete month;
 - copy-out of unmatched and manual-review receipt IDs after every preview;
 - monthly old/new fee, margin, Offsite fee, and VAT comparisons;
-- explicit written approval before production apply;
+- explicit baseline-plus-delta formulas for canonical `etsyFees`, `netRevenue`, and `margin`, with a fixed <=1-penny tolerance;
+- immediate, explicit written authorization before each production migration/apply/backfill;
+- mandatory provider PITR/backup recovery evidence immediately before each authorized production action; the repository JSON backup is supplemental and incomplete;
 - fingerprint-gated apply, stale `409` handling, duplicate checksum no-op, statement revision confirmation, and manual-review handling;
+- file/month changes as UI-only statement-preview invalidation (not server fingerprint inputs), and unmatched counts taken from each preview rather than the status summary;
+- malformed CSV HTTP 400/no-write behavior and validated Payment apply updates to canonical fees, net revenue, and margin;
+- deployment of all pending Prisma migrations, not only the two reconciliation migrations;
 - post-apply duplicate re-import and monthly Etsy comparisons;
 - provider backup/point-in-time restore as the only rollback path (there is no application rollback endpoint);
 - the prominent boundary that Etsy calls are read-only and statement apply changes only local database sale records/audit data.
@@ -50,7 +55,9 @@ GROUP BY "saleChannel", "etsyFeeReconciliationStatus"
 ORDER BY "saleChannel", "etsyFeeReconciliationStatus";
 ```
 
-Because the assigned boundary forbids database access/apply, no disposable database was available for actual before/after query execution. Instead, the schema and migration surface was checked without a database:
+The isolated disposable migration-preservation check is **In Progress** and remains required before Task 10 can be marked complete. It must use the unique no-volume Docker container `inventorymanager-etsy-fee-migration-check-20260812`, verify that the name is absent before creation and after exact removal, seed representative Etsy/direct/fair sales, capture the before queries, apply all pending migrations with `npx prisma migrate deploy`, capture the after queries, and prove money totals are unchanged while statuses become Etsy=`PENDING` and direct/fair=`NOT_APPLICABLE`. It must not touch any other container, database, or production URL.
+
+Until that isolated check is run, the schema and migration surface have only been checked without a database:
 
 - `npx prisma validate` — PASS (`The schema at prisma\schema.prisma is valid`).
 - `npx prisma migrate diff --from-empty --to-schema-datamodel prisma/schema.prisma --script` — PASS; generated SQL from the current datamodel without connecting to or writing to a database.
@@ -70,17 +77,17 @@ All commands below used dummy local database URLs (`postgresql://dummy:dummy@127
 | `npm run test:server:run` | PASS; 19 files / 206 tests. |
 | `npm run test:client:run` | PASS; 37 files / 544 tests. Existing React `act`, scanner, and Recharts warnings remain; no test failures. |
 | `npx tsc -p server/tsconfig.json --noEmit --rootDir .` | PASS; no errors. |
-| `npx tsc -p tsconfig.json --noEmit` | BLOCKED by the pre-existing `src/__tests__/components/EtsySyncPanel.test.tsx:163` `window.location` assignment type error. No Task 10 code is involved. |
+| `npx tsc -p tsconfig.json --noEmit` | PASS; no errors. |
 | `npm run build` | PASS; `tsc -b` and Vite production build completed. |
 | Touched-file ESLint command from Task 10 brief | BLOCKED only by pre-existing unused `_currentInventory`/`_options` errors in `server/lib/etsy/mockClient.ts`. |
 | `npx eslint .` | BLOCKED by 8 pre-existing errors in `server/lib/etsy/debugLogger.ts`, `server/lib/etsy/inventoryCache.ts`, `server/lib/etsy/mockClient.ts`, and `src/lib/api/request.ts`; 9 existing warnings remain. |
 | `git diff --check` | PASS; Git emitted only the repository's existing LF/CRLF conversion warnings. |
 
-The full client TypeScript failure, touched-file lint failure, and full lint failure are pre-existing repository issues and are not attributed to the documentation changes.
+The touched-file lint failure and full lint failure are pre-existing repository issues and are not attributed to the documentation changes.
 
 ## Production boundary and deferred minor items
 
-Production execution remains deferred until an operator has a verified backup, a controlled diagnostic that makes the two-receipt Payment validation executable, chronological statement previews, explained review IDs/totals, and explicit data-owner approval. Keep `ETSY_PAYMENT_FEES_VALIDATED=false` until that diagnostic exists and passes. No production apply is implied by this commit. Existing unrelated lint/type-check issues remain deferred in their owning tasks; no unrelated code was changed here.
+Production execution remains deferred until an operator has mandatory provider PITR plus a verified recovery point immediately before the action, a controlled diagnostic that makes the two-receipt Payment validation executable, chronological statement previews, explained review IDs/totals, and immediate explicit data-owner authorization for the exact migration/apply/backfill action. Keep `ETSY_PAYMENT_FEES_VALIDATED=false` until that diagnostic exists and passes. No production action is implied by this commit. Existing unrelated lint issues remain deferred in their owning tasks; no unrelated code was changed here.
 
 ## Commit scope
 

@@ -15,7 +15,7 @@ export function getEtsyFeeReconciliationStatus(
   etsyOrderId?: string | null,
 ): EtsyFeeReconciliationStatus {
   if (saleChannel !== 'etsy') return 'NOT_APPLICABLE'
-  return etsyOrderId ? 'PENDING' : 'MANUAL_REVIEW'
+  return /^[0-9]+$/u.test(etsyOrderId?.trim() ?? '') ? 'PENDING' : 'MANUAL_REVIEW'
 }
 
 // POST preview sale allocation (before confirming)

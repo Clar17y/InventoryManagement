@@ -23,6 +23,10 @@ const changedOffsiteCsv = `Date,Type,Description,Info,Currency,Amount,Fees & Tax
 31 Jul 2025,Marketing,Marketing Fee for sale made through Offsite Ads Order #4137418052,,GBP,0,-4.00,-4.00
 31 Jul 2025,Tax,VAT: Offsite Ads fee Order #4137418052,,GBP,0,-0.80,-0.80`
 
+const zeroFeeAttributedCsv = `Date,Type,Description,Info,Currency,Amount,Fees & Taxes,Net
+31 Jul 2025,Sale,Payment for Order #4137418052,,GBP,39.99,-4.00,35.99
+31 Jul 2025,Marketing,Marketing Fee for sale made through Offsite Ads Order #4137418052,,GBP,0,0,0`
+
 function input(csv: string, allowStatementRevision = false) {
   return {
     csv,
@@ -132,6 +136,42 @@ describe('Etsy statement reconciliation service', () => {
       offsiteAdsFeePence: 400,
       vatOnOffsiteAdsFeePence: 80,
     })
+  })
+
+  it('writes a zero-fee attribution revision for a statement-verified sale', async () => {
+    const db = createFeeDbFixture({
+      sales: [sale({
+        id: 's1',
+        etsyOrderId: '4137418052',
+        etsyFeesPence: 400,
+        netRevenuePence: 3599,
+        marginPence: 2199,
+        previousOffsiteAdsFeePence: 0,
+        previousVatOnOffsiteAdsFeePence: 0,
+        offsiteAdsAttributed: false,
+        status: 'STATEMENT_VERIFIED',
+      })],
+    })
+    const statement = input(zeroFeeAttributedCsv, true)
+
+    const preview = await previewStatementReconciliation(statement, db)
+
+    expect(preview.changes[0]).toMatchObject({
+      attributed: true,
+      offsiteAdsFeePence: 0,
+      vatOnOffsiteAdsFeePence: 0,
+      outcome: 'changed',
+    })
+    expect(preview.summary.changed).toBe(1)
+
+    const result = await applyStatementReconciliation({
+      ...statement,
+      fingerprint: preview.fingerprint,
+    }, db)
+
+    expect(result.applied).toBe(true)
+    expect(db.sales[0]?.offsiteAdsAttributed).toBe(true)
+    expect(db.writeCount).toBe(3)
   })
 
   it('accepts a one-penny contradiction against a Payment aggregate', async () => {

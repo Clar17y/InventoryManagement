@@ -73,7 +73,13 @@ describe('Order Import - Stock Decrement', () => {
         ['direct', undefined, 'NOT_APPLICABLE'],
         ['fair', undefined, 'NOT_APPLICABLE'],
         ['etsy', '12345', 'PENDING'],
+        ['etsy', ' 12345 ', 'PENDING'],
         ['etsy', undefined, 'MANUAL_REVIEW'],
+        ['etsy', '   ', 'MANUAL_REVIEW'],
+        ['etsy', '12345-1', 'MANUAL_REVIEW'],
+        ['etsy', 'abc', 'MANUAL_REVIEW'],
+        ['direct', ' 12345 ', 'NOT_APPLICABLE'],
+        ['fair', 'abc', 'NOT_APPLICABLE'],
     ] as const)('initializes %s sales with %s reconciliation status', (channel, etsyOrderId, expected) => {
         expect(getEtsyFeeReconciliationStatus(channel, etsyOrderId)).toBe(expected);
     });

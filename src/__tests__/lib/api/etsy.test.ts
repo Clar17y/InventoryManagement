@@ -367,6 +367,7 @@ describe('etsy API', () => {
     const sampleImport: EtsyOrderImportResult = {
       success: true,
       sale: { id: 'clx0q2p1w0000s1l1n4m9n9n9', etsyOrderId: '12345', totalCost: 10, margin: 5, lines: 1 },
+      feeReconciliation: { status: 'PENDING' },
     }
 
     it('calls requestWithSchema with POST and order data', async () => {

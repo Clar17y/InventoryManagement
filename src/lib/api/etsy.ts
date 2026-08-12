@@ -6,6 +6,7 @@ import type {
   EtsyListing as ContractEtsyListing,
   EtsyListingMoney as ContractEtsyListingMoney,
   EtsyOrderImportResult as ContractEtsyOrderImportResult,
+  EtsyOrderFeeReconciliation as ContractEtsyOrderFeeReconciliation,
   EtsyOrdersBulkImportResult as ContractEtsyOrdersBulkImportResult,
   EtsyDuplicateSkuRepairResult as ContractEtsyDuplicateSkuRepairResult,
   EtsyDuplicateSkuReport as ContractEtsyDuplicateSkuReport,
@@ -93,6 +94,7 @@ export type EtsyPendingOrderItem = ContractEtsyPendingOrderItem
 export type EtsyPendingOrder = ContractEtsyPendingOrder
 export type EtsyOrderImportRequest = EtsyOrderImportBody
 export type EtsyOrderImportResult = ContractEtsyOrderImportResult
+export type EtsyOrderFeeReconciliation = ContractEtsyOrderFeeReconciliation
 export type EtsyBulkImportRequest = EtsyOrdersBulkImportBody
 export type EtsyBulkImportResult = ContractEtsyOrdersBulkImportResult
 

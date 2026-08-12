@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { cuidSchema, isoDateTimeSchema } from '../http/primitives'
+import { etsyFeeReconciliationStatusSchema } from './etsyFees'
 
 export const etsyStatusSchema = z.object({
   connected: z.boolean(),
@@ -198,6 +199,13 @@ export const etsyPendingOrderSchema = z.object({
 
 export type EtsyPendingOrder = z.infer<typeof etsyPendingOrderSchema>
 
+export const etsyOrderFeeReconciliationSchema = z.object({
+  status: etsyFeeReconciliationStatusSchema,
+  message: z.string().optional(),
+})
+
+export type EtsyOrderFeeReconciliation = z.infer<typeof etsyOrderFeeReconciliationSchema>
+
 export const etsyOrderImportSaleSchema = z.object({
   id: cuidSchema,
   etsyOrderId: z.string(),
@@ -211,6 +219,7 @@ export type EtsyOrderImportSale = z.infer<typeof etsyOrderImportSaleSchema>
 export const etsyOrderImportResultSchema = z.object({
   success: z.literal(true),
   sale: etsyOrderImportSaleSchema,
+  feeReconciliation: etsyOrderFeeReconciliationSchema,
   warnings: z.array(z.string()).optional(),
 })
 
@@ -225,6 +234,7 @@ export const etsyOrdersBulkImportResultSchema = z.object({
       receiptId: z.number().int(),
       success: z.boolean(),
       saleId: cuidSchema.optional(),
+      feeReconciliation: etsyOrderFeeReconciliationSchema.optional(),
       error: z.string().optional(),
     })
   ),

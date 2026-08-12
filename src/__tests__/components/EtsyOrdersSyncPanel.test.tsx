@@ -60,12 +60,13 @@ describe('EtsyOrdersSyncPanel', () => {
     mockImportOrder.mockResolvedValue({
       success: true,
       sale: { id: 'sale-1', etsyOrderId: '12345', totalCost: 0, margin: 0, lines: 1 },
+      feeReconciliation: { status: 'PAYMENT_SYNCED' },
     })
     mockImportOrdersBulk.mockResolvedValue({
       success: true,
       imported: 1,
       failed: 0,
-      results: [{ receiptId: 12345, success: true, saleId: 'sale-1' }],
+      results: [{ receiptId: 12345, success: true, saleId: 'sale-1', feeReconciliation: { status: 'PAYMENT_SYNCED' } }],
     })
   })
 
@@ -224,6 +225,7 @@ describe('EtsyOrdersSyncPanel', () => {
         isHistorical: false,
       })
       expect(mockOnImportComplete).toHaveBeenCalled()
+      expect(screen.getByText('Fees checked')).toBeInTheDocument()
     })
   })
 
@@ -280,6 +282,7 @@ describe('EtsyOrdersSyncPanel', () => {
       .mockResolvedValueOnce({
         success: true,
         sale: { id: 'sale-1', etsyOrderId: '12345', totalCost: 0, margin: 0, lines: 1 },
+        feeReconciliation: { status: 'PAYMENT_SYNCED' },
       })
 
     mockLotsByCategory.mockResolvedValue([

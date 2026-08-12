@@ -1,5 +1,6 @@
 import { Router } from 'express'
 import { z } from 'zod'
+import type { EtsyFeeReconciliationStatus } from '@prisma/client'
 import { prisma } from '../../lib/prisma'
 import { allocateStockForRequirement, allocateStockForVariantRequirement, type AllocationLine } from '../../lib/sales/allocation'
 import { calculateEtsyFees, calculatePackagingOverhead } from '../../lib/sales/fees'
@@ -8,6 +9,14 @@ import { groupSalesByChannel, groupSalesByHamper } from '../../lib/sales/groupin
 import { salesCreateBodySchema, salesPreviewBodySchema } from '#contracts/routes/sales'
 
 const router = Router()
+
+export function getEtsyFeeReconciliationStatus(
+  saleChannel: string,
+  etsyOrderId?: string | null,
+): EtsyFeeReconciliationStatus {
+  if (saleChannel !== 'etsy') return 'NOT_APPLICABLE'
+  return etsyOrderId ? 'PENDING' : 'MANUAL_REVIEW'
+}
 
 // POST preview sale allocation (before confirming)
 router.post('/preview', async (req, res) => {
@@ -168,6 +177,11 @@ router.post('/', async (req, res) => {
 
     // Calculate packaging overhead
     const packagingOverhead = calculatePackagingOverhead(overheads)
+
+    const etsyFeeReconciliationStatus = getEtsyFeeReconciliationStatus(
+      data.saleChannel,
+      data.etsyOrderId,
+    )
 
     // Net revenue = gross + postage - fees - overhead
     // Note: For Etsy, postageCharged is what we receive, but postageCost is what we pay
@@ -342,6 +356,7 @@ router.post('/', async (req, res) => {
           totalCost,
           margin,
           etsyOrderId: data.etsyOrderId,
+          etsyFeeReconciliationStatus,
           notes: data.notes,
           isHistorical: data.isHistorical,
           lines: {

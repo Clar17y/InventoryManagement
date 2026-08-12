@@ -36,10 +36,23 @@ sale.
 - GREEN after the scheduler change: the parent agent confirmed the focused
   `server/__tests__/etsy/orderImport.test.ts` suite passed all 25 tests.
 
+## Fix round 1 — terminal logging cannot leak a rejection
+
+The scheduler's terminal `.catch` now protects its own `logWorkflow` call with
+a local `try/catch`. This keeps the discarded background promise settled even
+if logging itself throws; no global logger behavior was changed.
+
+The regression forces the database lookup to reject and the mocked logger to
+throw, then observes the process `unhandledRejection` event. It failed before
+the guard with `logger unavailable` and passes after the guard. The deferred
+single and bulk regressions also assert that Payment lookup has not started
+immediately after the import response resolves, before the scheduled timer is
+drained.
+
 ## Verification
 
-Focused test verification was run by the parent agent; no additional tests were
-run in this handoff after the final scoped edit, per coordination request.
+`rtk npm run test:server:run -- server/__tests__/etsy/orderImport.test.ts` —
+PASS, 26 tests (including the fix-round regression).
 
 ## Files
 

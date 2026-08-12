@@ -31,8 +31,13 @@ vi.mock('../../lib/etsy/debugLogger', () => ({
 
 import { prisma } from '../../lib/prisma';
 import { etsyClient } from '../../lib/etsyClient';
+import { logWorkflow } from '../../lib/etsy/debugLogger';
 import { clearInventoryCache } from '../../lib/etsy/inventoryCache';
-import { importOrder, importOrdersBulk } from '../../lib/etsy/sync/orders';
+import {
+    importOrder,
+    importOrdersBulk,
+    scheduleImportedSaleFeeReconciliation,
+} from '../../lib/etsy/sync/orders';
 import { getEtsyFeeReconciliationStatus } from '../../features/sales/router';
 
 const mockPrisma = prisma as unknown as {
@@ -59,6 +64,7 @@ const mockEtsyClient = etsyClient as unknown as {
     getListingInventory: ReturnType<typeof vi.fn>;
     getPaymentsForReceipt: ReturnType<typeof vi.fn>;
 };
+const mockLogWorkflow = logWorkflow as unknown as ReturnType<typeof vi.fn>;
 
 function deferred<T>() {
     let resolve!: (value: T) => void;
@@ -129,6 +135,7 @@ function nextEventLoopTurn() {
 describe('Order Import - Stock Decrement', () => {
     beforeEach(() => {
         vi.clearAllMocks();
+        mockLogWorkflow.mockReset();
         clearInventoryCache();
         mockEtsyClient.getPaymentsForReceipt.mockResolvedValue([]);
         mockPrisma.sale.findMany.mockResolvedValue([]);
@@ -167,11 +174,12 @@ describe('Order Import - Stock Decrement', () => {
         });
 
         try {
-            await nextEventLoopTurn();
+            const result = await importPromise;
             expect(resolved).toBe(true);
+            expect(result.feeReconciliation).toEqual({ status: 'PENDING' });
+            expect(mockEtsyClient.getPaymentsForReceipt).not.toHaveBeenCalled();
         } finally {
             paymentLookup.resolve([]);
-            await importPromise;
             await nextEventLoopTurn();
         }
     });
@@ -213,12 +221,34 @@ describe('Order Import - Stock Decrement', () => {
         });
 
         try {
-            await nextEventLoopTurn();
+            const result = await importPromise;
             expect(resolved).toBe(true);
+            expect(result.results.every((row) => row.success && row.feeReconciliation?.status === 'PENDING')).toBe(true);
+            expect(mockEtsyClient.getPaymentsForReceipt).not.toHaveBeenCalled();
         } finally {
             paymentLookup.resolve([]);
-            await importPromise;
             await nextEventLoopTurn();
+        }
+    });
+
+    it('does not leak an unhandled rejection when scheduled reconciliation logging throws', async () => {
+        const unhandledRejections: unknown[] = [];
+        const onUnhandledRejection = (reason: unknown) => {
+            unhandledRejections.push(reason);
+        };
+        mockPrisma.sale.findMany.mockRejectedValue(new Error('database unavailable'));
+        mockLogWorkflow.mockImplementation(() => {
+            throw new Error('logger unavailable');
+        });
+        process.on('unhandledRejection', onUnhandledRejection);
+
+        try {
+            scheduleImportedSaleFeeReconciliation('sale-scheduled', 91004);
+            await nextEventLoopTurn();
+            await nextEventLoopTurn();
+            expect(unhandledRejections).toEqual([]);
+        } finally {
+            process.off('unhandledRejection', onUnhandledRejection);
         }
     });
 

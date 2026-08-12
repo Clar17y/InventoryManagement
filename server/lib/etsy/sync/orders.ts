@@ -121,11 +121,15 @@ async function reconcileImportedSaleFees(
 export function scheduleImportedSaleFeeReconciliation(saleId: string, receiptId: number): void {
   setTimeout(() => {
     void reconcileImportedSaleFees(saleId, receiptId).catch((error: unknown) => {
-      logWorkflow('IMPORT:RECONCILIATION', 'Unexpected scheduled Payment reconciliation failure', {
-        saleId,
-        receiptId,
-        error: error instanceof Error ? { message: error.message, stack: error.stack } : error,
-      });
+      try {
+        logWorkflow('IMPORT:RECONCILIATION', 'Unexpected scheduled Payment reconciliation failure', {
+          saleId,
+          receiptId,
+          error: error instanceof Error ? { message: error.message, stack: error.stack } : error,
+        });
+      } catch {
+        // Logging is best effort; never let the terminal boundary reject again.
+      }
     });
   }, 0);
 }

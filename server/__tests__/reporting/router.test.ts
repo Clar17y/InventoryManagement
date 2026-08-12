@@ -10,6 +10,9 @@ vi.mock('../../lib/prisma', () => ({
       count: vi.fn(),
       aggregate: vi.fn(),
     },
+    etsyFeeConfig: { findFirst: vi.fn() },
+    packagingOverhead: { findMany: vi.fn() },
+    $transaction: vi.fn(),
     $queryRaw: vi.fn(),
   },
 }))
@@ -24,6 +27,9 @@ const mockPrisma = prisma as unknown as {
     count: ReturnType<typeof vi.fn>
     aggregate: ReturnType<typeof vi.fn>
   }
+  etsyFeeConfig: { findFirst: ReturnType<typeof vi.fn> }
+  packagingOverhead: { findMany: ReturnType<typeof vi.fn> }
+  $transaction: ReturnType<typeof vi.fn>
   $queryRaw: ReturnType<typeof vi.fn>
 }
 
@@ -31,6 +37,7 @@ let activeServer: Server | null = null
 
 async function startServer(): Promise<string> {
   const app = express()
+  app.use(express.json())
   app.use('/api/sales', salesRouter)
   app.use('/api/analytics', analyticsRouter)
 
@@ -144,5 +151,36 @@ describe('sales and analytics reporting routers', () => {
         vatOnOffsiteAdsFee: true,
       }),
     }))
+  })
+
+  it('trims a valid Etsy order ID at the sales create boundary without changing notes', async () => {
+    let createdSaleData: Record<string, unknown> | undefined
+    mockPrisma.etsyFeeConfig.findFirst.mockResolvedValue(null)
+    mockPrisma.packagingOverhead.findMany.mockResolvedValue([])
+    mockPrisma.$transaction.mockImplementation(async (work: (tx: unknown) => Promise<unknown>) => work({
+      sale: {
+        create: vi.fn().mockImplementation(async ({ data }: { data: Record<string, unknown> }) => {
+          createdSaleData = data
+          return { id: 'sale-1', ...data, lines: [] }
+        }),
+      },
+    }))
+    const baseUrl = await startServer()
+
+    const response = await fetch(`${baseUrl}/api/sales`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        grossRevenue: 10,
+        saleChannel: 'etsy',
+        etsyOrderId: ' 12345 ',
+        notes: '  preserve this note  ',
+        lines: [{ description: 'Manual item', quantity: 1, unitPrice: 10 }],
+      }),
+    })
+
+    expect(response.status).toBe(201)
+    expect(createdSaleData?.etsyOrderId).toBe('12345')
+    expect(createdSaleData?.notes).toBe('  preserve this note  ')
   })
 })

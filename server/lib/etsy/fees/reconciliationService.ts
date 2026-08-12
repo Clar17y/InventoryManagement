@@ -202,6 +202,7 @@ function proposalChanged(snapshot: SaleFeeSnapshot, proposal: SaleFeeProposal): 
     || snapshot.previousOffsiteAdsFeePence !== proposal.offsiteAdsFeePence
     || snapshot.previousVatOnOffsiteAdsFeePence !== proposal.vatOnOffsiteAdsFeePence
     || (snapshot.offsiteAdsAttributed ?? null) !== proposal.offsiteAdsAttributed
+    || (snapshot.etsyFeeReconciliationSource ?? null) !== proposal.source
     || (snapshot.etsyPaymentGrossPence ?? null) !== proposal.etsyPaymentGrossPence
     || (snapshot.etsyPaymentFeesPence ?? null) !== proposal.etsyPaymentFeesPence
     || (snapshot.etsyPaymentNetPence ?? null) !== proposal.etsyPaymentNetPence
@@ -761,6 +762,7 @@ function snapshotFromPrisma(row: {
   etsyPaymentFees: { toNumber(): number } | null
   etsyPaymentNet: { toNumber(): number } | null
   offsiteAdsAttributed: boolean | null
+  etsyFeeReconciliationSource: EtsyFeeReconciliationSource | null
   etsyFeeReconciliationStatus: EtsyFeeReconciliationStatus
   updatedAt: Date
 }): SaleFeeSnapshot {
@@ -778,6 +780,7 @@ function snapshotFromPrisma(row: {
     etsyPaymentFeesPence: row.etsyPaymentFees === null ? null : toPence(row.etsyPaymentFees),
     etsyPaymentNetPence: row.etsyPaymentNet === null ? null : toPence(row.etsyPaymentNet),
     offsiteAdsAttributed: row.offsiteAdsAttributed,
+    etsyFeeReconciliationSource: row.etsyFeeReconciliationSource,
     status: row.etsyFeeReconciliationStatus,
     updatedAt: row.updatedAt.toISOString(),
   }
@@ -811,6 +814,7 @@ export function createPrismaFeeReconciliationRepository(prisma: PrismaClient): F
           etsyPaymentFees: true,
           etsyPaymentNet: true,
           offsiteAdsAttributed: true,
+          etsyFeeReconciliationSource: true,
           etsyFeeReconciliationStatus: true,
           updatedAt: true,
         },

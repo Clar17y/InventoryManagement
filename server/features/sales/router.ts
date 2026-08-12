@@ -178,9 +178,10 @@ router.post('/', async (req, res) => {
     // Calculate packaging overhead
     const packagingOverhead = calculatePackagingOverhead(overheads)
 
+    const etsyOrderId = data.etsyOrderId?.trim() || undefined
     const etsyFeeReconciliationStatus = getEtsyFeeReconciliationStatus(
       data.saleChannel,
-      data.etsyOrderId,
+      etsyOrderId,
     )
 
     // Net revenue = gross + postage - fees - overhead
@@ -355,7 +356,7 @@ router.post('/', async (req, res) => {
           netRevenue,
           totalCost,
           margin,
-          etsyOrderId: data.etsyOrderId,
+          etsyOrderId,
           etsyFeeReconciliationStatus,
           notes: data.notes,
           isHistorical: data.isHistorical,

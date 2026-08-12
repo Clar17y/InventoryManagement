@@ -174,6 +174,32 @@ describe('Etsy statement reconciliation service', () => {
     expect(db.writeCount).toBe(3)
   })
 
+  it('classifies a persisted reconciliation source change as changed', async () => {
+    const snapshot = {
+      ...sale({
+        id: 's1',
+        etsyOrderId: '4137418052',
+        etsyFeesPence: 976,
+        netRevenuePence: 3023,
+        marginPence: 1623,
+        previousOffsiteAdsFeePence: 480,
+        previousVatOnOffsiteAdsFeePence: 96,
+        offsiteAdsAttributed: true,
+        status: 'STATEMENT_VERIFIED',
+      }),
+      etsyFeeReconciliationSource: 'ETSY_PAYMENT_API' as const,
+    }
+    const db = createFeeDbFixture({ sales: [snapshot] })
+
+    const preview = await previewStatementReconciliation(input(attributedCsv), db)
+
+    expect(preview.changes[0]).toMatchObject({
+      source: 'ETSY_STATEMENT',
+      outcome: 'changed',
+    })
+    expect(preview.summary.changed).toBe(1)
+  })
+
   it('accepts a one-penny contradiction against a Payment aggregate', async () => {
     const db = createFeeDbFixture({
       sales: [sale({

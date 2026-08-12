@@ -19,6 +19,8 @@ export interface SaleFeeSnapshot {
   etsyPaymentNetPence?: number | null
   /** Persisted attribution flag, omitted by older in-memory snapshots. */
   offsiteAdsAttributed?: boolean | null
+  /** Persisted evidence source, omitted by older in-memory snapshots. */
+  etsyFeeReconciliationSource?: EtsyFeeReconciliationSource | null
   status: EtsyFeeReconciliationStatus
   updatedAt: string
 }

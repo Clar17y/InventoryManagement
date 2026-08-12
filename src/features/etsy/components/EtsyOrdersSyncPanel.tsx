@@ -18,6 +18,7 @@ import {
 import { ApiError } from '../../../lib/api/request'
 import OverrideEditor from '../../sales/components/OverrideEditor'
 import type { LotOverride } from '../../sales/types'
+import EtsyFeeReconciliationPanel from './EtsyFeeReconciliationPanel'
 import EtsyPendingOrdersList from './EtsyPendingOrdersList'
 
 type InsufficientStockShortage = {
@@ -651,6 +652,8 @@ export default function EtsyOrdersSyncPanel({ isOpen, onClose, onImportComplete 
                   </button>
                 </div>
               </div>
+
+              <EtsyFeeReconciliationPanel onImportComplete={onImportComplete} />
 
               {/* Historical Mode Toggle */}
               <div className="bg-gray-50 p-3 rounded-lg">

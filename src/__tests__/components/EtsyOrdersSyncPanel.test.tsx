@@ -13,6 +13,11 @@ vi.mock('../../lib/api', () => ({
     getPendingOrders: vi.fn(),
     importOrder: vi.fn(),
     importOrdersBulk: vi.fn(),
+    getFeeReconciliationSummary: vi.fn(),
+    previewPaymentFees: vi.fn(),
+    applyPaymentFees: vi.fn(),
+    previewStatementFees: vi.fn(),
+    applyStatementFees: vi.fn(),
   },
   inventory: {
     lotsByCategory: vi.fn(),
@@ -44,6 +49,7 @@ const mockGetStatus = vi.mocked(etsy.getStatus)
 const mockGetPendingOrders = vi.mocked(etsy.getPendingOrders)
 const mockImportOrder = vi.mocked(etsy.importOrder)
 const mockImportOrdersBulk = vi.mocked(etsy.importOrdersBulk)
+const mockGetFeeReconciliationSummary = vi.mocked(etsy.getFeeReconciliationSummary)
 const mockLotsByCategory = vi.mocked(inventory.lotsByCategory)
 const mockGetPostageTiers = vi.mocked(settings.getPostageTiers)
 
@@ -67,6 +73,15 @@ describe('EtsyOrdersSyncPanel', () => {
       imported: 1,
       failed: 0,
       results: [{ receiptId: 12345, success: true, saleId: 'sale-1', feeReconciliation: { status: 'PAYMENT_SYNCED' } }],
+    })
+    mockGetFeeReconciliationSummary.mockResolvedValue({
+      counts: {
+        NOT_APPLICABLE: 0,
+        PENDING: 0,
+        PAYMENT_SYNCED: 0,
+        STATEMENT_VERIFIED: 0,
+        MANUAL_REVIEW: 0,
+      },
     })
   })
 
@@ -326,7 +341,7 @@ describe('EtsyOrdersSyncPanel', () => {
 
     await user.clear(qtyInput)
     await user.type(qtyInput, '2')
-    await user.click(screen.getByRole('button', { name: /apply/i }))
+    await user.click(screen.getByRole('button', { name: /^apply$/i }))
 
     await waitFor(() => {
       expect(screen.getByRole('button', { name: /import with substitutions/i })).toBeEnabled()
@@ -460,7 +475,7 @@ describe('EtsyOrdersSyncPanel', () => {
     const qtyInputA = editorRootA.querySelector('input[type="number"][placeholder="0"]') as HTMLInputElement
     await user.clear(qtyInputA)
     await user.type(qtyInputA, '2')
-    await user.click(screen.getByRole('button', { name: /apply/i }))
+    await user.click(screen.getByRole('button', { name: /^apply$/i }))
 
     expect(screen.getByRole('button', { name: /import with substitutions/i })).toBeDisabled()
 
@@ -472,7 +487,7 @@ describe('EtsyOrdersSyncPanel', () => {
     const qtyInputB = editorRootB.querySelector('input[type="number"][placeholder="0"]') as HTMLInputElement
     await user.clear(qtyInputB)
     await user.type(qtyInputB, '1')
-    await user.click(screen.getByRole('button', { name: /apply/i }))
+    await user.click(screen.getByRole('button', { name: /^apply$/i }))
 
     await waitFor(() => {
       expect(screen.getByRole('button', { name: /import with substitutions/i })).toBeEnabled()

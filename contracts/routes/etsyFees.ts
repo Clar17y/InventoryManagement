@@ -16,13 +16,11 @@ export const etsyPaymentFeePreviewBodySchema = z.object({
   receiptIds: z.array(receiptIdSchema).min(1).max(100).optional(),
   limit: z.number().int().min(1).max(100).optional(),
 }).strict()
-export const etsyPaymentPreviewBodySchema = etsyPaymentFeePreviewBodySchema
 
 export const etsyPaymentFeeApplyBodySchema = z.object({
   receiptIds: z.array(receiptIdSchema).min(1).max(100),
   fingerprint: fingerprintSchema,
 }).strict()
-export const etsyPaymentApplyBodySchema = etsyPaymentFeeApplyBodySchema
 
 export const etsyStatementFeePreviewBodySchema = z.object({
   statementMonth: statementMonthSchema,
@@ -30,12 +28,10 @@ export const etsyStatementFeePreviewBodySchema = z.object({
   csv: z.string().max(2_500_000),
   allowStatementRevision: z.boolean().optional(),
 }).strict()
-export const etsyStatementPreviewBodySchema = etsyStatementFeePreviewBodySchema
 
 export const etsyStatementFeeApplyBodySchema = etsyStatementFeePreviewBodySchema.extend({
   fingerprint: fingerprintSchema,
 }).strict()
-export const etsyStatementApplyBodySchema = etsyStatementFeeApplyBodySchema
 
 export const etsyFeeReconciliationSummaryResponseSchema = etsyFeeReconciliationSummarySchemaResponse
 export const etsyFeeReconciliationStatusCountsResponseSchema = etsyFeeReconciliationStatusCountsSchema

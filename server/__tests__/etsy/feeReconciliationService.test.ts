@@ -259,6 +259,37 @@ describe('Etsy statement reconciliation service', () => {
     expect(preview.summary.manualReview).toBe(1)
   })
 
+  it('keeps a verified attribution flag when a contradicting statement is applied', async () => {
+    const db = createFeeDbFixture({
+      sales: [sale({
+        id: 's1',
+        etsyOrderId: '4137418052',
+        etsyFeesPence: 976,
+        netRevenuePence: 3023,
+        marginPence: 1623,
+        previousOffsiteAdsFeePence: 480,
+        previousVatOnOffsiteAdsFeePence: 96,
+        offsiteAdsAttributed: true,
+        status: 'PAYMENT_SYNCED',
+        etsyPaymentGrossPence: 3999,
+        etsyPaymentFeesPence: 974,
+        etsyPaymentNetPence: 3025,
+      })],
+    })
+    const statement = input(attributedCsv)
+    const preview = await previewStatementReconciliation(statement, db)
+
+    await applyStatementReconciliation({ ...statement, fingerprint: preview.fingerprint }, db)
+
+    expect(db.sales[0]).toMatchObject({
+      status: 'MANUAL_REVIEW',
+      offsiteAdsAttributed: true,
+      etsyFeesPence: 976,
+      previousOffsiteAdsFeePence: 480,
+      previousVatOnOffsiteAdsFeePence: 96,
+    })
+  })
+
   it('allocates statement Offsite fees and VAT across numeric historical suffixes', async () => {
     const db = createFeeDbFixture({
       sales: [

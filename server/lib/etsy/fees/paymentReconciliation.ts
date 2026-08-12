@@ -325,8 +325,3 @@ export async function applyPaymentReconciliation(
     applied: appliedResult.applied,
   }
 }
-
-// Names used by the future HTTP adapter are kept as aliases so callers can
-// describe the operation as either a reconciliation or a fee check.
-export const previewPaymentFees = previewPaymentReconciliation
-export const applyPaymentFees = applyPaymentReconciliation

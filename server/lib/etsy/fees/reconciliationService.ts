@@ -220,7 +220,7 @@ function unchangedProposal(
     etsyFeesPence: snapshot.etsyFeesPence,
     netRevenuePence: snapshot.netRevenuePence,
     marginPence: snapshot.marginPence,
-    offsiteAdsAttributed: null,
+    offsiteAdsAttributed: snapshot.offsiteAdsAttributed ?? null,
     offsiteAdsFeePence: snapshot.previousOffsiteAdsFeePence,
     vatOnOffsiteAdsFeePence: snapshot.previousVatOnOffsiteAdsFeePence,
     etsyPaymentGrossPence: snapshot.etsyPaymentGrossPence ?? null,

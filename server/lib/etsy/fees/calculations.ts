@@ -57,7 +57,8 @@ export function calculateFeeAdjustment(current: CurrentFees, nextFees: number): 
   }
 }
 
-function compareIds(a: { id: string }, b: { id: string }): number {
+/** Order rows deterministically by ID so allocation and grouping are stable. */
+export function compareIds(a: { id: string }, b: { id: string }): number {
   if (a.id < b.id) return -1
   if (a.id > b.id) return 1
   return 0

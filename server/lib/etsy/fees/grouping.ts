@@ -1,12 +1,8 @@
+import { compareIds } from './calculations'
+
 interface SaleWithReceipt {
   id: string
   etsyOrderId: string | null
-}
-
-function compareIds(a: { id: string }, b: { id: string }): number {
-  if (a.id < b.id) return -1
-  if (a.id > b.id) return 1
-  return 0
 }
 
 function escapeRegExp(value: string): string {

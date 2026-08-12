@@ -224,6 +224,9 @@ export function useEtsyFeeReconciliation({ onImportComplete }: UseEtsyFeeReconci
         ...(requestedRevisionConfirmation ? { allowStatementRevision: true } : {}),
       })
       if (requestVersion !== statementSelectionVersion.current) {
+        // The apply already committed server-side, so refresh the status counts even
+        // though the selection moved on and the result no longer matches the UI state.
+        await loadSummary()
         onImportComplete()
         return result
       }

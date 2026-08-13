@@ -72,6 +72,8 @@ Do not enable the gate based on a percentage assumption. The gate may be enabled
 
 Use one receipt that a monthly statement proves **attributed** and one receipt that a statement proves **not attributed**. Keep the IDs in the temporary review directory or the change record, never in source control. Preview each receipt separately while the gate remains false.
 
+Payment checks are aggregate diagnostics, not itemized Offsite Ads evidence. A valid Payment aggregate can confirm the gross/fees/net arithmetic used by the reconciliation gate, but it cannot verify whether a particular receipt was charged Offsite Ads. Use the monthly statement for order-level Offsite attribution. When the operator does not provide an explicit receipt list, automatic checks skip obvious placeholder IDs (for example, numeric IDs shorter than six digits); those skipped sales are not requested from Etsy and are not modified. Explicit receipt lists are checked as supplied and still require operator review.
+
 > **Current shipped-surface blocker:** the current reconciliation panel and Payment preview API expose only canonical old/new fee, net-revenue, and margin summaries. They do not expose the normalized Payment gross, aggregate fees, or net values needed for this validation. Therefore the two-receipt Payment validation below cannot currently be completed from the shipped UI/API, and the gate must remain `ETSY_PAYMENT_FEES_VALIDATED=false`.
 
 Do not infer or reconstruct the missing Payment values from the canonical local sale totals. Before enabling the gate, a controlled diagnostic or narrowly scoped feature must expose the normalized Payment gross/fees/net values as read-only evidence, with no canonical writes. That diagnostic must itself be tested against the two statement examples and reviewed by the data owner. Until then, use Payment previews only as observe-only diagnostics and complete historical attribution through statement previews.
@@ -165,7 +167,7 @@ This local exercise verifies the migration behavior on representative data. Prod
 
 ## 5. Chronological monthly statement previews
 
-Prepare sanitized Etsy CSV exports outside the repository for every complete month from **2022-01 through the latest complete month**, in chronological order. Do not skip a month silently. Do not rename a file in a way that loses the source month; the application uses the explicit month selector.
+Prepare the Etsy CSV export for every complete month from **2022-01 through the latest complete month**, in chronological order, and keep it outside the repository. Genuine Etsy exports may use a `Title` column instead of `Description`, pound-prefixed money such as `£4.80`, and `--` for an empty money cell; the application accepts those forms directly while retaining its GBP, penny-precision, and reversal checks. Upload the source CSV as downloaded: do not open and resave it in Excel or another editor, and do not overwrite it with a sanitized or reformatted copy. If a separate sanitized copy is required by policy, create it outside the repository without changing the original and keep the source month/name traceable. Do not skip a month silently. Do not rename a file in a way that loses the source month; the application uses the explicit month selector.
 
 For each month, use the UI's **Statement month**, **Statement CSV file**, and **Preview statement** controls, or run the equivalent no-write request:
 

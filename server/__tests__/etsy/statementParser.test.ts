@@ -233,6 +233,22 @@ describe('Etsy statement parser', () => {
     expect(() => parseEtsyStatement({ csv, statementMonth: '2025-07' })).toThrow(/order/i)
   })
 
+  it('rejects an embedded PreOrder label as a missing order ID', () => {
+    const csv = `Date,Type,Description,Info,Currency,Amount,Fees & Taxes,Net
+31 Jul 2025,Marketing,Marketing Fee for sale made through Offsite Ads PreOrder: 2842479918,,GBP,0,-4.80,-4.80`
+
+    expect(() => parseEtsyStatement({ csv, statementMonth: '2025-07' }))
+      .toThrow(/missing an order ID/i)
+  })
+
+  it('rejects an order label with a continued numeric token', () => {
+    const csv = `Date,Type,Description,Info,Currency,Amount,Fees & Taxes,Net
+31 Jul 2025,Marketing,Marketing Fee for sale made through Offsite Ads Order #2842479918continued,,GBP,0,-4.80,-4.80`
+
+    expect(() => parseEtsyStatement({ csv, statementMonth: '2025-07' }))
+      .toThrow(/missing an order ID/i)
+  })
+
   it('rejects conflicting duplicate Offsite rows', () => {
     const csv = `Date,Type,Description,Info,Currency,Amount,Fees & Taxes,Net
 31 Jul 2025,Sale,Payment for Order #4137418123,,GBP,39.99,-4.00,35.99

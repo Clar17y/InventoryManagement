@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto'
 import * as XLSX from 'xlsx'
 import type { NormalizedOrderEvidence } from './types'
 
-const ORDER_ID_PATTERN = /Order\s*(?:#|:)\s*([0-9]+)/i
+const ORDER_ID_PATTERN = /\bOrder\s*(?:#|:)\s*([0-9]+)\b/i
 
 export interface ParseEtsyStatementInput {
   csv: string

@@ -241,6 +241,17 @@ describe('Etsy statement parser', () => {
       .toThrow(/missing an order ID/i)
   })
 
+  it.each(['Pre-Order: 2842479918', 'Pre Order: 2842479918'])(
+    'rejects a prefixed order label as a missing order ID (%s)',
+    (label) => {
+      const csv = `Date,Type,Description,Info,Currency,Amount,Fees & Taxes,Net
+31 Jul 2025,Marketing,Marketing Fee for sale made through Offsite Ads ${label},,GBP,0,-4.80,-4.80`
+
+      expect(() => parseEtsyStatement({ csv, statementMonth: '2025-07' }))
+        .toThrow(/missing an order ID/i)
+    },
+  )
+
   it('rejects an order label with a continued numeric token', () => {
     const csv = `Date,Type,Description,Info,Currency,Amount,Fees & Taxes,Net
 31 Jul 2025,Marketing,Marketing Fee for sale made through Offsite Ads Order #2842479918continued,,GBP,0,-4.80,-4.80`
@@ -308,6 +319,56 @@ describe('Etsy statement parser', () => {
       offsiteAdsFeePence: 284,
       vatOnOffsiteAdsFeePence: 57,
     })
+  })
+
+  it('accumulates distinct partial Offsite fee and VAT credits', () => {
+    const csv = `Date,Type,Description,Info,Currency,Amount,Fees & Taxes,Net
+31 Jul 2025,Marketing,Marketing Fee for sale made through Offsite Ads Order #4137418052,,GBP,0,-3.84,-3.84
+31 Jul 2025,Marketing,Credit for Offsite Ads fee Order #4137418052,,GBP,0,1.00,1.00
+31 Jul 2025,Marketing,Credit for Offsite Ads fee Order #4137418052,,GBP,0,0.50,0.50
+31 Jul 2025,Tax,VAT: Offsite Ads fee Order #4137418052,,GBP,0,-0.77,-0.77
+31 Jul 2025,Tax,Credit for VAT on Offsite Ads fee Order #4137418052,,GBP,0,0.20,0.20
+31 Jul 2025,Tax,Credit for VAT on Offsite Ads fee Order #4137418052,,GBP,0,0.10,0.10`
+
+    expect(parseEtsyStatement({ csv, statementMonth: '2025-07' }).evidenceByReceipt.get('4137418052')).toMatchObject({
+      attributed: true,
+      offsiteAdsFeePence: 234,
+      vatOnOffsiteAdsFeePence: 47,
+    })
+  })
+
+  it('treats an identical repeated credit row as idempotent', () => {
+    const csv = `Date,Type,Description,Info,Currency,Amount,Fees & Taxes,Net
+31 Jul 2025,Marketing,Marketing Fee for sale made through Offsite Ads Order #4137418052,,GBP,0,-3.84,-3.84
+31 Jul 2025,Marketing,Credit for Offsite Ads fee Order #4137418052,,GBP,0,1.00,1.00
+31 Jul 2025,Marketing,Credit for Offsite Ads fee Order #4137418052,,GBP,0,1.00,1.00`
+
+    expect(parseEtsyStatement({ csv, statementMonth: '2025-07' }).evidenceByReceipt.get('4137418052')).toMatchObject({
+      attributed: true,
+      offsiteAdsFeePence: 284,
+    })
+  })
+
+  it('accumulates same-value credits from distinct statement rows', () => {
+    const csv = `Date,Type,Description,Info,Currency,Amount,Fees & Taxes,Net
+30 Jul 2025,Marketing,Marketing Fee for sale made through Offsite Ads Order #4137418052,,GBP,0,-3.84,-3.84
+30 Jul 2025,Marketing,Credit for Offsite Ads fee Order #4137418052,,GBP,0,1.00,1.00
+31 Jul 2025,Marketing,Credit for Offsite Ads fee Order #4137418052,,GBP,0,1.00,1.00`
+
+    expect(parseEtsyStatement({ csv, statementMonth: '2025-07' }).evidenceByReceipt.get('4137418052')).toMatchObject({
+      attributed: true,
+      offsiteAdsFeePence: 184,
+    })
+  })
+
+  it('rejects distinct partial credits whose combined value exceeds the charge', () => {
+    const csv = `Date,Type,Description,Info,Currency,Amount,Fees & Taxes,Net
+31 Jul 2025,Marketing,Marketing Fee for sale made through Offsite Ads Order #4137418052,,GBP,0,-3.84,-3.84
+31 Jul 2025,Marketing,Credit for Offsite Ads fee Order #4137418052,,GBP,0,3.00,3.00
+31 Jul 2025,Marketing,Credit for Offsite Ads fee Order #4137418052,,GBP,0,1.00,1.00`
+
+    expect(() => parseEtsyStatement({ csv, statementMonth: '2025-07' }))
+      .toThrow(/greater than its charge/i)
   })
 
   it('rejects an explicit Offsite credit when its charge is absent', () => {

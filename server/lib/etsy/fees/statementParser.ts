@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto'
 import * as XLSX from 'xlsx'
 import type { NormalizedOrderEvidence } from './types'
 
-const ORDER_ID_PATTERN = /\bOrder\s*(?:#|:)\s*([0-9]+)\b/i
+const ORDER_ID_PATTERN = /(?<!Pre[- ])\bOrder\s*(?:#|:)\s*([0-9]+)\b/i
 
 export interface ParseEtsyStatementInput {
   csv: string
@@ -21,6 +21,7 @@ export interface ParsedEtsyStatement {
 }
 
 interface StatementRow {
+  sourceKey: string
   description: string
   info: string
   currency: string
@@ -33,9 +34,9 @@ interface StatementRow {
 interface ReceiptEvidence {
   covered: boolean
   offsiteAdsFeeChargePence: number | null
-  offsiteAdsFeeCreditPence: number | null
+  offsiteAdsFeeCreditsPence: Map<string, number>
   vatOnOffsiteAdsFeeChargePence: number | null
-  vatOnOffsiteAdsFeeCreditPence: number | null
+  vatOnOffsiteAdsFeeCreditsPence: Map<string, number>
 }
 
 interface NettedReceiptEvidence {
@@ -136,6 +137,7 @@ function parseRows(csv: string): StatementRow[] {
       throw new Error(`Statement row ${rowNumber} must use GBP currency`)
     }
     return {
+      sourceKey: JSON.stringify(headers.map((header) => rowValue(row, header))),
       description: rowValue(row, descriptionColumn),
       info: rowValue(row, infoColumn),
       currency,
@@ -205,18 +207,23 @@ function recordDuplicate(
 
 function netPence(
   charge: number | null,
-  credit: number | null,
+  credits: ReadonlyMap<string, number>,
   receiptId: string,
   kind: string,
 ): number {
-  if (credit !== null && charge === null) {
+  if (credits.size > 0 && charge === null) {
     throw new Error(`${kind} credit for order ${receiptId} has no matching charge`)
   }
-  if (credit !== null && credit > (charge ?? 0)) {
+
+  const totalCredit = [...credits.values()].reduce((total, credit) => total + BigInt(credit), 0n)
+  if (totalCredit > BigInt(Number.MAX_SAFE_INTEGER)) {
+    throw new RangeError(`${kind} credit for order ${receiptId} exceeds the safe integer pence range`)
+  }
+  if (totalCredit > BigInt(charge ?? 0)) {
     throw new Error(`${kind} credit for order ${receiptId} is greater than its charge`)
   }
 
-  const net = (charge ?? 0) - (credit ?? 0)
+  const net = (charge ?? 0) - Number(totalCredit)
   if (!Number.isSafeInteger(net) || net < 0) {
     throw new RangeError(`${kind} for order ${receiptId} exceeds the safe integer pence range`)
   }
@@ -226,18 +233,18 @@ function netPence(
 function netReceiptEvidence(receipt: ReceiptEvidence, receiptId: string): NettedReceiptEvidence {
   const offsiteAdsFeePence = netPence(
     receipt.offsiteAdsFeeChargePence,
-    receipt.offsiteAdsFeeCreditPence,
+    receipt.offsiteAdsFeeCreditsPence,
     receiptId,
     'Offsite Ads fee',
   )
   const vatOnOffsiteAdsFeePence = netPence(
     receipt.vatOnOffsiteAdsFeeChargePence,
-    receipt.vatOnOffsiteAdsFeeCreditPence,
+    receipt.vatOnOffsiteAdsFeeCreditsPence,
     receiptId,
     'VAT on Offsite Ads fee',
   )
   if (
-    receipt.vatOnOffsiteAdsFeeCreditPence !== null
+    receipt.vatOnOffsiteAdsFeeCreditsPence.size > 0
     && receipt.offsiteAdsFeeChargePence === null
   ) {
     throw new Error(`VAT on Offsite Ads fee has no matching fee for order ${receiptId}`)
@@ -279,9 +286,9 @@ export function parseEtsyStatement(input: ParseEtsyStatementInput): ParsedEtsySt
     const existing = receipts.get(receiptId) ?? {
       covered: false,
       offsiteAdsFeeChargePence: null,
-      offsiteAdsFeeCreditPence: null,
+      offsiteAdsFeeCreditsPence: new Map<string, number>(),
       vatOnOffsiteAdsFeeChargePence: null,
-      vatOnOffsiteAdsFeeCreditPence: null,
+      vatOnOffsiteAdsFeeCreditsPence: new Map<string, number>(),
     }
     // An Offsite Ads fee row is positive attribution evidence in its own
     // right. Sale/payment rows remain the only basis for explicit
@@ -298,12 +305,7 @@ export function parseEtsyStatement(input: ParseEtsyStatementInput): ParsedEtsySt
           'VAT charge',
         )
       } else {
-        existing.vatOnOffsiteAdsFeeCreditPence = recordDuplicate(
-          existing.vatOnOffsiteAdsFeeCreditPence,
-          vat.pence,
-          receiptId,
-          'VAT credit',
-        )
+        existing.vatOnOffsiteAdsFeeCreditsPence.set(row.sourceKey, vat.pence)
       }
     } else if (isOffsiteRow) {
       const fee = selectMoneyEvidence(row, receiptId, 'Offsite Ads fee', combinedText)
@@ -315,12 +317,7 @@ export function parseEtsyStatement(input: ParseEtsyStatementInput): ParsedEtsySt
           'Offsite Ads fee charge',
         )
       } else {
-        existing.offsiteAdsFeeCreditPence = recordDuplicate(
-          existing.offsiteAdsFeeCreditPence,
-          fee.pence,
-          receiptId,
-          'Offsite Ads fee credit',
-        )
+        existing.offsiteAdsFeeCreditsPence.set(row.sourceKey, fee.pence)
       }
     }
 

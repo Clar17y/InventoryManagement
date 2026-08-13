@@ -316,6 +316,7 @@ npm run test:server:run   # Single run (server only)
 | 2026-08-12 | Claude Code | PR #37 review fixes: preserve statement attribution, refresh summary after superseded apply, share `compareIds`, drop unused aliases | Done | codex/etsy-offsite-fee-reconciliation |
 | 2026-08-12 | Claude Code | PR #37 Codex findings: reject Offsite fee reversals, validate Payment aggregate arithmetic | Done | codex/etsy-offsite-fee-reconciliation |
 | 2026-08-13 | Codex | Support real Etsy statements and clarify Payment checks | Done | codex/etsy-statement-payment-fixes |
+| 2026-08-13 | Codex | Simplify Etsy statement and Payment fixes | Done | codex/etsy-statement-payment-fixes |
 | 2026-08-13 | Codex subagent | Task 2: Make Payment Diagnostics Safe and Truthful | Done | codex/etsy-statement-payment-fixes |
 | 2026-08-13 | Codex subagent | Task 4: Final Verification and Handoff | Done | codex/etsy-statement-payment-fixes |
 
@@ -334,6 +335,7 @@ npm run test:server:run   # Single run (server only)
 - **Task 4 complete** (branch: `codex/etsy-statement-payment-fixes`): operator guidance now covers genuine Etsy `Title`/`£`/`--` exports, no-resave source CSV handling, aggregate Payment diagnostics versus statement attribution, and automatic placeholder-ID skips without sale writes. Report: `.superpowers/sdd/2026-08-13-etsy-statement-payment-fixes/task-4-report.md`.
 - **Task 4 final fix wave complete** (branch: `codex/etsy-statement-payment-fixes`): Payment previews now expose canonical applicability only when the explicit gate and at least one complete aggregate are present; the Payment panel suppresses ready/apply states for zero validated aggregates and covers empty fingerprints/in-flight apply states. Report: `.superpowers/sdd/2026-08-13-etsy-statement-payment-fixes/task-4-report.md`.
 - **Requested final code-review fix complete** (branch: `codex/etsy-statement-payment-fixes`): canonical Payment applicability now additionally requires at least one aggregate that produces a changed, writable local sale plan. Valid unmatched receipts and statement-verified-only receipts remain visible in preview but cannot advertise or trigger Apply.
+- **Final simplify pass complete** (branch: `codex/etsy-statement-payment-fixes`): centralized the UI's validated-aggregate readiness rule, named canonical-write eligibility explicitly, reused the computed preview applicability during apply, and avoided a duplicate full-sale grouping pass for valid Payment evidence. Behavior and safety gates are unchanged.
 
 **Task 4 Verification (2026-08-13):**
 - `npm run test:server:run -- server/__tests__/etsy/statementParser.test.ts server/__tests__/etsy/paymentReconciliation.test.ts server/__tests__/etsy/feeRoutes.test.ts` — PASS, 3 files / 64 tests; existing missing `ETSY_API_KEY`/`ETSY_SHARED_SECRET` warnings only.

@@ -20,6 +20,14 @@ function summaryFeeDelta(preview: EtsyFeeReconciliationPreview | EtsyPaymentFeeP
   return preview.summary.newFees - preview.summary.oldFees
 }
 
+function validatedPaymentAggregateCount(preview: EtsyPaymentFeePreview): number {
+  return Math.max(0, preview.receiptIds.length - preview.failures.length)
+}
+
+function paymentTotalsAreReady(preview: EtsyPaymentFeePreview): boolean {
+  return preview.canApplyCanonicalFees && validatedPaymentAggregateCount(preview) > 0
+}
+
 function ReportSummary({
   preview,
   matchedLabel = 'Matched',
@@ -91,8 +99,8 @@ function ReceiptReviewList({ preview }: { preview: EtsyFeeReconciliationPreview 
 }
 
 function PaymentReport({ preview }: { preview: EtsyPaymentFeePreview }) {
-  const validatedAggregates = Math.max(0, preview.receiptIds.length - preview.failures.length)
-  const paymentTotalsReady = preview.canApplyCanonicalFees && validatedAggregates > 0
+  const validatedAggregates = validatedPaymentAggregateCount(preview)
+  const paymentTotalsReady = paymentTotalsAreReady(preview)
 
   return (
     <div className="mt-3">
@@ -124,10 +132,7 @@ export default function EtsyFeeReconciliationPanel({ onImportComplete }: EtsyFee
   const paymentBusy = reconciliation.paymentLoadingAction !== null
   const statementBusy = reconciliation.statementLoadingAction !== null
   const paymentPreview = reconciliation.paymentPreview
-  const paymentValidatedAggregates = paymentPreview
-    ? Math.max(0, paymentPreview.receiptIds.length - paymentPreview.failures.length)
-    : 0
-  const paymentCanApply = Boolean(paymentPreview?.canApplyCanonicalFees && paymentValidatedAggregates > 0)
+  const paymentCanApply = paymentPreview ? paymentTotalsAreReady(paymentPreview) : false
   const pendingCount = reconciliation.summary
     ? reconciliation.summary.PENDING + reconciliation.summary.PAYMENT_SYNCED + reconciliation.summary.MANUAL_REVIEW
     : 0

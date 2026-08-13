@@ -221,7 +221,7 @@ function noOpSummary(change: FeeOrderChange, manual: boolean): FeeReconciliation
   }
 }
 
-function validEvidence(result: NormalizedReceiptPayments): boolean {
+function isEligibleForCanonicalFeeWrite(result: NormalizedReceiptPayments): boolean {
   return result.status === 'PAYMENT_SYNCED' && result.canApplyCanonicalFees
 }
 
@@ -251,7 +251,6 @@ async function buildBatch(
   const previewDb = readOnlyRepository(snapshots)
 
   for (const receiptId of receiptIds) {
-    const grouped = groupSalesByReceipt(receiptId, snapshots)
     let normalized: NormalizedReceiptPayments
     try {
       const payments = await deps.client.getPaymentsForReceipt(receiptIdNumber(receiptId))
@@ -263,7 +262,7 @@ async function buildBatch(
     }
     evidence.push(normalized.evidence)
 
-    if (validEvidence(normalized)) {
+    if (isEligibleForCanonicalFeeWrite(normalized)) {
       const result = await reconcileImportedPaymentEvidence(normalized.evidence, previewDb)
       addSummary(summary, result.summary)
       changes.push(...result.changes)
@@ -271,6 +270,7 @@ async function buildBatch(
       continue
     }
 
+    const grouped = groupSalesByReceipt(receiptId, snapshots)
     const change = noOpChange(receiptId, grouped, normalized, normalized.reason)
     changes.push(change)
     addSummary(summary, noOpSummary(change, normalized.status === 'MANUAL_REVIEW'))
@@ -315,7 +315,7 @@ export async function applyPaymentReconciliation(
     throw new PaymentReconciliationConflictError()
   }
 
-  if (!isPaymentFeeValidationEnabled() || built.evidenceToApply.length === 0) {
+  if (!built.preview.canApplyCanonicalFees) {
     return { ...built.preview, applied: false }
   }
 

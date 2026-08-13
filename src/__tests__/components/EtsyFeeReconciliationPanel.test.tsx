@@ -84,6 +84,11 @@ const observeOnlyPaymentPreview = {
   })),
 }
 
+const paymentPreviewWithNoValidatedAggregates = {
+  ...observeOnlyPaymentPreview,
+  canApplyCanonicalFees: true,
+}
+
 const statementPreview = {
   fingerprint,
   statementChecksum: 'b'.repeat(64),
@@ -190,6 +195,46 @@ describe('EtsyFeeReconciliationPanel', () => {
     await waitFor(() => {
       expect(screen.queryByRole('button', { name: 'Apply payment fee changes' })).not.toBeInTheDocument()
     })
+  })
+
+  it('does not claim Payment totals are ready when no aggregate is validated', async () => {
+    const user = userEvent.setup()
+    mockPreviewPayment.mockResolvedValueOnce(paymentPreviewWithNoValidatedAggregates)
+    render(<EtsyFeeReconciliationPanel onImportComplete={vi.fn()} />)
+
+    await user.click(screen.getByRole('button', { name: 'Check payment fees' }))
+
+    await waitFor(() => {
+      expect(screen.getByText(/Observe-only: Payment totals were checked/i)).toBeInTheDocument()
+      expect(screen.queryByText('Validated Payment totals are ready to apply to canonical fees.')).not.toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: 'Apply payment fee changes' })).not.toBeInTheDocument()
+    })
+  })
+
+  it('disables Payment apply when an enabled preview has no current fingerprint', async () => {
+    const user = userEvent.setup()
+    mockPreviewPayment.mockResolvedValueOnce({ ...paymentPreview, canApplyCanonicalFees: true, fingerprint: '' })
+    render(<EtsyFeeReconciliationPanel onImportComplete={vi.fn()} />)
+
+    await user.click(screen.getByRole('button', { name: 'Check payment fees' }))
+
+    expect(await screen.findByRole('button', { name: 'Apply payment fee changes' })).toBeDisabled()
+  })
+
+  it('keeps Payment apply disabled while the apply request is in flight', async () => {
+    const user = userEvent.setup()
+    const applyRequest = deferred<Awaited<ReturnType<typeof etsy.applyPaymentFees>>>()
+    mockPreviewPayment.mockResolvedValueOnce({ ...paymentPreview, canApplyCanonicalFees: true })
+    mockApplyPayment.mockReturnValueOnce(applyRequest.promise)
+    render(<EtsyFeeReconciliationPanel onImportComplete={vi.fn()} />)
+
+    await user.click(screen.getByRole('button', { name: 'Check payment fees' }))
+    await user.click(await screen.findByRole('button', { name: 'Apply payment fee changes' }))
+
+    expect(screen.getByRole('button', { name: 'Applying…' })).toBeDisabled()
+
+    applyRequest.resolve({ ...paymentPreview, canApplyCanonicalFees: true, applied: true, duplicate: false, statementImportId: null })
+    await waitFor(() => expect(screen.queryByRole('button', { name: 'Apply payment fee changes' })).not.toBeInTheDocument())
   })
 
   it('clears a stale Payment preview and requires re-preview', async () => {

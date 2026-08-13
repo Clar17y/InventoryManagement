@@ -305,6 +305,44 @@ describe('Etsy Payment reconciliation orchestration', () => {
     });
   });
 
+  it('keeps a gate-enabled preview non-applicable when every Payment aggregate fails', async () => {
+    process.env.ETSY_PAYMENT_FEES_VALIDATED = 'true';
+    const db = createFeeDbFixture({
+      sales: [
+        sale({ id: 's1', etsyOrderId: '4137418052' }),
+        sale({ id: 's2', etsyOrderId: '4137418053' }),
+      ],
+    });
+    const deps: PaymentReconciliationDependencies = {
+      client: {
+        getPaymentsForReceipt: async (receiptId: number) => receiptId === 4137418052
+          ? []
+          : [payment({
+            receipt_id: 4137418053,
+            amount_fees: { amount: 976, divisor: 100, currency_code: 'USD' },
+          })],
+      } as unknown as IEtsyClient,
+      db,
+    };
+
+    const preview = await previewPaymentReconciliation({
+      receiptIds: ['4137418052', '4137418053'],
+    }, deps);
+
+    expect(preview.canApplyCanonicalFees).toBe(false);
+    expect(preview.failures).toEqual([
+      { receiptId: '4137418052', status: 'PENDING', message: 'No Payment record returned' },
+      { receiptId: '4137418053', status: 'MANUAL_REVIEW', message: 'Payment records contain mixed currencies' },
+    ]);
+
+    const applied = await applyPaymentReconciliation({
+      receiptIds: preview.receiptIds,
+      fingerprint: preview.fingerprint,
+    }, deps);
+    expect(applied.applied).toBe(false);
+    expect(db.writeCount).toBe(0);
+  });
+
   it('does not write canonical money when the validation gate is disabled', async () => {
     delete process.env.ETSY_PAYMENT_FEES_VALIDATED;
     const db = createFeeDbFixture({

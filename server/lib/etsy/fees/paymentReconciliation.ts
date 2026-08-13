@@ -282,6 +282,7 @@ async function buildBatch(
   }
 
   const evidenceToApply = evidence.filter((item) => item.paymentFeesPence !== null && item.paymentGrossPence !== null && item.paymentNetPence !== null)
+  const canApplyCanonicalFees = isPaymentFeeValidationEnabled() && evidenceToApply.length > 0
   return {
     preview: {
       fingerprint: fingerprintReconciliationInput(evidence, snapshots),
@@ -289,7 +290,7 @@ async function buildBatch(
       receiptIds,
       summary,
       changes,
-      canApplyCanonicalFees: isPaymentFeeValidationEnabled(),
+      canApplyCanonicalFees,
       failures,
     },
     evidenceToApply,

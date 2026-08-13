@@ -92,12 +92,13 @@ function ReceiptReviewList({ preview }: { preview: EtsyFeeReconciliationPreview 
 
 function PaymentReport({ preview }: { preview: EtsyPaymentFeePreview }) {
   const validatedAggregates = Math.max(0, preview.receiptIds.length - preview.failures.length)
+  const paymentTotalsReady = preview.canApplyCanonicalFees && validatedAggregates > 0
 
   return (
     <div className="mt-3">
       <div className="rounded-lg border border-blue-200 bg-blue-50 p-3 text-sm text-blue-900">
         <div className="font-medium">Aggregate Payment result (not itemized)</div>
-        {preview.canApplyCanonicalFees ? (
+        {paymentTotalsReady ? (
           <div className="mt-1">Validated Payment totals are ready to apply to canonical fees.</div>
         ) : (
           <div className="mt-1">Observe-only: Payment totals were checked, but profit was not changed.</div>
@@ -122,6 +123,11 @@ export default function EtsyFeeReconciliationPanel({ onImportComplete }: EtsyFee
   const reconciliation = useEtsyFeeReconciliation({ onImportComplete })
   const paymentBusy = reconciliation.paymentLoadingAction !== null
   const statementBusy = reconciliation.statementLoadingAction !== null
+  const paymentPreview = reconciliation.paymentPreview
+  const paymentValidatedAggregates = paymentPreview
+    ? Math.max(0, paymentPreview.receiptIds.length - paymentPreview.failures.length)
+    : 0
+  const paymentCanApply = Boolean(paymentPreview?.canApplyCanonicalFees && paymentValidatedAggregates > 0)
   const pendingCount = reconciliation.summary
     ? reconciliation.summary.PENDING + reconciliation.summary.PAYMENT_SYNCED + reconciliation.summary.MANUAL_REVIEW
     : 0
@@ -167,12 +173,12 @@ export default function EtsyFeeReconciliationPanel({ onImportComplete }: EtsyFee
           <button type="button" className="btn-secondary text-sm" onClick={() => void reconciliation.previewPaymentFees()} disabled={paymentBusy}>
             {reconciliation.paymentLoadingAction === 'preview' ? 'Checking…' : 'Check payment fees'}
           </button>
-          {reconciliation.paymentPreview?.canApplyCanonicalFees && (
+          {paymentCanApply && (
             <button
               type="button"
               className="btn-primary text-sm"
               onClick={() => void reconciliation.applyPaymentFees()}
-              disabled={!reconciliation.paymentPreview.fingerprint || paymentBusy}
+              disabled={!paymentPreview?.fingerprint || paymentBusy}
             >
               {reconciliation.paymentLoadingAction === 'apply' ? 'Applying…' : 'Apply payment fee changes'}
             </button>

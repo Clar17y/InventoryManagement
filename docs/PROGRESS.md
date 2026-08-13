@@ -320,6 +320,7 @@ npm run test:server:run   # Single run (server only)
 | 2026-08-13 | Codex | Support paired Etsy Offsite fee credits and refunds | Done | codex/etsy-offsite-credit-netting |
 | 2026-08-13 | Codex | Simplify Etsy Offsite credit netting | Done | codex/etsy-offsite-credit-netting |
 | 2026-08-13 | Codex | Address PR #39 Codex review findings | Done | codex/etsy-offsite-credit-netting |
+| 2026-08-13 | Codex | Design cross-month Etsy Offsite credit adjustments | Done | codex/etsy-offsite-credit-netting |
 | 2026-08-13 | Codex subagent | Task 2: Make Payment Diagnostics Safe and Truthful | Done | codex/etsy-statement-payment-fixes |
 | 2026-08-13 | Codex subagent | Task 4: Final Verification and Handoff | Done | codex/etsy-statement-payment-fixes |
 
@@ -410,6 +411,11 @@ npm run test:server:run   # Single run (server only)
 **Documentation Review (2026-08-11):**
 - Approved design specification self-reviewed for unresolved placeholders, accounting consistency, evidence precedence, idempotency, historical order grouping, and no-write safety; `git diff --check` passed apart from the repository's existing CRLF conversion warning.
 - Implementation plan self-reviewed against every design section for requirement coverage, placeholder-free steps, type/signature consistency, TDD order, operational safety, and protection of the existing untracked price-pull plan.
+
+**Etsy Cross-Month Credit Design (2026-08-13):**
+- Written design records the approved receipt-level fallback: if an earlier verified statement balance cannot be trusted, that receipt moves to manual review with money and prior statement provenance unchanged while the rest of the uploaded statement continues.
+- Independent design review required and then approved safeguards for component-specific fee/VAT adjustments, VAT-only coverage, uploaded-month fingerprinting, and preservation of the prior statement link on manual-review outcomes.
+- Implementation is intentionally paused pending user review of the written specification.
 
 **Task 10 Verification (2026-08-12):**
 - The application test/type/build commands used dummy localhost database URLs and example Supabase values; those commands made no database connection. The separate isolated Docker exercise connected only to its temporary local PostgreSQL database and applied migrations there. No production database connection, Etsy request, backup, production migration, or data backfill was performed.

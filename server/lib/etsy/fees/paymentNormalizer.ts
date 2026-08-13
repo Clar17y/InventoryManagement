@@ -76,9 +76,6 @@ function paymentCurrencies(payment: EtsyPayment): string[] {
     ['gross', payment.amount_gross],
     ['fees', payment.amount_fees],
     ['net', payment.amount_net],
-    ['adjusted gross', payment.adjusted_gross],
-    ['adjusted fees', payment.adjusted_fees],
-    ['adjusted net', payment.adjusted_net],
   ] as const
   for (const [label, value] of moneyValues) {
     if (typeof value !== 'object' || value === null || typeof value.currency_code !== 'string' || value.currency_code.length === 0) {

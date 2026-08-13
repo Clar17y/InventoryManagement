@@ -75,6 +75,10 @@ function baseReceiptId(etsyOrderId: string): string | null {
   return match?.[1] ?? null
 }
 
+function isPlausibleEtsyReceiptId(value: string): boolean {
+  return /^\d{6,}$/.test(value)
+}
+
 function receiptIdNumber(receiptId: string): number {
   const number = Number(receiptId)
   if (!/^\d+$/.test(receiptId) || !Number.isSafeInteger(number)) {
@@ -100,7 +104,7 @@ function selectReceiptIds(
   for (const snapshot of snapshots) {
     if (snapshot.status !== 'PENDING' || snapshot.etsyOrderId === null) continue
     const base = baseReceiptId(snapshot.etsyOrderId)
-    if (!base) continue
+    if (!base || !isPlausibleEtsyReceiptId(base)) continue
     const oldest = oldestByReceipt.get(base)
     if (!oldest || snapshot.updatedAt < oldest) oldestByReceipt.set(base, snapshot.updatedAt)
   }
@@ -221,6 +225,12 @@ function validEvidence(result: NormalizedReceiptPayments): boolean {
   return result.status === 'PAYMENT_SYNCED' && result.canApplyCanonicalFees
 }
 
+function hasPaymentAggregate(result: NormalizedReceiptPayments): boolean {
+  return result.evidence.paymentGrossPence !== null
+    && result.evidence.paymentFeesPence !== null
+    && result.evidence.paymentNetPence !== null
+}
+
 interface BatchBuild {
   preview: PaymentReconciliationPreview
   evidenceToApply: NormalizedOrderEvidence[]
@@ -262,7 +272,7 @@ async function buildBatch(
     const change = noOpChange(receiptId, grouped, normalized, normalized.reason)
     changes.push(change)
     addSummary(summary, noOpSummary(change, normalized.status === 'MANUAL_REVIEW'))
-    if (normalized.reason) {
+    if (normalized.reason && !hasPaymentAggregate(normalized)) {
       failures.push({
         receiptId,
         status: normalized.status === 'MANUAL_REVIEW' ? 'MANUAL_REVIEW' : 'PENDING',

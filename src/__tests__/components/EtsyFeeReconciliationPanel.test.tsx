@@ -151,6 +151,12 @@ describe('EtsyFeeReconciliationPanel', () => {
     mockApplyStatement.mockResolvedValue({ ...statementPreview, applied: true, duplicate: false, statementImportId: 'import-1' })
   })
 
+  it('instructs operators to upload the original Etsy CSV as downloaded', () => {
+    render(<EtsyFeeReconciliationPanel onImportComplete={vi.fn()} />)
+
+    expect(screen.getByText(/Upload the original Etsy statement CSV as downloaded\. Do not resave or sanitize it\./i)).toBeInTheDocument()
+  })
+
   it('clarifies observe-only Payment results and hides canonical apply', async () => {
     const user = userEvent.setup()
     mockPreviewPayment.mockResolvedValueOnce(observeOnlyPaymentPreview)

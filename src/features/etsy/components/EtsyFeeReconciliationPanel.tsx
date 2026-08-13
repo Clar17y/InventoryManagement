@@ -198,7 +198,7 @@ export default function EtsyFeeReconciliationPanel({ onImportComplete }: EtsyFee
 
       <div className="mt-4 border-t border-gray-200 pt-4">
         <h4 className="font-medium text-gray-900">Monthly statement</h4>
-        <p className="mt-1 text-xs text-gray-500">Upload a sanitized Etsy CSV. Raw CSV contents are only sent for the requested preview/apply and are never displayed.</p>
+        <p className="mt-1 text-xs text-gray-500">Upload the original Etsy statement CSV as downloaded. Do not resave or sanitize it. Raw CSV contents are only sent for the requested preview/apply and are never displayed.</p>
         <div className="mt-3 grid gap-3 sm:grid-cols-2">
           <label className="text-sm text-gray-700">
             Statement month

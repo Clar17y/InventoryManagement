@@ -172,7 +172,7 @@ Prepare the Etsy CSV export for every complete month from **2022-01 through the 
 For each month, use the UI's **Statement month**, **Statement CSV file**, and **Preview statement** controls, or run the equivalent no-write request:
 
 ```powershell
-$StatementFile = '<path outside repository to sanitized statement CSV>'
+$StatementFile = '<path outside repository to the source Etsy statement CSV as downloaded>'
 $Month = '<YYYY-MM>'
 $csv = Get-Content -Raw $StatementFile
 $previewBody = @{

@@ -317,6 +317,7 @@ npm run test:server:run   # Single run (server only)
 | 2026-08-12 | Claude Code | PR #37 Codex findings: reject Offsite fee reversals, validate Payment aggregate arithmetic | Done | codex/etsy-offsite-fee-reconciliation |
 | 2026-08-13 | Codex | Support real Etsy statements and clarify Payment checks | Done | codex/etsy-statement-payment-fixes |
 | 2026-08-13 | Codex | Simplify Etsy statement and Payment fixes | Done | codex/etsy-statement-payment-fixes |
+| 2026-08-13 | Codex | Support paired Etsy Offsite fee credits and refunds | In Progress | codex/etsy-offsite-credit-netting |
 | 2026-08-13 | Codex subagent | Task 2: Make Payment Diagnostics Safe and Truthful | Done | codex/etsy-statement-payment-fixes |
 | 2026-08-13 | Codex subagent | Task 4: Final Verification and Handoff | Done | codex/etsy-statement-payment-fixes |
 

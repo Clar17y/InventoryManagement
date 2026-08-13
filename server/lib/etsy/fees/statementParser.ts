@@ -87,22 +87,24 @@ function rowValue(row: Record<string, unknown>, column: string | null): string {
 function parsePence(value: string, label: string): number | null {
   const trimmed = value.trim()
   if (trimmed === '') return null
+  if (trimmed === '--') return null
+  const normalized = trimmed.replace(/^([+-]?)£/u, '$1')
 
   // Accept either plain digits or correctly grouped thousands, followed by an
   // optional fractional part with one or two digits. Parse as a string so a
   // value such as 0.009 cannot be silently rounded to a penny.
-  if (!/^[+-]?(?:(?:\d{1,3}(?:,\d{3})+)|\d+)(?:\.\d{1,2})?$/u.test(trimmed)) {
+  if (!/^[+-]?(?:(?:\d{1,3}(?:,\d{3})+)|\d+)(?:\.\d{1,2})?$/u.test(normalized)) {
     throw new TypeError(`${label} must be a decimal number with at most two decimal places`)
   }
 
-  const unsigned = trimmed.replace(/^[+-]/u, '')
+  const unsigned = normalized.replace(/^[+-]/u, '')
   const [integerPart, fractionPart = ''] = unsigned.split('.')
   const pounds = BigInt(integerPart!.replace(/,/g, ''))
   const pence = pounds * 100n + BigInt(fractionPart.padEnd(2, '0') || '0')
   if (pence > BigInt(Number.MAX_SAFE_INTEGER)) {
     throw new RangeError(`${label} exceeds the safe integer pence range`)
   }
-  return trimmed.startsWith('-') ? -Number(pence) : Number(pence)
+  return normalized.startsWith('-') ? -Number(pence) : Number(pence)
 }
 
 function parseRows(csv: string): StatementRow[] {
@@ -114,7 +116,7 @@ function parseRows(csv: string): StatementRow[] {
 
   const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: '', raw: false })
   const headers = rows.length > 0 ? Object.keys(rows[0]!) : []
-  const descriptionColumn = findColumn(headers, ['description'], 'description')
+  const descriptionColumn = findColumn(headers, ['description', 'title'], 'description or title')
   const currencyColumn = findColumn(headers, ['currency'], 'currency')
   const amountColumn = findColumn(headers, ['amount'], 'amount')
   const feesColumn = findColumn(headers, ['fees & taxes', 'fees and taxes', 'feesandtaxes'], 'Fees & Taxes')

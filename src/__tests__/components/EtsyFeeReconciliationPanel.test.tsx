@@ -69,6 +69,26 @@ const paymentPreview = {
   failures: [],
 }
 
+const observeOnlyReceiptIds = Array.from({ length: 25 }, (_, index) => String(4137418052 + index))
+const observeOnlyPaymentPreview = {
+  ...paymentPreview,
+  receiptIds: observeOnlyReceiptIds,
+  summary: {
+    ...paymentPreview.summary,
+    matched: observeOnlyReceiptIds.length,
+  },
+  failures: observeOnlyReceiptIds.map((receiptId) => ({
+    receiptId,
+    status: 'PENDING' as const,
+    message: 'No Payment aggregate returned',
+  })),
+}
+
+const paymentPreviewWithNoValidatedAggregates = {
+  ...observeOnlyPaymentPreview,
+  canApplyCanonicalFees: true,
+}
+
 const statementPreview = {
   fingerprint,
   statementChecksum: 'b'.repeat(64),
@@ -136,23 +156,90 @@ describe('EtsyFeeReconciliationPanel', () => {
     mockApplyStatement.mockResolvedValue({ ...statementPreview, applied: true, duplicate: false, statementImportId: 'import-1' })
   })
 
-  it('shows pending statement count and keeps apply disabled until a Payment preview exists', async () => {
+  it('instructs operators to upload the original Etsy CSV as downloaded', () => {
+    render(<EtsyFeeReconciliationPanel onImportComplete={vi.fn()} />)
+
+    expect(screen.getByText(/Upload the original Etsy statement CSV as downloaded\. Do not resave or sanitize it\./i)).toBeInTheDocument()
+  })
+
+  it('clarifies observe-only Payment results and hides canonical apply', async () => {
     const user = userEvent.setup()
+    mockPreviewPayment.mockResolvedValueOnce(observeOnlyPaymentPreview)
     render(<EtsyFeeReconciliationPanel onImportComplete={vi.fn()} />)
 
     expect(await screen.findByText('2,411 Etsy sales need statement verification')).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Apply payment fee changes' })).toBeDisabled()
 
     await user.click(screen.getByRole('button', { name: 'Check payment fees' }))
 
     await waitFor(() => {
       expect(mockPreviewPayment).toHaveBeenCalledWith({ limit: 25 })
-      expect(screen.getByRole('button', { name: 'Apply payment fee changes' })).toBeEnabled()
+      expect(screen.getByText('Local receipts 25')).toBeInTheDocument()
+      expect(screen.getByText('Validated aggregates 0')).toBeInTheDocument()
+      expect(screen.getByText('Payment totals cannot verify Offsite Ads attribution.')).toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: 'Apply payment fee changes' })).not.toBeInTheDocument()
     })
+  })
+
+  it('shows Payment apply only for an enabled gate and a current preview fingerprint', async () => {
+    const user = userEvent.setup()
+    mockPreviewPayment.mockResolvedValueOnce({ ...paymentPreview, canApplyCanonicalFees: true })
+    render(<EtsyFeeReconciliationPanel onImportComplete={vi.fn()} />)
+
+    await user.click(screen.getByRole('button', { name: 'Check payment fees' }))
+
+    const applyButton = await screen.findByRole('button', { name: 'Apply payment fee changes' })
+    expect(applyButton).toBeEnabled()
+
+    await user.click(applyButton)
+
+    await waitFor(() => {
+      expect(screen.queryByRole('button', { name: 'Apply payment fee changes' })).not.toBeInTheDocument()
+    })
+  })
+
+  it('does not claim Payment totals are ready when no aggregate is validated', async () => {
+    const user = userEvent.setup()
+    mockPreviewPayment.mockResolvedValueOnce(paymentPreviewWithNoValidatedAggregates)
+    render(<EtsyFeeReconciliationPanel onImportComplete={vi.fn()} />)
+
+    await user.click(screen.getByRole('button', { name: 'Check payment fees' }))
+
+    await waitFor(() => {
+      expect(screen.getByText(/Observe-only: Payment totals were checked/i)).toBeInTheDocument()
+      expect(screen.queryByText('Validated Payment totals are ready to apply to canonical fees.')).not.toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: 'Apply payment fee changes' })).not.toBeInTheDocument()
+    })
+  })
+
+  it('disables Payment apply when an enabled preview has no current fingerprint', async () => {
+    const user = userEvent.setup()
+    mockPreviewPayment.mockResolvedValueOnce({ ...paymentPreview, canApplyCanonicalFees: true, fingerprint: '' })
+    render(<EtsyFeeReconciliationPanel onImportComplete={vi.fn()} />)
+
+    await user.click(screen.getByRole('button', { name: 'Check payment fees' }))
+
+    expect(await screen.findByRole('button', { name: 'Apply payment fee changes' })).toBeDisabled()
+  })
+
+  it('keeps Payment apply disabled while the apply request is in flight', async () => {
+    const user = userEvent.setup()
+    const applyRequest = deferred<Awaited<ReturnType<typeof etsy.applyPaymentFees>>>()
+    mockPreviewPayment.mockResolvedValueOnce({ ...paymentPreview, canApplyCanonicalFees: true })
+    mockApplyPayment.mockReturnValueOnce(applyRequest.promise)
+    render(<EtsyFeeReconciliationPanel onImportComplete={vi.fn()} />)
+
+    await user.click(screen.getByRole('button', { name: 'Check payment fees' }))
+    await user.click(await screen.findByRole('button', { name: 'Apply payment fee changes' }))
+
+    expect(screen.getByRole('button', { name: 'Applying…' })).toBeDisabled()
+
+    applyRequest.resolve({ ...paymentPreview, canApplyCanonicalFees: true, applied: true, duplicate: false, statementImportId: null })
+    await waitFor(() => expect(screen.queryByRole('button', { name: 'Apply payment fee changes' })).not.toBeInTheDocument())
   })
 
   it('clears a stale Payment preview and requires re-preview', async () => {
     const user = userEvent.setup()
+    mockPreviewPayment.mockResolvedValueOnce({ ...paymentPreview, canApplyCanonicalFees: true })
     mockApplyPayment.mockRejectedValueOnce(new ApiError('Preview is stale', 409, null))
     render(<EtsyFeeReconciliationPanel onImportComplete={vi.fn()} />)
 
@@ -161,7 +248,7 @@ describe('EtsyFeeReconciliationPanel', () => {
 
     await waitFor(() => {
       expect(screen.getByText('Preview is stale')).toBeInTheDocument()
-      expect(screen.getByRole('button', { name: 'Apply payment fee changes' })).toBeDisabled()
+      expect(screen.queryByRole('button', { name: 'Apply payment fee changes' })).not.toBeInTheDocument()
     })
   })
 
@@ -188,7 +275,7 @@ describe('EtsyFeeReconciliationPanel', () => {
     await waitFor(() => expect(screen.getByText('Matched 2')).toBeInTheDocument())
     expect(screen.getByRole('button', { name: 'Checking…' })).toBeDisabled()
 
-    paymentRequest.resolve(paymentPreview)
+    paymentRequest.resolve({ ...paymentPreview, canApplyCanonicalFees: true })
     await waitFor(() => expect(screen.getByRole('button', { name: 'Apply payment fee changes' })).toBeEnabled())
   })
 
@@ -350,6 +437,7 @@ describe('EtsyFeeReconciliationPanel', () => {
       .mockResolvedValueOnce(summary)
       .mockReturnValueOnce(firstReload.promise)
       .mockReturnValueOnce(secondReload.promise)
+    mockPreviewPayment.mockResolvedValueOnce({ ...paymentPreview, canApplyCanonicalFees: true })
     mockPreviewStatement.mockResolvedValueOnce(statementPreviewWithoutRevision)
     render(<EtsyFeeReconciliationPanel onImportComplete={vi.fn()} />)
 
@@ -398,6 +486,7 @@ describe('EtsyFeeReconciliationPanel', () => {
       .mockResolvedValueOnce(summary)
       .mockReturnValueOnce(olderFailure.promise)
       .mockReturnValueOnce(newerSuccess.promise)
+    mockPreviewPayment.mockResolvedValueOnce({ ...paymentPreview, canApplyCanonicalFees: true })
     mockPreviewStatement.mockResolvedValueOnce(statementPreviewWithoutRevision)
     render(<EtsyFeeReconciliationPanel onImportComplete={vi.fn()} />)
 

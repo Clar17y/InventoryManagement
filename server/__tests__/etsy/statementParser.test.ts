@@ -9,6 +9,11 @@ const attributedCsv = `Date,Type,Description,Info,Currency,Amount,Fees & Taxes,N
 31 Jul 2025,Tax,VAT: Offsite Ads fee Order #4137418052,,GBP,0,-0.96,-0.96
 31 Jul 2025,Sale,Payment for Order #4137418999,,GBP,20.00,-2.10,17.90`
 
+const realEtsyCsv = `\uFEFFDate,Type,Title,Info,Currency,Amount,Fees & Taxes,Net,Tax Details
+"31 July, 2026",Sale,Payment for Order #4137418052,,GBP,£29.99,-£1.44,£28.55,--
+"31 July, 2026",Marketing,Fee for sale made through Offsite Ads,Order #4137418052,GBP,--,-£4.80,-£4.80,--
+"31 July, 2026",VAT,VAT: Offsite Ads fee,Order #4137418052,GBP,--,-£0.96,-£0.96,--`
+
 const saleSnapshot = (overrides: Partial<SaleFeeSnapshot> = {}): SaleFeeSnapshot => ({
   id: 'sale-1',
   etsyOrderId: '4137418052',
@@ -24,6 +29,31 @@ const saleSnapshot = (overrides: Partial<SaleFeeSnapshot> = {}): SaleFeeSnapshot
 })
 
 describe('Etsy statement parser', () => {
+  it('parses a genuine Etsy monthly export with Title, pound values, and -- cells', () => {
+    const result = parseEtsyStatement({ csv: realEtsyCsv, statementMonth: '2026-07' })
+
+    expect(result.coveredReceiptIds).toEqual(['4137418052'])
+    expect(result.evidenceByReceipt.get('4137418052')).toMatchObject({
+      attributed: true,
+      offsiteAdsFeePence: 480,
+      vatOnOffsiteAdsFeePence: 96,
+    })
+  })
+
+  it('rejects pound-prefixed values with fractional pennies', () => {
+    expect(() => parseEtsyStatement({
+      statementMonth: '2026-07',
+      csv: realEtsyCsv.replace('-£4.80', '-£4.805'),
+    })).toThrow(/at most two decimal places/i)
+  })
+
+  it('rejects a positive pound-prefixed Offsite value as a credit or reversal', () => {
+    expect(() => parseEtsyStatement({
+      statementMonth: '2026-07',
+      csv: realEtsyCsv.replace('-£4.80', '+£4.80'),
+    })).toThrow(/credit or reversal/i)
+  })
+
   it('parses attributed and covered non-attributed orders into GBP evidence', () => {
     const result = parseEtsyStatement({ csv: attributedCsv, statementMonth: '2025-07' })
 

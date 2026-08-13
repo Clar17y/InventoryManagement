@@ -66,6 +66,29 @@ describe('Etsy Payment normalizer', () => {
     });
   });
 
+  it('accepts live zero adjustments without redundant nested currency metadata', () => {
+    delete process.env.ETSY_PAYMENT_FEES_VALIDATED;
+    const liveShape = {
+      ...paymentFixture,
+      amount_gross: { amount: 2999, divisor: 100, currency_code: 'GBP' },
+      amount_fees: { amount: 400, divisor: 100, currency_code: 'GBP' },
+      amount_net: { amount: 2599, divisor: 100, currency_code: 'GBP' },
+      adjusted_gross: { amount: 0, divisor: 100 },
+      adjusted_fees: { amount: 0, divisor: 100 },
+      adjusted_net: { amount: 0, divisor: 100 },
+    } as EtsyPayment;
+
+    expect(normalizeReceiptPayments('4137418052', [liveShape])).toMatchObject({
+      status: 'PENDING',
+      canApplyCanonicalFees: false,
+      evidence: {
+        paymentGrossPence: 2999,
+        paymentFeesPence: 400,
+        paymentNetPence: 2599,
+      },
+    });
+  });
+
   it('authorizes canonical fee writes only for the explicit true gate', () => {
     process.env.ETSY_PAYMENT_FEES_VALIDATED = 'true';
 
@@ -282,6 +305,89 @@ describe('Etsy Payment reconciliation orchestration', () => {
     });
   });
 
+  it('keeps a gate-enabled preview non-applicable when every Payment aggregate fails', async () => {
+    process.env.ETSY_PAYMENT_FEES_VALIDATED = 'true';
+    const db = createFeeDbFixture({
+      sales: [
+        sale({ id: 's1', etsyOrderId: '4137418052' }),
+        sale({ id: 's2', etsyOrderId: '4137418053' }),
+      ],
+    });
+    const deps: PaymentReconciliationDependencies = {
+      client: {
+        getPaymentsForReceipt: async (receiptId: number) => receiptId === 4137418052
+          ? []
+          : [payment({
+            receipt_id: 4137418053,
+            amount_fees: { amount: 976, divisor: 100, currency_code: 'USD' },
+          })],
+      } as unknown as IEtsyClient,
+      db,
+    };
+
+    const preview = await previewPaymentReconciliation({
+      receiptIds: ['4137418052', '4137418053'],
+    }, deps);
+
+    expect(preview.canApplyCanonicalFees).toBe(false);
+    expect(preview.failures).toEqual([
+      { receiptId: '4137418052', status: 'PENDING', message: 'No Payment record returned' },
+      { receiptId: '4137418053', status: 'MANUAL_REVIEW', message: 'Payment records contain mixed currencies' },
+    ]);
+
+    const applied = await applyPaymentReconciliation({
+      receiptIds: preview.receiptIds,
+      fingerprint: preview.fingerprint,
+    }, deps);
+    expect(applied.applied).toBe(false);
+    expect(db.writeCount).toBe(0);
+  });
+
+  it('keeps a valid gated aggregate non-applicable when no local sale matches', async () => {
+    process.env.ETSY_PAYMENT_FEES_VALIDATED = 'true';
+    const db = createFeeDbFixture({ sales: [] });
+    const deps = dependencies(new Map([[4137418052, [paymentFixture]]]), db);
+
+    const preview = await previewPaymentReconciliation({ receiptIds: ['4137418052'] }, deps);
+
+    expect(preview.canApplyCanonicalFees).toBe(false);
+    expect(preview.summary).toMatchObject({ matched: 0, changed: 0, unmatched: 1 });
+
+    const result = await applyPaymentReconciliation({
+      receiptIds: preview.receiptIds,
+      fingerprint: preview.fingerprint,
+    }, deps);
+    expect(result.applied).toBe(false);
+    expect(db.writeCount).toBe(0);
+  });
+
+  it('keeps a valid gated aggregate non-applicable for statement-verified sales', async () => {
+    process.env.ETSY_PAYMENT_FEES_VALIDATED = 'true';
+    const db = createFeeDbFixture({
+      sales: [sale({
+        id: 'verified',
+        etsyOrderId: '4137418052',
+        status: 'STATEMENT_VERIFIED',
+        previousOffsiteAdsFeePence: 480,
+        previousVatOnOffsiteAdsFeePence: 96,
+      })],
+    });
+    const deps = dependencies(new Map([[4137418052, [paymentFixture]]]), db);
+
+    const preview = await previewPaymentReconciliation({ receiptIds: ['4137418052'] }, deps);
+
+    expect(preview.canApplyCanonicalFees).toBe(false);
+    expect(preview.summary).toMatchObject({ matched: 1, changed: 0, unmatched: 0 });
+
+    const result = await applyPaymentReconciliation({
+      receiptIds: preview.receiptIds,
+      fingerprint: preview.fingerprint,
+    }, deps);
+    expect(result.applied).toBe(false);
+    expect(db.writeCount).toBe(0);
+    expect(db.sales[0]?.status).toBe('STATEMENT_VERIFIED');
+  });
+
   it('does not write canonical money when the validation gate is disabled', async () => {
     delete process.env.ETSY_PAYMENT_FEES_VALIDATED;
     const db = createFeeDbFixture({
@@ -307,6 +413,39 @@ describe('Etsy Payment reconciliation orchestration', () => {
     }, dependencies(new Map([[4137418052, [paymentFixture]]]), db));
     expect(applied.applied).toBe(false);
     expect(db.writeCount).toBe(0);
+  });
+
+  it('automatically skips placeholder Etsy receipt IDs', async () => {
+    const requestedReceiptIds: number[] = [];
+    const db = createFeeDbFixture({
+      sales: [
+        sale({ id: 'placeholder-1', etsyOrderId: '1' }),
+        sale({ id: 'placeholder-2', etsyOrderId: '2' }),
+        sale({ id: 'real-receipt', etsyOrderId: '4137418052' }),
+      ],
+    });
+    const client = {
+      getPaymentsForReceipt: async (receiptId: number) => {
+        requestedReceiptIds.push(receiptId);
+        return receiptId === 4137418052 ? [paymentFixture] : [];
+      },
+    } as unknown as IEtsyClient;
+
+    const preview = await previewPaymentReconciliation({ limit: 25 }, { client, db });
+
+    expect(requestedReceiptIds).toEqual([4137418052]);
+    expect(preview.receiptIds).toEqual(['4137418052']);
+  });
+
+  it('does not count valid observe-only aggregates as failures', async () => {
+    delete process.env.ETSY_PAYMENT_FEES_VALIDATED;
+    const preview = await previewPaymentReconciliation(
+      { receiptIds: ['4137418052'] },
+      dependencies(new Map([[4137418052, [paymentFixture]]])),
+    );
+
+    expect(preview.failures).toEqual([]);
+    expect(preview.summary).toMatchObject({ matched: 1, manualReview: 0 });
   });
 
   it('keeps API failures as per-order pending results', async () => {

@@ -75,6 +75,10 @@ function baseReceiptId(etsyOrderId: string): string | null {
   return match?.[1] ?? null
 }
 
+function isPlausibleEtsyReceiptId(value: string): boolean {
+  return /^\d{6,}$/.test(value)
+}
+
 function receiptIdNumber(receiptId: string): number {
   const number = Number(receiptId)
   if (!/^\d+$/.test(receiptId) || !Number.isSafeInteger(number)) {
@@ -100,7 +104,7 @@ function selectReceiptIds(
   for (const snapshot of snapshots) {
     if (snapshot.status !== 'PENDING' || snapshot.etsyOrderId === null) continue
     const base = baseReceiptId(snapshot.etsyOrderId)
-    if (!base) continue
+    if (!base || !isPlausibleEtsyReceiptId(base)) continue
     const oldest = oldestByReceipt.get(base)
     if (!oldest || snapshot.updatedAt < oldest) oldestByReceipt.set(base, snapshot.updatedAt)
   }
@@ -217,8 +221,14 @@ function noOpSummary(change: FeeOrderChange, manual: boolean): FeeReconciliation
   }
 }
 
-function validEvidence(result: NormalizedReceiptPayments): boolean {
+function isEligibleForCanonicalFeeWrite(result: NormalizedReceiptPayments): boolean {
   return result.status === 'PAYMENT_SYNCED' && result.canApplyCanonicalFees
+}
+
+function hasPaymentAggregate(result: NormalizedReceiptPayments): boolean {
+  return result.evidence.paymentGrossPence !== null
+    && result.evidence.paymentFeesPence !== null
+    && result.evidence.paymentNetPence !== null
 }
 
 interface BatchBuild {
@@ -237,10 +247,10 @@ async function buildBatch(
   const changes: FeeOrderChange[] = []
   const failures: PaymentReconciliationFailure[] = []
   const evidence: NormalizedOrderEvidence[] = []
+  const evidenceToApply: NormalizedOrderEvidence[] = []
   const previewDb = readOnlyRepository(snapshots)
 
   for (const receiptId of receiptIds) {
-    const grouped = groupSalesByReceipt(receiptId, snapshots)
     let normalized: NormalizedReceiptPayments
     try {
       const payments = await deps.client.getPaymentsForReceipt(receiptIdNumber(receiptId))
@@ -252,17 +262,19 @@ async function buildBatch(
     }
     evidence.push(normalized.evidence)
 
-    if (validEvidence(normalized)) {
+    if (isEligibleForCanonicalFeeWrite(normalized)) {
       const result = await reconcileImportedPaymentEvidence(normalized.evidence, previewDb)
       addSummary(summary, result.summary)
       changes.push(...result.changes)
+      if (result.summary.changed > 0) evidenceToApply.push(normalized.evidence)
       continue
     }
 
+    const grouped = groupSalesByReceipt(receiptId, snapshots)
     const change = noOpChange(receiptId, grouped, normalized, normalized.reason)
     changes.push(change)
     addSummary(summary, noOpSummary(change, normalized.status === 'MANUAL_REVIEW'))
-    if (normalized.reason) {
+    if (normalized.reason && !hasPaymentAggregate(normalized)) {
       failures.push({
         receiptId,
         status: normalized.status === 'MANUAL_REVIEW' ? 'MANUAL_REVIEW' : 'PENDING',
@@ -271,7 +283,7 @@ async function buildBatch(
     }
   }
 
-  const evidenceToApply = evidence.filter((item) => item.paymentFeesPence !== null && item.paymentGrossPence !== null && item.paymentNetPence !== null)
+  const canApplyCanonicalFees = isPaymentFeeValidationEnabled() && evidenceToApply.length > 0
   return {
     preview: {
       fingerprint: fingerprintReconciliationInput(evidence, snapshots),
@@ -279,7 +291,7 @@ async function buildBatch(
       receiptIds,
       summary,
       changes,
-      canApplyCanonicalFees: isPaymentFeeValidationEnabled(),
+      canApplyCanonicalFees,
       failures,
     },
     evidenceToApply,
@@ -303,7 +315,7 @@ export async function applyPaymentReconciliation(
     throw new PaymentReconciliationConflictError()
   }
 
-  if (!isPaymentFeeValidationEnabled() || built.evidenceToApply.length === 0) {
+  if (!built.preview.canApplyCanonicalFees) {
     return { ...built.preview, applied: false }
   }
 

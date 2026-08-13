@@ -321,6 +321,7 @@ npm run test:server:run   # Single run (server only)
 | 2026-08-13 | Codex | Simplify Etsy Offsite credit netting | Done | codex/etsy-offsite-credit-netting |
 | 2026-08-13 | Codex | Address PR #39 Codex review findings | Done | codex/etsy-offsite-credit-netting |
 | 2026-08-13 | Codex | Design cross-month Etsy Offsite credit adjustments | Done | codex/etsy-offsite-credit-netting |
+| 2026-08-13 | Codex | Plan cross-month Etsy Offsite credit adjustments | Done | codex/etsy-offsite-credit-netting |
 | 2026-08-13 | Codex subagent | Task 2: Make Payment Diagnostics Safe and Truthful | Done | codex/etsy-statement-payment-fixes |
 | 2026-08-13 | Codex subagent | Task 4: Final Verification and Handoff | Done | codex/etsy-statement-payment-fixes |
 
@@ -416,6 +417,11 @@ npm run test:server:run   # Single run (server only)
 - Written design records the approved receipt-level fallback: if an earlier verified statement balance cannot be trusted, that receipt moves to manual review with money and prior statement provenance unchanged while the rest of the uploaded statement continues.
 - Independent design review required and then approved safeguards for component-specific fee/VAT adjustments, VAT-only coverage, uploaded-month fingerprinting, and preservation of the prior statement link on manual-review outcomes.
 - Implementation is intentionally paused pending user review of the written specification.
+
+**Etsy Cross-Month Credit Plan (2026-08-13):**
+- Approved design decomposed into four serialized, independently reviewable TDD tasks: component evidence, provenance/fingerprint safety, adjustment reconciliation, and route/real-file verification.
+- Plan self-review mapped every design requirement, scanned for placeholders, checked cross-task type/signature consistency, and added exact manual-review messages plus duplicate-month conflict coverage.
+- Implementation has not started; no application code, database, or source CSV was changed during planning.
 
 **Task 10 Verification (2026-08-12):**
 - The application test/type/build commands used dummy localhost database URLs and example Supabase values; those commands made no database connection. The separate isolated Docker exercise connected only to its temporary local PostgreSQL database and applied migrations there. No production database connection, Etsy request, backup, production migration, or data backfill was performed.

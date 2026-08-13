@@ -38,6 +38,12 @@ interface ReceiptEvidence {
   vatOnOffsiteAdsFeeCreditPence: number | null
 }
 
+interface NettedReceiptEvidence {
+  attributed: boolean
+  offsiteAdsFeePence: number
+  vatOnOffsiteAdsFeePence: number
+}
+
 /** Normalize only line endings and trailing file whitespace for file identity. */
 export function normalizeStatementCsvForChecksum(csv: string): string {
   return csv.replace(/\r\n?/g, '\n').replace(/\s+$/u, '')
@@ -217,6 +223,36 @@ function netPence(
   return net
 }
 
+function netReceiptEvidence(receipt: ReceiptEvidence, receiptId: string): NettedReceiptEvidence {
+  const offsiteAdsFeePence = netPence(
+    receipt.offsiteAdsFeeChargePence,
+    receipt.offsiteAdsFeeCreditPence,
+    receiptId,
+    'Offsite Ads fee',
+  )
+  const vatOnOffsiteAdsFeePence = netPence(
+    receipt.vatOnOffsiteAdsFeeChargePence,
+    receipt.vatOnOffsiteAdsFeeCreditPence,
+    receiptId,
+    'VAT on Offsite Ads fee',
+  )
+  if (
+    receipt.vatOnOffsiteAdsFeeCreditPence !== null
+    && receipt.offsiteAdsFeeChargePence === null
+  ) {
+    throw new Error(`VAT on Offsite Ads fee has no matching fee for order ${receiptId}`)
+  }
+  if (vatOnOffsiteAdsFeePence > 0 && offsiteAdsFeePence <= 0) {
+    throw new Error(`VAT on Offsite Ads fee has no matching fee for order ${receiptId}`)
+  }
+
+  return {
+    attributed: receipt.offsiteAdsFeeChargePence !== null,
+    offsiteAdsFeePence,
+    vatOnOffsiteAdsFeePence,
+  }
+}
+
 /**
  * Parse an Etsy monthly statement into explicit order-level attribution evidence.
  * Statement evidence is always GBP and never claims Payment API values.
@@ -291,28 +327,9 @@ export function parseEtsyStatement(input: ParseEtsyStatementInput): ParsedEtsySt
     receipts.set(receiptId, existing)
   }
 
+  const nettedReceipts = new Map<string, NettedReceiptEvidence>()
   for (const [receiptId, receipt] of receipts) {
-    const offsiteAdsFeePence = netPence(
-      receipt.offsiteAdsFeeChargePence,
-      receipt.offsiteAdsFeeCreditPence,
-      receiptId,
-      'Offsite Ads fee',
-    )
-    const vatOnOffsiteAdsFeePence = netPence(
-      receipt.vatOnOffsiteAdsFeeChargePence,
-      receipt.vatOnOffsiteAdsFeeCreditPence,
-      receiptId,
-      'VAT on Offsite Ads fee',
-    )
-    if (
-      receipt.vatOnOffsiteAdsFeeCreditPence !== null
-      && receipt.offsiteAdsFeeChargePence === null
-    ) {
-      throw new Error(`VAT on Offsite Ads fee has no matching fee for order ${receiptId}`)
-    }
-    if (vatOnOffsiteAdsFeePence > 0 && offsiteAdsFeePence <= 0) {
-      throw new Error(`VAT on Offsite Ads fee has no matching fee for order ${receiptId}`)
-    }
+    nettedReceipts.set(receiptId, netReceiptEvidence(receipt, receiptId))
   }
 
   const coveredReceiptIds = [...receipts.entries()]
@@ -321,26 +338,13 @@ export function parseEtsyStatement(input: ParseEtsyStatementInput): ParsedEtsySt
     .sort()
   const evidenceByReceipt = new Map<string, NormalizedOrderEvidence>()
   for (const receiptId of coveredReceiptIds) {
-    const receipt = receipts.get(receiptId)!
-    const offsiteAdsFeePence = netPence(
-      receipt.offsiteAdsFeeChargePence,
-      receipt.offsiteAdsFeeCreditPence,
-      receiptId,
-      'Offsite Ads fee',
-    )
-    const vatOnOffsiteAdsFeePence = netPence(
-      receipt.vatOnOffsiteAdsFeeChargePence,
-      receipt.vatOnOffsiteAdsFeeCreditPence,
-      receiptId,
-      'VAT on Offsite Ads fee',
-    )
-    const attributed = receipt.offsiteAdsFeeChargePence !== null
+    const receipt = nettedReceipts.get(receiptId)!
     evidenceByReceipt.set(receiptId, {
       receiptId,
       currency: 'GBP',
-      attributed,
-      offsiteAdsFeePence: attributed ? offsiteAdsFeePence : 0,
-      vatOnOffsiteAdsFeePence: attributed ? vatOnOffsiteAdsFeePence : 0,
+      attributed: receipt.attributed,
+      offsiteAdsFeePence: receipt.attributed ? receipt.offsiteAdsFeePence : 0,
+      vatOnOffsiteAdsFeePence: receipt.attributed ? receipt.vatOnOffsiteAdsFeePence : 0,
       paymentGrossPence: null,
       paymentFeesPence: null,
       paymentNetPence: null,

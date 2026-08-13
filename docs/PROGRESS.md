@@ -318,6 +318,7 @@ npm run test:server:run   # Single run (server only)
 | 2026-08-13 | Codex | Support real Etsy statements and clarify Payment checks | Done | codex/etsy-statement-payment-fixes |
 | 2026-08-13 | Codex | Simplify Etsy statement and Payment fixes | Done | codex/etsy-statement-payment-fixes |
 | 2026-08-13 | Codex | Support paired Etsy Offsite fee credits and refunds | Done | codex/etsy-offsite-credit-netting |
+| 2026-08-13 | Codex | Simplify Etsy Offsite credit netting | Done | codex/etsy-offsite-credit-netting |
 | 2026-08-13 | Codex subagent | Task 2: Make Payment Diagnostics Safe and Truthful | Done | codex/etsy-statement-payment-fixes |
 | 2026-08-13 | Codex subagent | Task 4: Final Verification and Handoff | Done | codex/etsy-statement-payment-fixes |
 
@@ -338,6 +339,7 @@ npm run test:server:run   # Single run (server only)
 - **Requested final code-review fix complete** (branch: `codex/etsy-statement-payment-fixes`): canonical Payment applicability now additionally requires at least one aggregate that produces a changed, writable local sale plan. Valid unmatched receipts and statement-verified-only receipts remain visible in preview but cannot advertise or trigger Apply.
 - **Final simplify pass complete** (branch: `codex/etsy-statement-payment-fixes`): centralized the UI's validated-aggregate readiness rule, named canonical-write eligibility explicitly, reused the computed preview applicability during apply, and avoided a duplicate full-sale grouping pass for valid Payment evidence. Behavior and safety gates are unchanged.
 - **Task 1 complete** (branch: `codex/etsy-offsite-credit-netting`): statement parsing now records explicit Offsite fee/VAT charges and credits separately, rejects unmatched or over-credit pairs, nets valid pairs in exact pence while preserving charge-based attribution, and accepts the March export's `order:` VAT-credit label. Report: `.superpowers/sdd/2026-08-13-etsy-offsite-credit-netting/task-1-report.md`.
+- **Simplify pass complete** (branch: `codex/etsy-offsite-credit-netting`): receipt-level fee/VAT netting and validation now run once through a shared helper, and the normalized evidence builder reuses that validated result. Reuse, quality, and efficiency reviews found no other worthwhile behavior-preserving cleanup.
 
 **Task 4 Verification (2026-08-13):**
 - `npm run test:server:run -- server/__tests__/etsy/statementParser.test.ts server/__tests__/etsy/paymentReconciliation.test.ts server/__tests__/etsy/feeRoutes.test.ts` — PASS, 3 files / 64 tests; existing missing `ETSY_API_KEY`/`ETSY_SHARED_SECRET` warnings only.

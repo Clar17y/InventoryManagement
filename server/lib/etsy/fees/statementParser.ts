@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto'
 import * as XLSX from 'xlsx'
 import type { NormalizedOrderEvidence } from './types'
 
-const ORDER_ID_PATTERN = /Order\s*#\s*([0-9]+)/i
+const ORDER_ID_PATTERN = /Order\s*(?:#|:)\s*([0-9]+)/i
 
 export interface ParseEtsyStatementInput {
   csv: string
@@ -32,11 +32,10 @@ interface StatementRow {
 
 interface ReceiptEvidence {
   covered: boolean
-  attributed: boolean
-  offsiteAdsFeePence: number
-  vatOnOffsiteAdsFeePence: number
-  hasOffsiteFeeRow: boolean
-  hasVatRow: boolean
+  offsiteAdsFeeChargePence: number | null
+  offsiteAdsFeeCreditPence: number | null
+  vatOnOffsiteAdsFeeChargePence: number | null
+  vatOnOffsiteAdsFeeCreditPence: number | null
 }
 
 /** Normalize only line endings and trailing file whitespace for file identity. */
@@ -142,22 +141,40 @@ function parseRows(csv: string): StatementRow[] {
   })
 }
 
-function selectChargePence(row: StatementRow, receiptId: string, kind: string): number {
+function selectSignedPence(row: StatementRow, receiptId: string, kind: string): number {
   if (row.feesAndTaxes === null && row.amount === null) {
     throw new Error(`${kind} row for order ${receiptId} has blank money cells`)
   }
   const signed = row.feesAndTaxes !== null && row.feesAndTaxes !== 0
     ? row.feesAndTaxes
     : (row.amount ?? 0)
-  // Charges are negative on an Etsy statement. A positive value is a credit or
-  // reversal, which cannot be aggregated as a charge without netting it against
-  // the original row, so the operator reconciles that order manually instead.
+  return signed
+}
+
+interface StatementMoneyEvidence {
+  side: 'charge' | 'credit'
+  pence: number
+}
+
+function selectMoneyEvidence(
+  row: StatementRow,
+  receiptId: string,
+  kind: string,
+  combinedText: string,
+): StatementMoneyEvidence {
+  const signed = selectSignedPence(row, receiptId, kind)
+  // Charges are negative on an Etsy statement. A positive value is accepted as
+  // a credit only when Etsy explicitly labels the row as one; other positive
+  // reversals remain manual-review errors.
   if (signed > 0) {
-    throw new Error(
-      `${kind} row for order ${receiptId} is a credit or reversal and must be reconciled manually`,
-    )
+    if (!/\bcredit\b/i.test(combinedText)) {
+      throw new Error(
+        `${kind} row for order ${receiptId} is a credit or reversal and must be reconciled manually`,
+      )
+    }
+    return { side: 'credit', pence: signed }
   }
-  return Math.abs(signed)
+  return { side: 'charge', pence: Math.abs(signed) }
 }
 
 function isSaleCoverageRow(row: StatementRow, combinedText: string): boolean {
@@ -166,6 +183,38 @@ function isSaleCoverageRow(row: StatementRow, combinedText: string): boolean {
 
 function conflict(receiptId: string, kind: string): never {
   throw new Error(`Conflicting duplicate ${kind} rows for order ${receiptId}`)
+}
+
+function recordDuplicate(
+  current: number | null,
+  next: number,
+  receiptId: string,
+  kind: string,
+): number {
+  if (current !== null && current !== next) {
+    conflict(receiptId, kind)
+  }
+  return next
+}
+
+function netPence(
+  charge: number | null,
+  credit: number | null,
+  receiptId: string,
+  kind: string,
+): number {
+  if (credit !== null && charge === null) {
+    throw new Error(`${kind} credit for order ${receiptId} has no matching charge`)
+  }
+  if (credit !== null && credit > (charge ?? 0)) {
+    throw new Error(`${kind} credit for order ${receiptId} is greater than its charge`)
+  }
+
+  const net = (charge ?? 0) - (credit ?? 0)
+  if (!Number.isSafeInteger(net) || net < 0) {
+    throw new RangeError(`${kind} for order ${receiptId} exceeds the safe integer pence range`)
+  }
+  return net
 }
 
 /**
@@ -193,11 +242,10 @@ export function parseEtsyStatement(input: ParseEtsyStatementInput): ParsedEtsySt
     const receiptId = orderMatch[1]!
     const existing = receipts.get(receiptId) ?? {
       covered: false,
-      attributed: false,
-      offsiteAdsFeePence: 0,
-      vatOnOffsiteAdsFeePence: 0,
-      hasOffsiteFeeRow: false,
-      hasVatRow: false,
+      offsiteAdsFeeChargePence: null,
+      offsiteAdsFeeCreditPence: null,
+      vatOnOffsiteAdsFeeChargePence: null,
+      vatOnOffsiteAdsFeeCreditPence: null,
     }
     // An Offsite Ads fee row is positive attribution evidence in its own
     // right. Sale/payment rows remain the only basis for explicit
@@ -205,27 +253,64 @@ export function parseEtsyStatement(input: ParseEtsyStatementInput): ParsedEtsySt
     existing.covered ||= isCoverageRow || (isOffsiteRow && !isVatRow)
 
     if (isVatRow) {
-      const vat = selectChargePence(row, receiptId, 'VAT on Offsite Ads fee')
-      if (existing.hasVatRow && existing.vatOnOffsiteAdsFeePence !== vat) {
-        conflict(receiptId, 'VAT')
+      const vat = selectMoneyEvidence(row, receiptId, 'VAT on Offsite Ads fee', combinedText)
+      if (vat.side === 'charge') {
+        existing.vatOnOffsiteAdsFeeChargePence = recordDuplicate(
+          existing.vatOnOffsiteAdsFeeChargePence,
+          vat.pence,
+          receiptId,
+          'VAT charge',
+        )
+      } else {
+        existing.vatOnOffsiteAdsFeeCreditPence = recordDuplicate(
+          existing.vatOnOffsiteAdsFeeCreditPence,
+          vat.pence,
+          receiptId,
+          'VAT credit',
+        )
       }
-      existing.hasVatRow = true
-      existing.vatOnOffsiteAdsFeePence = vat
     } else if (isOffsiteRow) {
-      const fee = selectChargePence(row, receiptId, 'Offsite Ads fee')
-      if (existing.hasOffsiteFeeRow && existing.offsiteAdsFeePence !== fee) {
-        conflict(receiptId, 'Offsite Ads fee')
+      const fee = selectMoneyEvidence(row, receiptId, 'Offsite Ads fee', combinedText)
+      if (fee.side === 'charge') {
+        existing.offsiteAdsFeeChargePence = recordDuplicate(
+          existing.offsiteAdsFeeChargePence,
+          fee.pence,
+          receiptId,
+          'Offsite Ads fee charge',
+        )
+      } else {
+        existing.offsiteAdsFeeCreditPence = recordDuplicate(
+          existing.offsiteAdsFeeCreditPence,
+          fee.pence,
+          receiptId,
+          'Offsite Ads fee credit',
+        )
       }
-      existing.hasOffsiteFeeRow = true
-      existing.attributed = true
-      existing.offsiteAdsFeePence = fee
     }
 
     receipts.set(receiptId, existing)
   }
 
   for (const [receiptId, receipt] of receipts) {
-    if (receipt.hasVatRow && receipt.vatOnOffsiteAdsFeePence > 0 && (!receipt.hasOffsiteFeeRow || receipt.offsiteAdsFeePence <= 0)) {
+    const offsiteAdsFeePence = netPence(
+      receipt.offsiteAdsFeeChargePence,
+      receipt.offsiteAdsFeeCreditPence,
+      receiptId,
+      'Offsite Ads fee',
+    )
+    const vatOnOffsiteAdsFeePence = netPence(
+      receipt.vatOnOffsiteAdsFeeChargePence,
+      receipt.vatOnOffsiteAdsFeeCreditPence,
+      receiptId,
+      'VAT on Offsite Ads fee',
+    )
+    if (
+      receipt.vatOnOffsiteAdsFeeCreditPence !== null
+      && receipt.offsiteAdsFeeChargePence === null
+    ) {
+      throw new Error(`VAT on Offsite Ads fee has no matching fee for order ${receiptId}`)
+    }
+    if (vatOnOffsiteAdsFeePence > 0 && offsiteAdsFeePence <= 0) {
       throw new Error(`VAT on Offsite Ads fee has no matching fee for order ${receiptId}`)
     }
   }
@@ -237,12 +322,25 @@ export function parseEtsyStatement(input: ParseEtsyStatementInput): ParsedEtsySt
   const evidenceByReceipt = new Map<string, NormalizedOrderEvidence>()
   for (const receiptId of coveredReceiptIds) {
     const receipt = receipts.get(receiptId)!
+    const offsiteAdsFeePence = netPence(
+      receipt.offsiteAdsFeeChargePence,
+      receipt.offsiteAdsFeeCreditPence,
+      receiptId,
+      'Offsite Ads fee',
+    )
+    const vatOnOffsiteAdsFeePence = netPence(
+      receipt.vatOnOffsiteAdsFeeChargePence,
+      receipt.vatOnOffsiteAdsFeeCreditPence,
+      receiptId,
+      'VAT on Offsite Ads fee',
+    )
+    const attributed = receipt.offsiteAdsFeeChargePence !== null
     evidenceByReceipt.set(receiptId, {
       receiptId,
       currency: 'GBP',
-      attributed: receipt.attributed,
-      offsiteAdsFeePence: receipt.attributed ? receipt.offsiteAdsFeePence : 0,
-      vatOnOffsiteAdsFeePence: receipt.attributed ? receipt.vatOnOffsiteAdsFeePence : 0,
+      attributed,
+      offsiteAdsFeePence: attributed ? offsiteAdsFeePence : 0,
+      vatOnOffsiteAdsFeePence: attributed ? vatOnOffsiteAdsFeePence : 0,
       paymentGrossPence: null,
       paymentFeesPence: null,
       paymentNetPence: null,

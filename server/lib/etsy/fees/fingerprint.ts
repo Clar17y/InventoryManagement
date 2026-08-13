@@ -5,6 +5,10 @@ type EvidenceInput =
   | readonly NormalizedOrderEvidence[]
   | ReadonlyMap<string, NormalizedOrderEvidence>
 
+export interface ReconciliationFingerprintContext {
+  statementMonth?: string | null
+}
+
 function compareStrings(a: string, b: string): number {
   if (a < b) return -1
   if (a > b) return 1
@@ -23,6 +27,7 @@ function evidenceValues(input: EvidenceInput): NormalizedOrderEvidence[] {
 export function fingerprintReconciliationInput(
   evidence: EvidenceInput,
   snapshots: readonly SaleFeeSnapshot[],
+  context?: ReconciliationFingerprintContext,
 ): string {
   const normalizedEvidence = evidenceValues(evidence)
     .map((item) => ({
@@ -35,6 +40,20 @@ export function fingerprintReconciliationInput(
       paymentFeesPence: item.paymentFeesPence,
       paymentNetPence: item.paymentNetPence,
       source: item.source,
+      statement: item.statement === undefined
+        ? null
+        : {
+          offsiteAdsFee: {
+            operation: item.statement.offsiteAdsFee.operation,
+            absolutePence: item.statement.offsiteAdsFee.absolutePence,
+            creditPence: item.statement.offsiteAdsFee.creditPence,
+          },
+          vatOnOffsiteAdsFee: {
+            operation: item.statement.vatOnOffsiteAdsFee.operation,
+            absolutePence: item.statement.vatOnOffsiteAdsFee.absolutePence,
+            creditPence: item.statement.vatOnOffsiteAdsFee.creditPence,
+          },
+        },
     }))
     .sort((a, b) => {
       const byReceipt = compareStrings(a.receiptId, b.receiptId)
@@ -56,11 +75,18 @@ export function fingerprintReconciliationInput(
       etsyPaymentFeesPence: snapshot.etsyPaymentFeesPence ?? null,
       etsyPaymentNetPence: snapshot.etsyPaymentNetPence ?? null,
       offsiteAdsAttributed: snapshot.offsiteAdsAttributed ?? null,
+      etsyFeeReconciliationSource: snapshot.etsyFeeReconciliationSource ?? null,
+      etsyStatementImportId: snapshot.etsyStatementImportId ?? null,
+      etsyStatementMonth: snapshot.etsyStatementMonth ?? null,
       status: snapshot.status,
       updatedAt: snapshot.updatedAt,
     }))
     .sort((a, b) => compareStrings(a.id, b.id))
 
-  const canonical = JSON.stringify({ evidence: normalizedEvidence, snapshots: normalizedSnapshots })
+  const canonical = JSON.stringify({
+    statementMonth: context?.statementMonth ?? null,
+    evidence: normalizedEvidence,
+    snapshots: normalizedSnapshots,
+  })
   return createHash('sha256').update(canonical, 'utf8').digest('hex')
 }

@@ -21,6 +21,10 @@ export interface SaleFeeSnapshot {
   offsiteAdsAttributed?: boolean | null
   /** Persisted evidence source, omitted by older in-memory snapshots. */
   etsyFeeReconciliationSource?: EtsyFeeReconciliationSource | null
+  /** Persisted statement provenance, omitted by older in-memory snapshots. */
+  etsyStatementImportId?: string | null
+  /** Normalized statement month for the persisted statement provenance. */
+  etsyStatementMonth?: string | null
   status: EtsyFeeReconciliationStatus
   updatedAt: string
 }

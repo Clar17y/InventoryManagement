@@ -89,6 +89,8 @@ export interface StatementReconciliationResult extends FeeReconciliationPreview 
 export interface SavedStatementImport {
   id: string
   checksum: string
+  /** Normalized persisted statement month (YYYY-MM). */
+  statementMonth: string
   summary: FeeReconciliationPreview['summary']
 }
 
@@ -440,7 +442,9 @@ async function buildStatementPlan(
     }
   }
 
-  const fingerprint = fingerprintReconciliationInput(parsed.evidenceByReceipt, snapshots)
+  const fingerprint = fingerprintReconciliationInput(parsed.evidenceByReceipt, snapshots, {
+    statementMonth: parsed.statementMonth,
+  })
   return {
     fingerprint,
     statementChecksum: parsed.statementChecksum,
@@ -470,6 +474,11 @@ function duplicateStatementResult(
   parsed: ReturnType<typeof parseEtsyStatement>,
   existing: SavedStatementImport,
 ): StatementReconciliationResult {
+  if (existing.statementMonth !== input.statementMonth) {
+    throw new StatementReconciliationConflictError(
+      `This statement file was already imported for ${existing.statementMonth}; it cannot be applied as ${input.statementMonth}`,
+    )
+  }
   return {
     fingerprint: input.fingerprint,
     statementChecksum: parsed.statementChecksum,
@@ -749,6 +758,11 @@ function pounds(value: number | null): number | null {
   return value === null ? null : value / 100
 }
 
+function statementMonthFromDate(value: Date | null): string | null {
+  if (!value) return null
+  return `${value.getUTCFullYear()}-${String(value.getUTCMonth() + 1).padStart(2, '0')}`
+}
+
 function snapshotFromPrisma(row: {
   id: string
   etsyOrderId: string | null
@@ -764,6 +778,8 @@ function snapshotFromPrisma(row: {
   offsiteAdsAttributed: boolean | null
   etsyFeeReconciliationSource: EtsyFeeReconciliationSource | null
   etsyFeeReconciliationStatus: EtsyFeeReconciliationStatus
+  etsyStatementImportId: string | null
+  etsyStatementImport: { statementMonth: Date } | null
   updatedAt: Date
 }): SaleFeeSnapshot {
   const toPence = (value: { toNumber(): number }): number => Math.round(value.toNumber() * 100)
@@ -781,6 +797,8 @@ function snapshotFromPrisma(row: {
     etsyPaymentNetPence: row.etsyPaymentNet === null ? null : toPence(row.etsyPaymentNet),
     offsiteAdsAttributed: row.offsiteAdsAttributed,
     etsyFeeReconciliationSource: row.etsyFeeReconciliationSource,
+    etsyStatementImportId: row.etsyStatementImportId,
+    etsyStatementMonth: statementMonthFromDate(row.etsyStatementImport?.statementMonth ?? null),
     status: row.etsyFeeReconciliationStatus,
     updatedAt: row.updatedAt.toISOString(),
   }
@@ -816,6 +834,8 @@ export function createPrismaFeeReconciliationRepository(prisma: PrismaClient): F
           offsiteAdsAttributed: true,
           etsyFeeReconciliationSource: true,
           etsyFeeReconciliationStatus: true,
+          etsyStatementImportId: true,
+          etsyStatementImport: { select: { statementMonth: true } },
           updatedAt: true,
         },
       })
@@ -827,6 +847,7 @@ export function createPrismaFeeReconciliationRepository(prisma: PrismaClient): F
         select: {
           id: true,
           checksum: true,
+          statementMonth: true,
           matched: true,
           changed: true,
           unchanged: true,
@@ -843,6 +864,7 @@ export function createPrismaFeeReconciliationRepository(prisma: PrismaClient): F
       return {
         id: row.id,
         checksum: row.checksum,
+        statementMonth: statementMonthFromDate(row.statementMonth)!,
         summary: {
           matched: row.matched,
           changed: row.changed,

@@ -504,8 +504,53 @@ describe('Etsy reconciliation input fingerprint', () => {
     const base = fingerprintReconciliationInput(evidence, [saleSnapshot()])
     const changed = fingerprintReconciliationInput(evidence, [saleSnapshot({ marginPence: 1999 })])
     const changedOffsite = fingerprintReconciliationInput(evidence, [saleSnapshot({ previousOffsiteAdsFeePence: 480 })])
+    const changedSource = fingerprintReconciliationInput(evidence, [saleSnapshot({
+      etsyFeeReconciliationSource: 'ETSY_STATEMENT',
+    })])
 
     expect(changed).not.toBe(base)
     expect(changedOffsite).not.toBe(base)
+    expect(changedSource).not.toBe(base)
+  })
+
+  it('changes when the uploaded statement month changes', () => {
+    const snapshots = [saleSnapshot()]
+
+    expect(fingerprintReconciliationInput(evidence, snapshots, { statementMonth: '2023-12' }))
+      .not.toBe(fingerprintReconciliationInput(evidence, snapshots, { statementMonth: '2023-11' }))
+  })
+
+  it('changes when a snapshot has different prior statement provenance', () => {
+    expect(fingerprintReconciliationInput(evidence, [saleSnapshot({
+      etsyStatementImportId: 'november-import',
+      etsyStatementMonth: '2023-11',
+      etsyFeeReconciliationSource: 'ETSY_STATEMENT',
+    })], { statementMonth: '2023-12' })).not.toBe(
+      fingerprintReconciliationInput(evidence, [saleSnapshot({
+        etsyStatementImportId: 'october-import',
+        etsyStatementMonth: '2023-10',
+        etsyFeeReconciliationSource: 'ETSY_STATEMENT',
+      })], { statementMonth: '2023-12' }),
+    )
+  })
+
+  it('changes when component-level statement evidence changes', () => {
+    const statementEvidence: NormalizedOrderEvidence[] = [{
+      ...evidence[1]!,
+      statement: {
+        offsiteAdsFee: { operation: 'credit_adjustment', absolutePence: null, creditPence: 480 },
+        vatOnOffsiteAdsFee: { operation: 'none', absolutePence: null, creditPence: 0 },
+      },
+    }]
+    const changedStatementEvidence: NormalizedOrderEvidence[] = [{
+      ...statementEvidence[0]!,
+      statement: {
+        offsiteAdsFee: { operation: 'credit_adjustment', absolutePence: null, creditPence: 479 },
+        vatOnOffsiteAdsFee: { operation: 'none', absolutePence: null, creditPence: 0 },
+      },
+    }]
+
+    expect(fingerprintReconciliationInput(statementEvidence, [saleSnapshot()], { statementMonth: '2023-12' }))
+      .not.toBe(fingerprintReconciliationInput(changedStatementEvidence, [saleSnapshot()], { statementMonth: '2023-12' }))
   })
 })

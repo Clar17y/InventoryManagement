@@ -360,7 +360,38 @@ describe('Etsy statement reconciliation service', () => {
       statementImportId: first.statementImportId,
       summary: first.summary,
     })
+    expect(db.imports).toEqual([
+      expect.objectContaining({ statementMonth: '2025-07' }),
+    ])
+    expect(db.sales[0]).toMatchObject({
+      etsyStatementImportId: first.statementImportId,
+      etsyStatementMonth: '2025-07',
+    })
     expect(db.writeCount).toBe(writesAfterFirstApply)
+  })
+
+  it('rejects a same-checksum apply submitted for a different month', async () => {
+    const db = createFeeDbFixture({
+      sales: [sale({ id: 's1', etsyOrderId: '4137418052' })],
+    })
+    const julyStatement = input(attributedCsv)
+    const julyPreview = await previewStatementReconciliation(julyStatement, db)
+    await applyStatementReconciliation({ ...julyStatement, fingerprint: julyPreview.fingerprint }, db)
+    const writesAfterJulyApply = db.writeCount
+    const augustStatement = {
+      ...input(attributedCsv),
+      statementMonth: '2025-08',
+      fileName: 'etsy-statement-2025-08.csv',
+      fingerprint: julyPreview.fingerprint,
+    }
+
+    const conflictingApply = applyStatementReconciliation(augustStatement, db)
+
+    await expect(conflictingApply).rejects.toBeInstanceOf(StatementReconciliationConflictError)
+    await expect(conflictingApply).rejects.toThrow(
+      'This statement file was already imported for 2025-07; it cannot be applied as 2025-08',
+    )
+    expect(db.writeCount).toBe(writesAfterJulyApply)
   })
 
   it('rejects an apply when the current sale state makes the preview stale', async () => {
@@ -569,13 +600,18 @@ describe('Etsy statement reconciliation service', () => {
       newFeesPence: 1976,
       marginDeltaPence: -576,
     }
+    let statementImportSelect: unknown
     const fakePrisma = {
       etsyStatementImport: {
-        findUnique: async () => ({
-          id: 'statement-import-1',
-          checksum: 'checksum-1',
-          ...summary,
-        }),
+        findUnique: async ({ select }: { select: unknown }) => {
+          statementImportSelect = select
+          return {
+            id: 'statement-import-1',
+            checksum: 'checksum-1',
+            statementMonth: new Date('2023-11-01T00:00:00.000Z'),
+            ...summary,
+          }
+        },
       },
     } as unknown as PrismaClient
     const repository = createPrismaFeeReconciliationRepository(fakePrisma)
@@ -583,7 +619,53 @@ describe('Etsy statement reconciliation service', () => {
     await expect(repository.findStatementImportByChecksum('checksum-1')).resolves.toEqual({
       id: 'statement-import-1',
       checksum: 'checksum-1',
+      statementMonth: '2023-11',
       summary,
+    })
+    expect(statementImportSelect).toMatchObject({ statementMonth: true })
+  })
+
+  it('maps prior statement provenance from the Prisma sale adapter', async () => {
+    const money = (value: number) => ({ toNumber: () => value })
+    let saleSelect: unknown
+    const fakePrisma = {
+      sale: {
+        findMany: async ({ select }: { select: unknown }) => {
+          saleSelect = select
+          return [{
+            id: 's1',
+            etsyOrderId: '4137418052',
+            grossRevenue: money(39.99),
+            etsyFees: money(9.76),
+            netRevenue: money(30.23),
+            margin: money(16.23),
+            offsiteAdsFee: money(4.8),
+            vatOnOffsiteAdsFee: money(0.96),
+            etsyPaymentGross: null,
+            etsyPaymentFees: null,
+            etsyPaymentNet: null,
+            offsiteAdsAttributed: true,
+            etsyFeeReconciliationSource: 'ETSY_STATEMENT',
+            etsyFeeReconciliationStatus: 'STATEMENT_VERIFIED',
+            etsyStatementImportId: 'statement-import-2023-11',
+            etsyStatementImport: { statementMonth: new Date('2023-11-01T00:00:00.000Z') },
+            updatedAt: new Date('2023-12-01T00:00:00.000Z'),
+          }]
+        },
+      },
+    } as unknown as PrismaClient
+    const repository = createPrismaFeeReconciliationRepository(fakePrisma)
+
+    await expect(repository.listEtsySaleSnapshots()).resolves.toEqual([
+      expect.objectContaining({
+        id: 's1',
+        etsyStatementImportId: 'statement-import-2023-11',
+        etsyStatementMonth: '2023-11',
+      }),
+    ])
+    expect(saleSelect).toMatchObject({
+      etsyStatementImportId: true,
+      etsyStatementImport: { select: { statementMonth: true } },
     })
   })
 
@@ -630,6 +712,71 @@ describe('Etsy statement reconciliation service', () => {
 
     expect(results.filter((result) => result.applied)).toHaveLength(1)
     expect(results.filter((result) => result.duplicate)).toHaveLength(1)
+    expect(base.imports).toHaveLength(1)
+    expect(base.writeCount).toBe(3)
+  })
+
+  it('rejects a race-losing checksum apply submitted for a different month', async () => {
+    const base = createFeeDbFixture({
+      sales: [sale({ id: 's1', etsyOrderId: '4137418052' })],
+    })
+    const initialSales = await base.listEtsySaleSnapshots()
+    let preflightFinds = 0
+    let transactionCalls = 0
+    let resolveFirstTransactionStarted!: () => void
+    const firstTransactionStarted = new Promise<void>((resolve) => { resolveFirstTransactionStarted = resolve })
+    let releaseFirstTransaction!: () => void
+    const firstTransactionCanCommit = new Promise<void>((resolve) => { releaseFirstTransaction = resolve })
+    let resolveSecondTransactionAttempted!: () => void
+    const secondTransactionAttempted = new Promise<void>((resolve) => { resolveSecondTransactionAttempted = resolve })
+    let resolveCommitted!: () => void
+    const committed = new Promise<void>((resolve) => { resolveCommitted = resolve })
+    const raceDb: FeeReconciliationRepository = {
+      async listEtsySaleSnapshots() {
+        return initialSales.map((snapshot) => ({ ...snapshot }))
+      },
+      async findStatementImportByChecksum(checksum) {
+        preflightFinds += 1
+        if (preflightFinds <= 2) return null
+        await committed
+        return base.findStatementImportByChecksum(checksum)
+      },
+      async transaction(work) {
+        transactionCalls += 1
+        if (transactionCalls === 1) {
+          resolveFirstTransactionStarted()
+          await firstTransactionCanCommit
+          const result = await base.transaction(work)
+          resolveCommitted()
+          return result
+        }
+        resolveSecondTransactionAttempted()
+        throw Object.assign(new Error('checksum already exists'), {
+          code: 'P2002',
+          meta: { target: ['checksum'] },
+        })
+      },
+    }
+    const julyStatement = input(attributedCsv)
+    const augustStatement = {
+      ...input(attributedCsv),
+      statementMonth: '2025-08',
+      fileName: 'etsy-statement-2025-08.csv',
+    }
+    const julyPreview = await previewStatementReconciliation(julyStatement, base)
+    const augustPreview = await previewStatementReconciliation(augustStatement, base)
+
+    const julyApply = applyStatementReconciliation({ ...julyStatement, fingerprint: julyPreview.fingerprint }, raceDb)
+    await firstTransactionStarted
+    const augustApply = applyStatementReconciliation({ ...augustStatement, fingerprint: augustPreview.fingerprint }, raceDb)
+    await secondTransactionAttempted
+    releaseFirstTransaction()
+
+    await expect(julyApply).resolves.toMatchObject({ applied: true, duplicate: false })
+    await expect(augustApply).rejects.toBeInstanceOf(StatementReconciliationConflictError)
+    await expect(augustApply).rejects.toThrow(
+      'This statement file was already imported for 2025-07; it cannot be applied as 2025-08',
+    )
     expect(base.imports).toHaveLength(1)
     expect(base.writeCount).toBe(3)
   })

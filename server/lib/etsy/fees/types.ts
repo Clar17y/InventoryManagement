@@ -25,6 +25,21 @@ export interface SaleFeeSnapshot {
   updatedAt: string
 }
 
+export type StatementComponentOperation = 'absolute' | 'credit_adjustment' | 'none'
+
+export interface StatementComponentEvidence {
+  operation: StatementComponentOperation
+  /** Netted value for absolute evidence; null for adjustments/absence. */
+  absolutePence: number | null
+  /** Positive total of exact, deduplicated statement credit rows. */
+  creditPence: number
+}
+
+export interface StatementAdjustmentEvidence {
+  offsiteAdsFee: StatementComponentEvidence
+  vatOnOffsiteAdsFee: StatementComponentEvidence
+}
+
 /** Normalized evidence from an Etsy statement or Payment API response. */
 export interface NormalizedOrderEvidence {
   receiptId: string
@@ -36,6 +51,8 @@ export interface NormalizedOrderEvidence {
   paymentFeesPence: number | null
   paymentNetPence: number | null
   source: EtsyFeeReconciliationSource
+  /** Present only for component-level evidence parsed from an Etsy statement. */
+  statement?: StatementAdjustmentEvidence
 }
 
 /** Proposed persisted values for a sale after fee reconciliation. */

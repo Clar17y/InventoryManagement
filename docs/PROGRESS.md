@@ -322,6 +322,7 @@ npm run test:server:run   # Single run (server only)
 | 2026-08-13 | Codex | Address PR #39 Codex review findings | Done | codex/etsy-offsite-credit-netting |
 | 2026-08-13 | Codex | Design cross-month Etsy Offsite credit adjustments | Done | codex/etsy-offsite-credit-netting |
 | 2026-08-13 | Codex | Plan cross-month Etsy Offsite credit adjustments | Done | codex/etsy-offsite-credit-netting |
+| 2026-08-13 | Codex subagent | Task 1: Preserve component-level statement credit evidence | Done | codex/etsy-offsite-credit-netting |
 | 2026-08-13 | Codex subagent | Task 2: Make Payment Diagnostics Safe and Truthful | Done | codex/etsy-statement-payment-fixes |
 | 2026-08-13 | Codex subagent | Task 4: Final Verification and Handoff | Done | codex/etsy-statement-payment-fixes |
 
@@ -335,6 +336,7 @@ npm run test:server:run   # Single run (server only)
 **Last Updated:** 2026-08-13
 
 **Current State:**
+- **Cross-month credit Task 1 complete** (branch: `codex/etsy-offsite-credit-netting`): statement parsing now retains separate fee and VAT component operations (`absolute`, `credit_adjustment`, or `none`), preserves exact deduplicated credit totals, covers explicit VAT-only credits, and keeps top-level values null unless the component is absolute. Payment evidence remains unchanged because the statement detail is optional and parser-only. Focused parser tests pass (46/46), along with server TypeScript, focused ESLint, and `git diff --check`. Report: `.superpowers/sdd/2026-08-13-etsy-cross-month-credit-adjustments/task-1-report.md`.
 - **Real Etsy statement and Payment compatibility fixes complete** (branch: `codex/etsy-statement-payment-fixes`): real January 2022 and July 2026 monthly exports consistently use `Title`, pound-prefixed values, and `--`; the shipped parser now accepts those forms directly. The approved design preserves strict GBP/penny/reversal safety, keeps statements authoritative for Offsite attribution, keeps Payment canonical writes gated, skips obvious placeholder receipt IDs during automatic checks, and clarifies Payment preview wording. No database or Etsy mutation was in scope.
 - **Task 2 complete** (branch: `codex/etsy-statement-payment-fixes`): Payment normalization now tolerates missing currency metadata on zero adjustments while still validating primary aggregate currencies and adjustment amounts; automatic previews skip obvious placeholder receipt IDs; valid observe-only aggregates are excluded from the failure list while canonical writes remain gated. Report: `.superpowers/sdd/2026-08-13-etsy-statement-payment-fixes/task-2-report.md`.
 - **Task 4 complete** (branch: `codex/etsy-statement-payment-fixes`): operator guidance now covers genuine Etsy `Title`/`£`/`--` exports, no-resave source CSV handling, aggregate Payment diagnostics versus statement attribution, and automatic placeholder-ID skips without sale writes. Report: `.superpowers/sdd/2026-08-13-etsy-statement-payment-fixes/task-4-report.md`.

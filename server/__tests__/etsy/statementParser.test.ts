@@ -158,7 +158,7 @@ describe('Etsy statement parser', () => {
     expect(parseEtsyStatement({ csv, statementMonth: '2025-07' }).evidenceByReceipt.get('4137418123')).toMatchObject({
       attributed: true,
       offsiteAdsFeePence: 480,
-      vatOnOffsiteAdsFeePence: 0,
+      vatOnOffsiteAdsFeePence: null,
     })
   })
 
@@ -371,12 +371,23 @@ describe('Etsy statement parser', () => {
       .toThrow(/greater than its charge/i)
   })
 
-  it('rejects an explicit Offsite credit when its charge is absent', () => {
+  it('preserves a fee and VAT credit-only receipt as component adjustments', () => {
     const csv = `Date,Type,Description,Info,Currency,Amount,Fees & Taxes,Net
-31 Jul 2025,Sale,Payment for Order #4137418052,,GBP,39.99,-4.93,35.06
-31 Jul 2025,Marketing,Credit for Offsite Ads fee Order #4137418052,,GBP,0,3.84,3.84`
+2 Dec 2023,Marketing,Credit for Offsite Ads fee,Order #3102744549,GBP,0,1.53,1.53
+2 Dec 2023,Tax,Credit for VAT on Offsite Ads fee,Order #3102744549,GBP,0,0.31,0.31`
 
-    expect(() => parseEtsyStatement({ csv, statementMonth: '2025-07' })).toThrow(/credit.*charge|charge.*credit/i)
+    const evidence = parseEtsyStatement({ csv, statementMonth: '2023-12' })
+      .evidenceByReceipt.get('3102744549')
+
+    expect(evidence).toMatchObject({
+      attributed: true,
+      offsiteAdsFeePence: null,
+      vatOnOffsiteAdsFeePence: null,
+      statement: {
+        offsiteAdsFee: { operation: 'credit_adjustment', absolutePence: null, creditPence: 153 },
+        vatOnOffsiteAdsFee: { operation: 'credit_adjustment', absolutePence: null, creditPence: 31 },
+      },
+    })
   })
 
   it('rejects an explicit Offsite credit greater than its charge', () => {
@@ -388,13 +399,28 @@ describe('Etsy statement parser', () => {
     expect(() => parseEtsyStatement({ csv, statementMonth: '2025-07' })).toThrow(/credit.*charge|charge.*credit|greater|exceed/i)
   })
 
-  it('rejects a VAT credit without a matching Offsite fee charge', () => {
+  it('keeps a VAT-only credit receipt covered', () => {
     const csv = `Date,Type,Description,Info,Currency,Amount,Fees & Taxes,Net
-31 Jul 2025,Sale,Payment for Order #4137418052,,GBP,39.99,-4.93,35.06
-31 Jul 2025,Tax,VAT: Offsite Ads fee Order #4137418052,,GBP,0,-0.77,-0.77
-31 Jul 2025,Tax,Credit for VAT on Offsite Ads fee Order #4137418052,,GBP,0,0.77,0.77`
+2 Dec 2023,Tax,Credit for VAT on Offsite Ads fee,Order #3102744549,GBP,0,0.31,0.31`
 
-    expect(() => parseEtsyStatement({ csv, statementMonth: '2025-07' })).toThrow(/VAT.*fee|fee.*VAT|credit.*charge|charge.*credit/i)
+    const result = parseEtsyStatement({ csv, statementMonth: '2023-12' })
+    expect(result.coveredReceiptIds).toEqual(['3102744549'])
+    expect(result.evidenceByReceipt.get('3102744549')?.statement).toMatchObject({
+      offsiteAdsFee: { operation: 'none', creditPence: 0 },
+      vatOnOffsiteAdsFee: { operation: 'credit_adjustment', creditPence: 31 },
+    })
+  })
+
+  it('preserves mixed fee charge and VAT adjustment evidence for manual routing', () => {
+    const csv = `Date,Type,Description,Info,Currency,Amount,Fees & Taxes,Net
+2 Dec 2023,Marketing,Fee for sale through Offsite Ads,Order #3102744549,GBP,0,-7.23,-7.23
+2 Dec 2023,Tax,Credit for VAT on Offsite Ads fee,Order #3102744549,GBP,0,0.31,0.31`
+
+    expect(parseEtsyStatement({ csv, statementMonth: '2023-12' })
+      .evidenceByReceipt.get('3102744549')?.statement).toMatchObject({
+      offsiteAdsFee: { operation: 'absolute', absolutePence: 723, creditPence: 0 },
+      vatOnOffsiteAdsFee: { operation: 'credit_adjustment', absolutePence: null, creditPence: 31 },
+    })
   })
 
   it('rejects positive remaining VAT without a matching Offsite fee charge', () => {

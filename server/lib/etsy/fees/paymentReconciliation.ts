@@ -247,6 +247,7 @@ async function buildBatch(
   const changes: FeeOrderChange[] = []
   const failures: PaymentReconciliationFailure[] = []
   const evidence: NormalizedOrderEvidence[] = []
+  const evidenceToApply: NormalizedOrderEvidence[] = []
   const previewDb = readOnlyRepository(snapshots)
 
   for (const receiptId of receiptIds) {
@@ -266,6 +267,7 @@ async function buildBatch(
       const result = await reconcileImportedPaymentEvidence(normalized.evidence, previewDb)
       addSummary(summary, result.summary)
       changes.push(...result.changes)
+      if (result.summary.changed > 0) evidenceToApply.push(normalized.evidence)
       continue
     }
 
@@ -281,7 +283,6 @@ async function buildBatch(
     }
   }
 
-  const evidenceToApply = evidence.filter((item) => item.paymentFeesPence !== null && item.paymentGrossPence !== null && item.paymentNetPence !== null)
   const canApplyCanonicalFees = isPaymentFeeValidationEnabled() && evidenceToApply.length > 0
   return {
     preview: {

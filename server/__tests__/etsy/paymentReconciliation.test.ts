@@ -343,6 +343,51 @@ describe('Etsy Payment reconciliation orchestration', () => {
     expect(db.writeCount).toBe(0);
   });
 
+  it('keeps a valid gated aggregate non-applicable when no local sale matches', async () => {
+    process.env.ETSY_PAYMENT_FEES_VALIDATED = 'true';
+    const db = createFeeDbFixture({ sales: [] });
+    const deps = dependencies(new Map([[4137418052, [paymentFixture]]]), db);
+
+    const preview = await previewPaymentReconciliation({ receiptIds: ['4137418052'] }, deps);
+
+    expect(preview.canApplyCanonicalFees).toBe(false);
+    expect(preview.summary).toMatchObject({ matched: 0, changed: 0, unmatched: 1 });
+
+    const result = await applyPaymentReconciliation({
+      receiptIds: preview.receiptIds,
+      fingerprint: preview.fingerprint,
+    }, deps);
+    expect(result.applied).toBe(false);
+    expect(db.writeCount).toBe(0);
+  });
+
+  it('keeps a valid gated aggregate non-applicable for statement-verified sales', async () => {
+    process.env.ETSY_PAYMENT_FEES_VALIDATED = 'true';
+    const db = createFeeDbFixture({
+      sales: [sale({
+        id: 'verified',
+        etsyOrderId: '4137418052',
+        status: 'STATEMENT_VERIFIED',
+        previousOffsiteAdsFeePence: 480,
+        previousVatOnOffsiteAdsFeePence: 96,
+      })],
+    });
+    const deps = dependencies(new Map([[4137418052, [paymentFixture]]]), db);
+
+    const preview = await previewPaymentReconciliation({ receiptIds: ['4137418052'] }, deps);
+
+    expect(preview.canApplyCanonicalFees).toBe(false);
+    expect(preview.summary).toMatchObject({ matched: 1, changed: 0, unmatched: 0 });
+
+    const result = await applyPaymentReconciliation({
+      receiptIds: preview.receiptIds,
+      fingerprint: preview.fingerprint,
+    }, deps);
+    expect(result.applied).toBe(false);
+    expect(db.writeCount).toBe(0);
+    expect(db.sales[0]?.status).toBe('STATEMENT_VERIFIED');
+  });
+
   it('does not write canonical money when the validation gate is disabled', async () => {
     delete process.env.ETSY_PAYMENT_FEES_VALIDATED;
     const db = createFeeDbFixture({

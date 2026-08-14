@@ -103,3 +103,21 @@ Additional completion checks:
 - The initial bare `db:generate` command needs `DATABASE_URL` because of the repository’s `prisma.config.ts`; using the task’s dummy localhost URL resolved this without contacting a database.
 - Tests retain existing non-failing React `act(...)`, mocked Etsy credential, camera/network, and chart-size warnings. They do not indicate a Task 1 failure.
 - Later tasks still need to consume the new response contracts and perform service-boundary blank-note normalization; those behaviors were deliberately not implemented in Task 1.
+
+## Fix Round 1 — non-zero manually verified count coverage
+
+Review finding addressed: the original fixtures used zero for `MANUALLY_VERIFIED`, so they could not detect an unresolved-banner regression or prove that grouped API counts preserve a non-zero manual count.
+
+Changes:
+
+- `server/__tests__/etsy/feeRoutes.test.ts` now supplies a grouped `MANUALLY_VERIFIED` count of `4` and asserts that the reconciliation-summary API returns `MANUALLY_VERIFIED: 4` alongside the existing statuses.
+- `src/__tests__/components/EtsyFeeReconciliationPanel.test.tsx` now uses `MANUALLY_VERIFIED: 17` and adds a focused assertion that the panel renders the manual count while keeping the unresolved banner at `2,411` (`PENDING + PAYMENT_SYNCED + MANUAL_REVIEW` only).
+
+Focused verification:
+
+- `rtk npm run test:server:run -- server/__tests__/etsy/feeRoutes.test.ts` — **PASS**, 1 file / 16 tests.
+- `$env:VITE_SUPABASE_URL='http://localhost'; $env:VITE_SUPABASE_ANON_KEY='test-anon-key'; rtk npm run test:client:run -- src/__tests__/components/EtsyFeeReconciliationPanel.test.tsx` — **PASS**, 1 file / 18 tests. Existing React `act(...)` warnings remain non-failing.
+
+Self-review: the amended tests exercise non-zero manual counts at both boundaries, assert the API payload explicitly, and independently verify that the panel’s unresolved total excludes manually verified rows. No production code, migration, database, Etsy service, or unrelated file was changed in this fix round.
+
+Fix-round concern: the focused client test retains the repository’s pre-existing non-failing React `act(...)` warning.

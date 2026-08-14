@@ -449,6 +449,7 @@ describe('Etsy fee reconciliation routes', () => {
     const countEtsyFeeReconciliationStatuses = vi.fn(async () => ([
       { status: 'PENDING' as const, count: 3 },
       { status: 'STATEMENT_VERIFIED' as const, count: 2 },
+      { status: 'MANUALLY_VERIFIED' as const, count: 4 },
     ]))
     const started = await startRouter({
       ...dependencies(),
@@ -470,7 +471,7 @@ describe('Etsy fee reconciliation routes', () => {
       PENDING: 3,
       PAYMENT_SYNCED: 0,
       STATEMENT_VERIFIED: 2,
-      MANUALLY_VERIFIED: 0,
+      MANUALLY_VERIFIED: 4,
       MANUAL_REVIEW: 0,
     })
     expect(countEtsyFeeReconciliationStatuses).toHaveBeenCalledOnce()

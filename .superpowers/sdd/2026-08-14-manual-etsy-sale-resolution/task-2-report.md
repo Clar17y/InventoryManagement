@@ -99,3 +99,41 @@ Both fail under TypeScript's no-project defaults with expected configuration err
 - The standalone per-file TypeScript command prescribed by the broad repository policy is not meaningful for this project because it omits the project target/path-alias configuration; it remains documented above, while the project-scoped server check is clean.
 - Existing full-server test output retains expected environment/fixture stderr warnings described above; no Task 2 failures or new warnings were observed.
 - Task 3 still needs to map Decimal database values into these integer-pence snapshots and replace the `reconciledAt: 'now'` sentinel with one transaction timestamp at persistence time.
+
+## Fix Round 1 — enforce Prisma Decimal(10,2) pence bounds
+
+Review finding addressed: JavaScript-safe integer validation alone allowed a manual balance of 10,000,000,000 pence, although every Sale Decimal(10,2) column can persist only ±9,999,999,999 pence.
+
+Root cause: `assertSafeIntegerPence` and `toSafePence` checked only `Number.MAX_SAFE_INTEGER`; no database-scale bound was applied to snapshot inputs, manual final balances, or derived proposal writes.
+
+Changes:
+
+- Added BigInt constants for the inclusive Decimal(10,2) pence range: `-9_999_999_999n` through `9_999_999_999n`.
+- Applied the range to every snapshot pence input and nullable pence input.
+- Applied the range to manual final fee/VAT inputs before allocation.
+- Applied the range to BigInt-derived intermediate results and every non-null pence field in each proposal write.
+- Added boundary regressions for the valid maximum, maximum-plus-one manual input, maximum-plus-one snapshot input, derived reclassification net overflow, and derived manual net/margin overflow.
+
+TDD RED command:
+
+```powershell
+rtk npm run test:server:run -- server/__tests__/sales/etsyResolutionCalculations.test.ts
+```
+
+Result before the production bound fix: **FAIL**, 17 tests with 2 failures. The new tests showed that maximum-plus-one manual and snapshot values were accepted instead of rejected; the existing 15 tests passed.
+
+TDD GREEN and required fix-round checks:
+
+- `rtk npm run test:server:run -- server/__tests__/sales/etsyResolutionCalculations.test.ts` — **PASS**, 1 file / 17 tests.
+- `rtk tsc -p server/tsconfig.json --noEmit --rootDir .` — **PASS**, no errors.
+- `rtk npx eslint server/lib/sales/etsyResolutionCalculations.ts server/__tests__/sales/etsyResolutionCalculations.test.ts` — **PASS**, no issues. The standalone `rtk eslint ...` alias is unavailable in this workspace, as recorded above.
+- `rtk git diff --check` — **PASS**.
+
+Fix-round self-review:
+
+- The inclusive database maximum is accepted and produces a persistable proposal; maximum-plus-one values are rejected before allocation or persistence.
+- Reclassification arithmetic, manual fee replacement arithmetic, and copied ID-only writes all pass through the write-field validator, so net/margin and nullable Decimal fields cannot escape the database range.
+- BigInt comparisons are used for both JavaScript-safe and database-range checks; no floating-point conversion or schema/migration change was introduced.
+- The fix is limited to the Task 2 calculator/tests, progress log, and report. No production database or Etsy access occurred.
+
+Fix-round concern: Task 3 still needs to preserve these bounds when converting proposal pence to Prisma Decimal values and when mapping database rows into snapshots.

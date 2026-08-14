@@ -70,6 +70,8 @@ describe('receiptIdentity', () => {
 })
 
 describe('buildEtsySaleResolution', () => {
+  const DATABASE_MAX_PENCE = 9_999_999_999
+
   it('reclassifies a complete placeholder receipt group and recomputes only dependent money', () => {
     const currentGroup = [
       snapshot({ id: 'sale-2', etsyOrderId: '1-1', grossRevenuePence: 2_000, postageChargedPence: 200, postageCostPence: 100, packagingOverheadPence: 25, totalCostPence: 700 }),
@@ -348,5 +350,74 @@ describe('buildEtsySaleResolution', () => {
       [snapshot({ grossRevenuePence: maxSafePence, postageChargedPence: maxSafePence })],
       [],
     )).toThrow(/safe|range/i)
+  })
+
+  it('accepts the Decimal(10,2) pence maximum and rejects maximum-plus-one inputs', () => {
+    const result = buildEtsySaleResolution(
+      'sale-1',
+      resolution({
+        type: 'manual_verify',
+        attributed: true,
+        offsiteAdsFeePence: DATABASE_MAX_PENCE,
+        vatOnOffsiteAdsFeePence: 0,
+      }),
+      [snapshot({
+        grossRevenuePence: 3_000,
+        offsiteAdsFeePence: 0,
+        vatOnOffsiteAdsFeePence: 0,
+        etsyFeesPence: 0,
+        netRevenuePence: 0,
+        marginPence: 0,
+      })],
+      [],
+    )
+
+    expect(result.proposals[0]?.data).toMatchObject({
+      offsiteAdsFeePence: DATABASE_MAX_PENCE,
+      etsyFeesPence: DATABASE_MAX_PENCE,
+      netRevenuePence: -DATABASE_MAX_PENCE,
+      marginPence: -DATABASE_MAX_PENCE,
+    })
+
+    expect(() => buildEtsySaleResolution(
+      'sale-1',
+      resolution({
+        type: 'manual_verify',
+        attributed: true,
+        offsiteAdsFeePence: DATABASE_MAX_PENCE + 1,
+        vatOnOffsiteAdsFeePence: 0,
+      }),
+      [snapshot({ offsiteAdsFeePence: 0, vatOnOffsiteAdsFeePence: 0, etsyFeesPence: 0 })],
+      [],
+    )).toThrow(/database|Decimal|pence|range/i)
+  })
+
+  it('rejects Decimal(10,2) maximum-plus-one snapshot inputs and derived net or margin overflow', () => {
+    expect(() => buildEtsySaleResolution(
+      'sale-1',
+      resolution({ type: 'reclassify', channel: 'fair' }),
+      [snapshot({ grossRevenuePence: DATABASE_MAX_PENCE + 1 })],
+      [],
+    )).toThrow(/database|Decimal|pence|range/i)
+
+    expect(() => buildEtsySaleResolution(
+      'sale-1',
+      resolution({ type: 'reclassify', channel: 'fair' }),
+      [snapshot({ grossRevenuePence: DATABASE_MAX_PENCE, postageChargedPence: 1, packagingOverheadPence: 0 })],
+      [],
+    )).toThrow(/database|Decimal|pence|range/i)
+
+    expect(() => buildEtsySaleResolution(
+      'sale-1',
+      resolution({ type: 'manual_verify', attributed: false, offsiteAdsFeePence: 0, vatOnOffsiteAdsFeePence: 0 }),
+      [snapshot({
+        offsiteAdsFeePence: 1,
+        vatOnOffsiteAdsFeePence: 0,
+        etsyFeesPence: 1,
+        netRevenuePence: DATABASE_MAX_PENCE,
+        marginPence: DATABASE_MAX_PENCE,
+      })],
+      [],
+    )).toThrow(/database|Decimal|pence|range/i)
   })
 })

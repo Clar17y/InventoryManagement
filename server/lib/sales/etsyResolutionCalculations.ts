@@ -80,6 +80,8 @@ const RECEIPT_ID_PATTERN = /^(\d+)(-\d+)?$/
 const PLAUSIBLE_RECEIPT_ID_PATTERN = /^\d{6,}$/
 const MAX_SAFE_PENCE = BigInt(Number.MAX_SAFE_INTEGER)
 const MIN_SAFE_PENCE = BigInt(Number.MIN_SAFE_INTEGER)
+const MAX_DATABASE_PENCE = 9_999_999_999n
+const MIN_DATABASE_PENCE = -MAX_DATABASE_PENCE
 
 interface GroupContext {
   current: EtsySaleResolutionSnapshot[]
@@ -93,9 +95,20 @@ function assertSafeIntegerPence(value: number, name: string): void {
   }
 }
 
+function assertDatabasePence(value: number, name: string): void {
+  assertSafeIntegerPence(value, name)
+  const pence = BigInt(value)
+  if (pence < MIN_DATABASE_PENCE || pence > MAX_DATABASE_PENCE) {
+    throw new RangeError(`${name} exceeds the Decimal(10,2) pence range`)
+  }
+}
+
 function toSafePence(value: bigint, name: string): number {
   if (value < MIN_SAFE_PENCE || value > MAX_SAFE_PENCE) {
     throw new RangeError(`${name} exceeds the safe integer pence range`)
+  }
+  if (value < MIN_DATABASE_PENCE || value > MAX_DATABASE_PENCE) {
+    throw new RangeError(`${name} exceeds the Decimal(10,2) pence range`)
   }
   return Number(value)
 }
@@ -120,7 +133,7 @@ function subtractPence(value: number, subtrahends: readonly number[], name: stri
 }
 
 function assertNullablePence(value: number | null, name: string): void {
-  if (value !== null) assertSafeIntegerPence(value, name)
+  if (value !== null) assertDatabasePence(value, name)
 }
 
 function normalizeNote(note: string | undefined): string | null {
@@ -155,7 +168,7 @@ function validateSnapshot(snapshot: EtsySaleResolutionSnapshot): void {
     ['totalCostPence', snapshot.totalCostPence],
     ['marginPence', snapshot.marginPence],
   ]
-  for (const [name, value] of penceFields) assertSafeIntegerPence(value, `${snapshot.id}.${name}`)
+  for (const [name, value] of penceFields) assertDatabasePence(value, `${snapshot.id}.${name}`)
   assertNullablePence(snapshot.offsiteAdsFeePence, `${snapshot.id}.offsiteAdsFeePence`)
   assertNullablePence(snapshot.vatOnOffsiteAdsFeePence, `${snapshot.id}.vatOnOffsiteAdsFeePence`)
   assertNullablePence(snapshot.etsyPaymentGrossPence, `${snapshot.id}.etsyPaymentGrossPence`)
@@ -175,8 +188,8 @@ function validateResolution(resolution: EtsySaleResolution): void {
     assertPlausibleReceiptId(resolution.etsyOrderId, 'corrected Etsy receipt ID')
     return
   }
-  assertSafeIntegerPence(resolution.offsiteAdsFeePence, 'offsiteAdsFeePence')
-  assertSafeIntegerPence(resolution.vatOnOffsiteAdsFeePence, 'vatOnOffsiteAdsFeePence')
+  assertDatabasePence(resolution.offsiteAdsFeePence, 'offsiteAdsFeePence')
+  assertDatabasePence(resolution.vatOnOffsiteAdsFeePence, 'vatOnOffsiteAdsFeePence')
   if (resolution.offsiteAdsFeePence < 0 || resolution.vatOnOffsiteAdsFeePence < 0) {
     throw new RangeError('manual Offsite balances must be non-negative pence')
   }
@@ -316,6 +329,26 @@ function baseWrite(snapshot: EtsySaleResolutionSnapshot): EtsySaleResolutionWrit
   }
 }
 
+function assertWritePence(data: EtsySaleResolutionWrite): void {
+  const penceFields: Array<[string, number]> = [
+    ['transactionFeePence', data.transactionFeePence],
+    ['postageTransactionFeePence', data.postageTransactionFeePence],
+    ['regulatoryFeePence', data.regulatoryFeePence],
+    ['processingFeePence', data.processingFeePence],
+    ['vatOnProcessingFeePence', data.vatOnProcessingFeePence],
+    ['listingFeePence', data.listingFeePence],
+    ['etsyFeesPence', data.etsyFeesPence],
+    ['netRevenuePence', data.netRevenuePence],
+    ['marginPence', data.marginPence],
+  ]
+  for (const [name, value] of penceFields) assertDatabasePence(value, name)
+  assertNullablePence(data.offsiteAdsFeePence, 'offsiteAdsFeePence')
+  assertNullablePence(data.vatOnOffsiteAdsFeePence, 'vatOnOffsiteAdsFeePence')
+  assertNullablePence(data.etsyPaymentGrossPence, 'etsyPaymentGrossPence')
+  assertNullablePence(data.etsyPaymentFeesPence, 'etsyPaymentFeesPence')
+  assertNullablePence(data.etsyPaymentNetPence, 'etsyPaymentNetPence')
+}
+
 function buildReclassificationProposals(
   resolution: Extract<EtsySaleResolution, { type: 'reclassify' }>,
   current: readonly EtsySaleResolutionSnapshot[],
@@ -332,33 +365,35 @@ function buildReclassificationProposals(
       [snapshot.totalCostPence, snapshot.postageCostPence],
       `margin for ${snapshot.id}`,
     )
+    const data: EtsySaleResolutionWrite = {
+      saleChannel: resolution.channel,
+      etsyOrderId: null,
+      transactionFeePence: 0,
+      postageTransactionFeePence: 0,
+      regulatoryFeePence: 0,
+      processingFeePence: 0,
+      vatOnProcessingFeePence: 0,
+      listingFeePence: 0,
+      offsiteAdsAttributed: null,
+      offsiteAdsFeePence: null,
+      vatOnOffsiteAdsFeePence: null,
+      etsyFeesPence: 0,
+      netRevenuePence,
+      marginPence,
+      etsyPaymentGrossPence: null,
+      etsyPaymentFeesPence: null,
+      etsyPaymentNetPence: null,
+      status: 'NOT_APPLICABLE',
+      source: 'MANUAL',
+      reconciledAt: 'now',
+      statementImportId: null,
+      manualResolutionNote: note,
+    }
+    assertWritePence(data)
     return {
       saleId: snapshot.id,
       expectedUpdatedAt: snapshot.updatedAt,
-      data: {
-        saleChannel: resolution.channel,
-        etsyOrderId: null,
-        transactionFeePence: 0,
-        postageTransactionFeePence: 0,
-        regulatoryFeePence: 0,
-        processingFeePence: 0,
-        vatOnProcessingFeePence: 0,
-        listingFeePence: 0,
-        offsiteAdsAttributed: null,
-        offsiteAdsFeePence: null,
-        vatOnOffsiteAdsFeePence: null,
-        etsyFeesPence: 0,
-        netRevenuePence,
-        marginPence,
-        etsyPaymentGrossPence: null,
-        etsyPaymentFeesPence: null,
-        etsyPaymentNetPence: null,
-        status: 'NOT_APPLICABLE',
-        source: 'MANUAL',
-        reconciledAt: 'now',
-        statementImportId: null,
-        manualResolutionNote: note,
-      },
+      data,
     }
   })
 }
@@ -383,6 +418,7 @@ function buildCorrectReceiptIdProposals(
     data.reconciledAt = null
     data.statementImportId = null
     data.manualResolutionNote = note
+    assertWritePence(data)
     return { saleId: snapshot.id, expectedUpdatedAt: snapshot.updatedAt, data }
   })
 }
@@ -440,33 +476,35 @@ function buildManualVerificationProposals(
       netRevenue: snapshot.netRevenuePence,
       margin: snapshot.marginPence,
     }, nextFees)
+    const data: EtsySaleResolutionWrite = {
+      saleChannel: 'etsy',
+      etsyOrderId: orderIds.get(snapshot.id) ?? null,
+      transactionFeePence: snapshot.transactionFeePence,
+      postageTransactionFeePence: snapshot.postageTransactionFeePence,
+      regulatoryFeePence: snapshot.regulatoryFeePence,
+      processingFeePence: snapshot.processingFeePence,
+      vatOnProcessingFeePence: snapshot.vatOnProcessingFeePence,
+      listingFeePence: snapshot.listingFeePence,
+      offsiteAdsAttributed: resolution.attributed,
+      offsiteAdsFeePence: nextOffsiteFee,
+      vatOnOffsiteAdsFeePence: nextVat,
+      etsyFeesPence: adjustment.etsyFeesPence,
+      netRevenuePence: adjustment.netRevenuePence,
+      marginPence: adjustment.marginPence,
+      etsyPaymentGrossPence: null,
+      etsyPaymentFeesPence: null,
+      etsyPaymentNetPence: null,
+      status: 'MANUALLY_VERIFIED',
+      source: 'MANUAL',
+      reconciledAt: 'now',
+      statementImportId: null,
+      manualResolutionNote: note,
+    }
+    assertWritePence(data)
     return {
       saleId: snapshot.id,
       expectedUpdatedAt: snapshot.updatedAt,
-      data: {
-        saleChannel: 'etsy',
-        etsyOrderId: orderIds.get(snapshot.id) ?? null,
-        transactionFeePence: snapshot.transactionFeePence,
-        postageTransactionFeePence: snapshot.postageTransactionFeePence,
-        regulatoryFeePence: snapshot.regulatoryFeePence,
-        processingFeePence: snapshot.processingFeePence,
-        vatOnProcessingFeePence: snapshot.vatOnProcessingFeePence,
-        listingFeePence: snapshot.listingFeePence,
-        offsiteAdsAttributed: resolution.attributed,
-        offsiteAdsFeePence: nextOffsiteFee,
-        vatOnOffsiteAdsFeePence: nextVat,
-        etsyFeesPence: adjustment.etsyFeesPence,
-        netRevenuePence: adjustment.netRevenuePence,
-        marginPence: adjustment.marginPence,
-        etsyPaymentGrossPence: null,
-        etsyPaymentFeesPence: null,
-        etsyPaymentNetPence: null,
-        status: 'MANUALLY_VERIFIED',
-        source: 'MANUAL',
-        reconciledAt: 'now',
-        statementImportId: null,
-        manualResolutionNote: note,
-      },
+      data,
     }
   })
 }

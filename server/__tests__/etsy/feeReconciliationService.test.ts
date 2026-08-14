@@ -59,6 +59,35 @@ function novemberVerifiedSale(
   })
 }
 
+function manuallyVerifiedSale(
+  overrides: Partial<ReturnType<typeof sale>> = {},
+): ReturnType<typeof sale> {
+  return sale({
+    id: 'manual-sale',
+    etsyOrderId: '4137418052',
+    etsyFeesPence: 640,
+    netRevenuePence: 3359,
+    marginPence: 1839,
+    previousOffsiteAdsFeePence: 200,
+    previousVatOnOffsiteAdsFeePence: 40,
+    offsiteAdsAttributed: true,
+    etsyFeeReconciliationSource: 'MANUAL',
+    etsyManualResolutionNote: 'Checked against Etsy exports',
+    status: 'MANUALLY_VERIFIED',
+    ...overrides,
+  })
+}
+
+function manuallyVerifiedCreditSale(
+  overrides: Partial<ReturnType<typeof sale>> = {},
+): ReturnType<typeof sale> {
+  return manuallyVerifiedSale({
+    id: 'manual-credit-sale',
+    etsyOrderId: '3102744549',
+    ...overrides,
+  })
+}
+
 function input(csv: string, allowStatementRevision = false) {
   return {
     csv,
@@ -97,6 +126,38 @@ describe('Etsy statement reconciliation service', () => {
       marginDeltaPence: -576,
     })
     expect(db.writeCount).toBe(0)
+  })
+
+  it('allows absolute statement evidence to supersede manual verification while preserving its note', async () => {
+    const db = createFeeDbFixture({ sales: [manuallyVerifiedSale()] })
+    const statement = input(attributedCsv)
+
+    const preview = await previewStatementReconciliation(statement, db)
+
+    expect(preview.changes[0]).toMatchObject({
+      oldStatus: 'MANUALLY_VERIFIED',
+      newStatus: 'STATEMENT_VERIFIED',
+      source: 'ETSY_STATEMENT',
+      oldFeesPence: 640,
+      newFeesPence: 976,
+      outcome: 'changed',
+    })
+    expect(db.writeCount).toBe(0)
+
+    const result = await applyStatementReconciliation({
+      ...statement,
+      fingerprint: preview.fingerprint,
+    }, db)
+
+    expect(result.applied).toBe(true)
+    expect(db.sales[0]).toMatchObject({
+      etsyFeesPence: 976,
+      netRevenuePence: 3023,
+      marginPence: 1503,
+      status: 'STATEMENT_VERIFIED',
+      etsyFeeReconciliationSource: 'ETSY_STATEMENT',
+      etsyManualResolutionNote: 'Checked against Etsy exports',
+    })
   })
 
   it('verifies a covered order with no Offsite Ads as an exact zero', async () => {
@@ -438,6 +499,41 @@ describe('Etsy statement reconciliation service', () => {
     })
   })
 
+  it('reports a credit against manual verification without inferring a prior statement or writing the Sale', async () => {
+    const db = createFeeDbFixture({ sales: [manuallyVerifiedCreditSale()] })
+    const statement = decemberInput()
+
+    const preview = await previewStatementReconciliation(statement, db)
+
+    expect(preview.changes[0]).toMatchObject({
+      oldStatus: 'MANUALLY_VERIFIED',
+      newStatus: 'MANUAL_REVIEW',
+      source: 'MANUAL',
+      outcome: 'manual_review',
+      oldFeesPence: 640,
+      newFeesPence: 640,
+    })
+    expect(db.writeCount).toBe(0)
+
+    const result = await applyStatementReconciliation({
+      ...statement,
+      fingerprint: preview.fingerprint,
+    }, db)
+
+    expect(result.applied).toBe(true)
+    expect(db.saleWriteCount).toBe(0)
+    expect(db.sales[0]).toMatchObject({
+      etsyFeesPence: 640,
+      netRevenuePence: 3359,
+      marginPence: 1839,
+      status: 'MANUALLY_VERIFIED',
+      etsyFeeReconciliationSource: 'MANUAL',
+      etsyManualResolutionNote: 'Checked against Etsy exports',
+      etsyStatementImportId: null,
+      etsyStatementMonth: null,
+    })
+  })
+
   it.each([
     ['prior statement verification is missing', { status: 'PENDING' as const }, 'Order 3102744549 needs manual review because its prior statement verification is missing'],
     ['prior source is untrusted', { etsyFeeReconciliationSource: null }, 'Order 3102744549 needs manual review because its prior fee source is not an Etsy statement'],
@@ -613,6 +709,17 @@ describe('Etsy statement reconciliation service', () => {
     await expect(applyStatementReconciliation({ ...statement, fingerprint: preview.fingerprint }, db))
       .rejects.toBeInstanceOf(StatementReconciliationConflictError)
     expect(db.writeCount).toBe(0)
+  })
+
+  it('invalidates a statement preview when the manual resolution note changes', async () => {
+    const db = createFeeDbFixture({ sales: [manuallyVerifiedSale()] })
+    const statement = input(attributedCsv)
+    const preview = await previewStatementReconciliation(statement, db)
+    db.sales[0]!.etsyManualResolutionNote = 'Updated manual evidence'
+
+    await expect(applyStatementReconciliation({ ...statement, fingerprint: preview.fingerprint }, db))
+      .rejects.toBeInstanceOf(StatementReconciliationConflictError)
+    expect(db.saleWriteCount).toBe(0)
   })
 
   it('requires explicit permission before revising statement-verified evidence', async () => {
@@ -856,6 +963,7 @@ describe('Etsy statement reconciliation service', () => {
             etsyFeeReconciliationSource: 'ETSY_STATEMENT',
             etsyFeeReconciliationStatus: 'STATEMENT_VERIFIED',
             etsyStatementImportId: 'statement-import-2023-11',
+            etsyManualResolutionNote: 'Checked against Etsy exports',
             etsyStatementImport: { statementMonth: new Date('2023-11-01T00:00:00.000Z') },
             updatedAt: new Date('2023-12-01T00:00:00.000Z'),
           }]
@@ -869,10 +977,12 @@ describe('Etsy statement reconciliation service', () => {
         id: 's1',
         etsyStatementImportId: 'statement-import-2023-11',
         etsyStatementMonth: '2023-11',
+        etsyManualResolutionNote: 'Checked against Etsy exports',
       }),
     ])
     expect(saleSelect).toMatchObject({
       etsyStatementImportId: true,
+      etsyManualResolutionNote: true,
       etsyStatementImport: { select: { statementMonth: true } },
     })
   })

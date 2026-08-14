@@ -23,6 +23,7 @@ export function sale(
     etsyFeeReconciliationSource: null,
     etsyStatementImportId: null,
     etsyStatementMonth: null,
+    etsyManualResolutionNote: null,
     status: 'PENDING',
     updatedAt: '2025-07-31T12:00:00.000Z',
     ...overrides,
@@ -37,6 +38,7 @@ export interface FeeReconciliationDbFixture extends FeeReconciliationRepository 
   sales: SaleFeeSnapshot[]
   readonly imports: SavedStatementImport[]
   readonly writeCount: number
+  readonly saleWriteCount: number
 }
 
 /**
@@ -48,6 +50,7 @@ export function createFeeDbFixture(initial: { sales: SaleFeeSnapshot[] }): FeeRe
   let sales = initial.sales.map(cloneSale)
   let imports: SavedStatementImport[] = []
   let writeCount = 0
+  let saleWriteCount = 0
   let nextImportId = 1
 
   const fixture: FeeReconciliationDbFixture = {
@@ -66,6 +69,9 @@ export function createFeeDbFixture(initial: { sales: SaleFeeSnapshot[] }): FeeRe
     get writeCount() {
       return writeCount
     },
+    get saleWriteCount() {
+      return saleWriteCount
+    },
     async listEtsySaleSnapshots() {
       return sales.map(cloneSale)
     },
@@ -82,6 +88,7 @@ export function createFeeDbFixture(initial: { sales: SaleFeeSnapshot[] }): FeeRe
         summary: { ...statementImport.summary },
       }))
       let pendingWrites = 0
+      let pendingSaleWrites = 0
 
       const tx: FeeReconciliationTransaction = {
         async createStatementImport(input) {
@@ -140,8 +147,10 @@ export function createFeeDbFixture(initial: { sales: SaleFeeSnapshot[] }): FeeRe
             etsyPaymentGrossPence: proposal.etsyPaymentGrossPence,
             etsyPaymentFeesPence: proposal.etsyPaymentFeesPence,
             etsyPaymentNetPence: proposal.etsyPaymentNetPence,
+            etsyManualResolutionNote: proposal.etsyManualResolutionNote,
             status: proposal.status,
           }
+          pendingSaleWrites += 1
           pendingWrites += 1
         },
         async finishStatementImport(id, summary) {
@@ -159,6 +168,7 @@ export function createFeeDbFixture(initial: { sales: SaleFeeSnapshot[] }): FeeRe
         summary: { ...statementImport.summary },
       }))
       writeCount += pendingWrites
+      saleWriteCount += pendingSaleWrites
       return result
     },
   }

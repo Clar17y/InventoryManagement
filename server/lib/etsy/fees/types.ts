@@ -25,6 +25,8 @@ export interface SaleFeeSnapshot {
   etsyStatementImportId?: string | null
   /** Normalized statement month for the persisted statement provenance. */
   etsyStatementMonth?: string | null
+  /** Operator note attached to a manual Etsy fee verification. */
+  etsyManualResolutionNote?: string | null
   status: EtsyFeeReconciliationStatus
   updatedAt: string
 }
@@ -72,6 +74,7 @@ export interface SaleFeeProposal {
   etsyPaymentGrossPence: number | null
   etsyPaymentFeesPence: number | null
   etsyPaymentNetPence: number | null
+  etsyManualResolutionNote: string | null
   status: EtsyFeeReconciliationStatus
   source: EtsyFeeReconciliationSource | null
 }

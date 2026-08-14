@@ -133,6 +133,7 @@ interface SalePlan {
   allocation: FeeOrderAllocation
   changed: boolean
   preserveStatementImportLink: boolean
+  skipWrite?: boolean
 }
 
 interface ReconciliationPlan extends FeeReconciliationPreview {
@@ -206,6 +207,7 @@ function proposalChanged(snapshot: SaleFeeSnapshot, proposal: SaleFeeProposal): 
     || snapshot.previousVatOnOffsiteAdsFeePence !== proposal.vatOnOffsiteAdsFeePence
     || (snapshot.offsiteAdsAttributed ?? null) !== proposal.offsiteAdsAttributed
     || (snapshot.etsyFeeReconciliationSource ?? null) !== proposal.source
+    || (snapshot.etsyManualResolutionNote ?? null) !== proposal.etsyManualResolutionNote
     || (snapshot.etsyPaymentGrossPence ?? null) !== proposal.etsyPaymentGrossPence
     || (snapshot.etsyPaymentFeesPence ?? null) !== proposal.etsyPaymentFeesPence
     || (snapshot.etsyPaymentNetPence ?? null) !== proposal.etsyPaymentNetPence
@@ -229,6 +231,7 @@ function unchangedProposal(
     etsyPaymentGrossPence: snapshot.etsyPaymentGrossPence ?? null,
     etsyPaymentFeesPence: snapshot.etsyPaymentFeesPence ?? null,
     etsyPaymentNetPence: snapshot.etsyPaymentNetPence ?? null,
+    etsyManualResolutionNote: snapshot.etsyManualResolutionNote ?? null,
     status,
     source,
   }
@@ -237,6 +240,11 @@ function unchangedProposal(
 function isCreditAdjustment(evidence: NormalizedOrderEvidence): boolean {
   return evidence.statement?.offsiteAdsFee.operation === 'credit_adjustment'
     || evidence.statement?.vatOnOffsiteAdsFee.operation === 'credit_adjustment'
+}
+
+function isManualVerification(snapshot: SaleFeeSnapshot): boolean {
+  return snapshot.status === 'MANUALLY_VERIFIED'
+    || snapshot.etsyFeeReconciliationSource === 'MANUAL'
 }
 
 function hasMixedStatementOperations(evidence: NormalizedOrderEvidence): boolean {
@@ -278,12 +286,11 @@ function buildManualStatementGroupPlan(
   snapshots: readonly SaleFeeSnapshot[],
   reason: string,
 ): { plans: SalePlan[]; change: FeeOrderChange } {
+  const preservesManualVerification = snapshots.some(isManualVerification)
   const plans: SalePlan[] = snapshots.map((snapshot) => {
-    const proposal = unchangedProposal(
-      snapshot,
-      'MANUAL_REVIEW',
-      snapshot.etsyFeeReconciliationSource ?? null,
-    )
+    const proposal = preservesManualVerification
+      ? unchangedProposal(snapshot, snapshot.status, snapshot.etsyFeeReconciliationSource ?? null)
+      : unchangedProposal(snapshot, 'MANUAL_REVIEW', snapshot.etsyFeeReconciliationSource ?? null)
     return {
       snapshot,
       proposal,
@@ -294,6 +301,7 @@ function buildManualStatementGroupPlan(
       },
       changed: proposalChanged(snapshot, proposal),
       preserveStatementImportLink: true,
+      skipWrite: preservesManualVerification,
     }
   })
   const oldFeesPence = addPence(snapshots.map((snapshot) => snapshot.etsyFeesPence), 'old fees')
@@ -427,6 +435,7 @@ function buildCreditAdjustmentGroupPlan(
       etsyPaymentGrossPence: snapshot.etsyPaymentGrossPence ?? null,
       etsyPaymentFeesPence: snapshot.etsyPaymentFeesPence ?? null,
       etsyPaymentNetPence: snapshot.etsyPaymentNetPence ?? null,
+      etsyManualResolutionNote: snapshot.etsyManualResolutionNote ?? null,
       status: 'STATEMENT_VERIFIED',
       source: 'ETSY_STATEMENT',
     }
@@ -598,6 +607,7 @@ function buildStatementGroupPlan(
       etsyPaymentGrossPence: snapshot.etsyPaymentGrossPence ?? null,
       etsyPaymentFeesPence: snapshot.etsyPaymentFeesPence ?? null,
       etsyPaymentNetPence: snapshot.etsyPaymentNetPence ?? null,
+      etsyManualResolutionNote: snapshot.etsyManualResolutionNote ?? null,
       status: 'STATEMENT_VERIFIED',
       source: 'ETSY_STATEMENT',
     }
@@ -684,8 +694,10 @@ async function buildStatementPlan(
     summary.oldFeesPence = addPence([summary.oldFeesPence, groupPlan.change.oldFeesPence!], 'summary old fees')
     summary.newFeesPence = addPence([summary.newFeesPence, groupPlan.change.newFeesPence!], 'summary new fees')
     summary.marginDeltaPence = addPence([summary.marginDeltaPence, groupPlan.change.marginDeltaPence], 'summary margin delta')
+    if (groupPlan.change.outcome === 'manual_review') {
+      summary.manualReview += groupPlan.plans.length
+    }
     for (const plan of groupPlan.plans) {
-      if (plan.proposal.status === 'MANUAL_REVIEW') summary.manualReview += 1
       if (plan.changed) summary.changed += 1
       else summary.unchanged += 1
     }
@@ -772,6 +784,7 @@ export async function applyStatementReconciliation(
         checksum: parsed.statementChecksum,
       })
       for (const salePlan of plan.salePlans) {
+        if (salePlan.skipWrite) continue
         const statementImportId = salePlan.preserveStatementImportLink
           ? (salePlan.snapshot.etsyStatementImportId ?? null)
           : statementImport.id
@@ -822,7 +835,10 @@ function paymentChange(
     'margin delta',
   )
   const changed = plans.some((plan) => plan.changed)
-  const status = plans[0]?.proposal.status ?? null
+  const status = plans.find((plan) => plan.proposal.status === 'STATEMENT_VERIFIED')?.proposal.status
+    ?? plans.find((plan) => plan.proposal.status === 'MANUALLY_VERIFIED')?.proposal.status
+    ?? plans[0]?.proposal.status
+    ?? null
   return {
     receiptId,
     saleIds: snapshots.map((snapshot) => snapshot.id),
@@ -905,6 +921,21 @@ export async function reconcileImportedPaymentEvidence(
         })
         continue
       }
+      if (isManualVerification(snapshot)) {
+        const proposal = unchangedProposal(
+          snapshot,
+          snapshot.status,
+          snapshot.etsyFeeReconciliationSource ?? null,
+        )
+        plans.push({
+          snapshot,
+          proposal,
+          allocation: { saleId: snapshot.id, offsiteAdsFeePence: 0, vatOnOffsiteAdsFeePence: 0 },
+          changed: false,
+          preserveStatementImportLink: false,
+        })
+        continue
+      }
       if (evidenceItem.paymentFeesPence === null
         || evidenceItem.paymentGrossPence === null
         || evidenceItem.paymentNetPence === null) {
@@ -939,6 +970,7 @@ export async function reconcileImportedPaymentEvidence(
         etsyPaymentGrossPence: payment.grossPence,
         etsyPaymentFeesPence: payment.feesPence,
         etsyPaymentNetPence: payment.netPence,
+        etsyManualResolutionNote: snapshot.etsyManualResolutionNote ?? null,
         status: 'PAYMENT_SYNCED',
         source: 'ETSY_PAYMENT_API',
       }
@@ -1035,6 +1067,7 @@ function snapshotFromPrisma(row: {
   etsyFeeReconciliationSource: EtsyFeeReconciliationSource | null
   etsyFeeReconciliationStatus: EtsyFeeReconciliationStatus
   etsyStatementImportId: string | null
+  etsyManualResolutionNote: string | null
   etsyStatementImport: { statementMonth: Date } | null
   updatedAt: Date
 }): SaleFeeSnapshot {
@@ -1055,6 +1088,7 @@ function snapshotFromPrisma(row: {
     etsyFeeReconciliationSource: row.etsyFeeReconciliationSource,
     etsyStatementImportId: row.etsyStatementImportId,
     etsyStatementMonth: statementMonthFromDate(row.etsyStatementImport?.statementMonth ?? null),
+    etsyManualResolutionNote: row.etsyManualResolutionNote,
     status: row.etsyFeeReconciliationStatus,
     updatedAt: row.updatedAt.toISOString(),
   }
@@ -1091,6 +1125,7 @@ export function createPrismaFeeReconciliationRepository(prisma: PrismaClient): F
           etsyFeeReconciliationSource: true,
           etsyFeeReconciliationStatus: true,
           etsyStatementImportId: true,
+          etsyManualResolutionNote: true,
           etsyStatementImport: { select: { statementMonth: true } },
           updatedAt: true,
         },
@@ -1175,6 +1210,7 @@ export function createPrismaFeeReconciliationRepository(prisma: PrismaClient): F
               etsyFeeReconciliationSource: proposal.source,
               etsyFeeReconciledAt: new Date(),
               etsyStatementImportId: statementImportId,
+              etsyManualResolutionNote: proposal.etsyManualResolutionNote,
             },
           })
           if (result.count !== 1) {

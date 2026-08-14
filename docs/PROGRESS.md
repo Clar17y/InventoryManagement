@@ -334,6 +334,7 @@ npm run test:server:run   # Single run (server only)
 | 2026-08-14 | Codex subagent | Task 2 fix round 1: enforce Decimal(10,2) pence bounds | Done | codex/manual-etsy-sale-resolution |
 | 2026-08-14 | Codex subagent | Task 3: Preview and atomically apply manual Etsy Sale resolutions | Done | codex/manual-etsy-sale-resolution |
 | 2026-08-14 | Codex subagent | Task 3 fix round 1: revalidate receipt membership and cover Prisma adapter precision | Done | codex/manual-etsy-sale-resolution |
+| 2026-08-14 | Codex subagent | Task 4: Enforce statement and Payment authority | Done | codex/manual-etsy-sale-resolution |
 | 2026-08-13 | Codex subagent | Task 2: Make Payment Diagnostics Safe and Truthful | Done | codex/etsy-statement-payment-fixes |
 | 2026-08-13 | Codex subagent | Task 4: Final Verification and Handoff | Done | codex/etsy-statement-payment-fixes |
 

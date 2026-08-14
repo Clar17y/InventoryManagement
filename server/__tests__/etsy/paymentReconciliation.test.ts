@@ -270,6 +270,116 @@ describe('Etsy Payment reconciliation orchestration', () => {
       expect(db.writeCount, scenario.name).toBe(0);
     }
   });
+
+  it('automatically ignores manually verified rows when selecting Payment receipts', async () => {
+    const requestedReceiptIds: number[] = [];
+    const db = createFeeDbFixture({
+      sales: [
+        sale({
+          id: 'manual-sale',
+          etsyOrderId: '4137418052',
+          status: 'MANUALLY_VERIFIED',
+          etsyFeeReconciliationSource: 'MANUAL',
+          etsyManualResolutionNote: 'Checked manually',
+        }),
+        sale({ id: 'pending-sale', etsyOrderId: '4137418053' }),
+      ],
+    });
+    const client = {
+      getPaymentsForReceipt: async (receiptId: number) => {
+        requestedReceiptIds.push(receiptId);
+        return receiptId === 4137418053
+          ? [payment({ receipt_id: 4137418053 })]
+          : [];
+      },
+    } as unknown as IEtsyClient;
+
+    await previewPaymentReconciliation({ limit: 25 }, { client, db });
+
+    expect(requestedReceiptIds).toEqual([4137418053]);
+  });
+
+  it('preserves a manually verified group for explicit Payment input even when the gate is enabled', async () => {
+    process.env.ETSY_PAYMENT_FEES_VALIDATED = 'true';
+    const db = createFeeDbFixture({
+      sales: [sale({
+        id: 'manual-sale',
+        etsyOrderId: '4137418052',
+        status: 'MANUALLY_VERIFIED',
+        etsyFeeReconciliationSource: 'MANUAL',
+        etsyManualResolutionNote: 'Checked manually',
+      })],
+    });
+    const deps = dependencies(new Map([[4137418052, [paymentFixture]]]), db);
+
+    const preview = await previewPaymentReconciliation({ receiptIds: ['4137418052'] }, deps);
+
+    expect(preview.changes[0]).toMatchObject({
+      oldStatus: 'MANUALLY_VERIFIED',
+      newStatus: 'MANUALLY_VERIFIED',
+      outcome: 'unchanged',
+      oldFeesPence: 400,
+      newFeesPence: 400,
+    });
+    expect(preview.canApplyCanonicalFees).toBe(false);
+
+    const result = await applyPaymentReconciliation({
+      receiptIds: preview.receiptIds,
+      fingerprint: preview.fingerprint,
+    }, deps);
+
+    expect(result.applied).toBe(false);
+    expect(db.saleWriteCount).toBe(0);
+    expect(db.sales[0]).toMatchObject({
+      status: 'MANUALLY_VERIFIED',
+      etsyFeeReconciliationSource: 'MANUAL',
+      etsyManualResolutionNote: 'Checked manually',
+      etsyFeesPence: 400,
+    });
+  });
+
+  it('does not downgrade manually verified rows in a mixed Payment receipt group', async () => {
+    process.env.ETSY_PAYMENT_FEES_VALIDATED = 'true';
+    const db = createFeeDbFixture({
+      sales: [
+        sale({
+          id: 'manual-sale',
+          etsyOrderId: '4137418052',
+          grossRevenuePence: 2999,
+          etsyFeesPence: 300,
+          netRevenuePence: 2699,
+          marginPence: 1699,
+          status: 'MANUALLY_VERIFIED',
+          etsyFeeReconciliationSource: 'MANUAL',
+          etsyManualResolutionNote: 'Checked manually',
+        }),
+        sale({
+          id: 'pending-sale',
+          etsyOrderId: '4137418052-1',
+          grossRevenuePence: 1000,
+          etsyFeesPence: 100,
+          netRevenuePence: 900,
+          marginPence: 400,
+        }),
+      ],
+    });
+    const deps = dependencies(new Map([[4137418052, [paymentFixture]]]), db);
+    const preview = await previewPaymentReconciliation({ receiptIds: ['4137418052'] }, deps);
+
+    const result = await applyPaymentReconciliation({
+      receiptIds: ['4137418052'],
+      fingerprint: preview.fingerprint,
+    }, deps);
+
+    expect(result.applied).toBe(true);
+    expect(db.sales[0]).toMatchObject({
+      status: 'MANUALLY_VERIFIED',
+      etsyFeeReconciliationSource: 'MANUAL',
+      etsyManualResolutionNote: 'Checked manually',
+      etsyFeesPence: 300,
+    });
+    expect(db.sales[1]).toMatchObject({ status: 'PAYMENT_SYNCED' });
+  });
   it('previews a valid gated payment without writing, then applies the same evidence', async () => {
     process.env.ETSY_PAYMENT_FEES_VALIDATED = 'true';
     const db = createFeeDbFixture({

@@ -146,8 +146,10 @@ function penceTotal(snapshots: readonly SaleFeeSnapshot[], field: 'etsyFeesPence
   return snapshots.reduce((total, snapshot) => total + snapshot[field], 0)
 }
 
-function statusWithoutPayment(snapshots: readonly SaleFeeSnapshot[], manual: boolean): 'PENDING' | 'PAYMENT_SYNCED' | 'MANUAL_REVIEW' | 'STATEMENT_VERIFIED' | null {
+function statusWithoutPayment(snapshots: readonly SaleFeeSnapshot[], manual: boolean): 'PENDING' | 'PAYMENT_SYNCED' | 'MANUALLY_VERIFIED' | 'MANUAL_REVIEW' | 'STATEMENT_VERIFIED' | null {
   if (snapshots.some((snapshot) => snapshot.status === 'STATEMENT_VERIFIED')) return 'STATEMENT_VERIFIED'
+  if (snapshots.some((snapshot) => snapshot.status === 'MANUALLY_VERIFIED'
+    || snapshot.etsyFeeReconciliationSource === 'MANUAL')) return 'MANUALLY_VERIFIED'
   if (manual) return 'MANUAL_REVIEW'
   if (snapshots.some((snapshot) => snapshot.status === 'MANUAL_REVIEW')) return 'MANUAL_REVIEW'
   if (snapshots.some((snapshot) => snapshot.status === 'PAYMENT_SYNCED')) return 'PAYMENT_SYNCED'

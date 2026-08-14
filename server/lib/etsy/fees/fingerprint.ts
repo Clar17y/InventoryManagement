@@ -78,6 +78,7 @@ export function fingerprintReconciliationInput(
       etsyFeeReconciliationSource: snapshot.etsyFeeReconciliationSource ?? null,
       etsyStatementImportId: snapshot.etsyStatementImportId ?? null,
       etsyStatementMonth: snapshot.etsyStatementMonth ?? null,
+      etsyManualResolutionNote: snapshot.etsyManualResolutionNote ?? null,
       status: snapshot.status,
       updatedAt: snapshot.updatedAt,
     }))

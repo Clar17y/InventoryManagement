@@ -6,9 +6,12 @@ import { render } from '../utils/test-utils';
 vi.mock('../../lib/api', () => ({
   sales: {
     list: vi.fn(),
+    get: vi.fn(),
     summary: vi.fn(),
     preview: vi.fn(),
     create: vi.fn(),
+    previewEtsyResolution: vi.fn(),
+    applyEtsyResolution: vi.fn(),
   },
   hampers: {
     list: vi.fn(),
@@ -22,6 +25,7 @@ vi.mock('../../lib/api', () => ({
     disconnect: vi.fn(),
     getPendingOrders: vi.fn(),
     importOrder: vi.fn(),
+    getFeeReconciliationSummary: vi.fn(),
   },
   settings: {
     getPostageTiers: vi.fn(),
@@ -32,10 +36,14 @@ import Sales from '../../pages/Sales';
 import { sales, hampers, etsy, settings } from '../../lib/api';
 
 const mockSalesList = vi.mocked(sales.list);
+const mockSalesGet = vi.mocked(sales.get);
 const mockSalesSummary = vi.mocked(sales.summary);
 const mockSalesPreview = vi.mocked(sales.preview);
+const mockPreviewEtsyResolution = vi.mocked(sales.previewEtsyResolution);
+const mockApplyEtsyResolution = vi.mocked(sales.applyEtsyResolution);
 const mockHampersList = vi.mocked(hampers.list);
 const mockEtsyGetStatus = vi.mocked(etsy.getStatus);
+const mockEtsyFeeSummary = vi.mocked(etsy.getFeeReconciliationSummary);
 const mockGetPostageTiers = vi.mocked(settings.getPostageTiers);
 
 function deferred<T>() {
@@ -166,10 +174,39 @@ describe('Sales', () => {
     vi.clearAllMocks();
     mockSalesList.mockResolvedValue({ sales: sampleSales, total: 1 });
     mockSalesSummary.mockResolvedValue(sampleSummary);
+    mockSalesGet.mockResolvedValue(sampleSales[0]);
     mockHampersList.mockResolvedValue(sampleHampers as any);
     mockSalesPreview.mockResolvedValue(samplePreview as any);
+    mockPreviewEtsyResolution.mockResolvedValue({
+      resolution: { type: 'reclassify', channel: 'direct' },
+      baseReceiptId: '123456',
+      saleIds: ['sale-1'],
+      fingerprint: 'a'.repeat(64),
+      summary: {
+        oldFeesPence: 450,
+        newFeesPence: 0,
+        feeDeltaPence: -450,
+        oldNetRevenuePence: 3050,
+        newNetRevenuePence: 3500,
+        netRevenueDeltaPence: 450,
+        oldMarginPence: 1700,
+        newMarginPence: 2150,
+        marginDeltaPence: 450,
+      },
+      rows: [],
+      warnings: ['Etsy fees will be removed'],
+    } as any);
+    mockApplyEtsyResolution.mockResolvedValue({} as any);
     mockEtsyGetStatus.mockResolvedValue({ connected: false });
     mockGetPostageTiers.mockResolvedValue([]);
+    mockEtsyFeeSummary.mockResolvedValue({ counts: {
+      NOT_APPLICABLE: 0,
+      PENDING: 1,
+      PAYMENT_SYNCED: 0,
+      STATEMENT_VERIFIED: 0,
+      MANUALLY_VERIFIED: 0,
+      MANUAL_REVIEW: 0,
+    } });
   });
 
   describe('loading state', () => {
@@ -461,6 +498,68 @@ describe('Sales', () => {
       expect(screen.getByText('VAT on Offsite Ads fee: £0.96')).toBeInTheDocument();
       expect(screen.getByText('Status: Payment synced')).toBeInTheDocument();
       expect(screen.getByText('Source: Etsy Payment API')).toBeInTheDocument();
+    });
+
+    it('shows the optional manual resolution note in Etsy fee details', async () => {
+      const user = userEvent.setup();
+      mockSalesList.mockResolvedValue({
+        sales: [saleWithFeeEvidence({ etsyManualResolutionNote: 'Checked against the receipt detail' })],
+        total: 1,
+      });
+      render(<Sales />);
+
+      await user.click(await screen.findByText(/Chocolate Lovers/));
+      expect(screen.getByText('Manual note: Checked against the receipt detail')).toBeInTheDocument();
+    });
+
+    it('shows guarded Etsy resolution only for unresolved Etsy sales', async () => {
+      const user = userEvent.setup();
+      mockSalesList.mockResolvedValue({ sales: [saleWithFeeEvidence()], total: 1 });
+      render(<Sales />);
+
+      await user.click(await screen.findByText(/Chocolate Lovers/));
+      expect(screen.getByRole('button', { name: 'Resolve Etsy sale' })).toBeInTheDocument();
+    });
+
+    it('hides guarded Etsy resolution for statement/manual verification and non-Etsy channels', async () => {
+      const user = userEvent.setup();
+      const cases = [
+        saleWithFeeEvidence({ etsyFeeReconciliationStatus: 'STATEMENT_VERIFIED' }),
+        saleWithFeeEvidence({ etsyFeeReconciliationStatus: 'MANUALLY_VERIFIED' }),
+        saleWithFeeEvidence({ saleChannel: 'direct' }),
+      ];
+
+      for (const candidate of cases) {
+        mockSalesList.mockResolvedValue({ sales: [candidate], total: 1 });
+        const { unmount } = render(<Sales />);
+        await user.click(await screen.findByText(/Chocolate Lovers/));
+        expect(screen.queryByRole('button', { name: 'Resolve Etsy sale' })).not.toBeInTheDocument();
+        unmount();
+      }
+    });
+
+    it('refreshes filtered list, summary, fee status, and expanded detail after resolution', async () => {
+      const user = userEvent.setup();
+      const unresolved = saleWithFeeEvidence();
+      mockSalesList.mockResolvedValue({ sales: [unresolved], total: 1 });
+      mockSalesGet.mockResolvedValue({ ...unresolved, margin: 12 } as any);
+      render(<Sales />);
+
+      const filter = await screen.findByLabelText('Verification status');
+      await user.selectOptions(filter, 'PENDING');
+      await waitFor(() => expect(mockSalesList).toHaveBeenCalledWith(expect.objectContaining({ verificationStatus: 'PENDING' })));
+      await user.click(screen.getByText(/Chocolate Lovers/));
+      await user.click(screen.getByRole('button', { name: 'Resolve Etsy sale' }));
+      await user.click(screen.getByRole('radio', { name: 'This was not an Etsy sale' }));
+      await user.click(screen.getByRole('button', { name: 'Preview resolution' }));
+      await screen.findByText('Preview ready');
+      await user.click(screen.getByRole('button', { name: 'Confirm resolution' }));
+
+      await waitFor(() => expect(mockSalesGet).toHaveBeenCalledWith('sale-1'));
+      expect(mockEtsyFeeSummary).toHaveBeenCalled();
+      expect(mockSalesList.mock.calls[mockSalesList.mock.calls.length - 1]?.[0]).toEqual(expect.objectContaining({ verificationStatus: 'PENDING' }));
+      expect(mockSalesSummary.mock.calls[mockSalesSummary.mock.calls.length - 1]?.[0]).toEqual(expect.objectContaining({ verificationStatus: 'PENDING' }));
+      expect(screen.getByText('Etsy fee verification')).toBeInTheDocument();
     });
   });
 

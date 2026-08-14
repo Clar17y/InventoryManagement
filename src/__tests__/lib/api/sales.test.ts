@@ -3,17 +3,30 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 vi.mock('../../../lib/api/request', () => ({
   request: vi.fn(),
   requestWithSchema: vi.fn(),
+  ApiError: class ApiError extends Error {
+    status: number
+    body: unknown
+
+    constructor(message: string, status: number, body: unknown = null) {
+      super(message)
+      this.name = 'ApiError'
+      this.status = status
+      this.body = body
+    }
+  },
 }));
 
 import {
   salePreviewResponseSchema,
   saleResponseSchema,
+  etsySaleResolutionApplyResultSchema,
+  etsySaleResolutionPreviewSchema,
   salesListResponseSchema,
   salesMarginAnalyticsResponseSchema,
   salesSummaryResponseSchema,
 } from '#contracts/routes/sales';
 import { sales, Sale, SalePreview, SalesSummary, MarginAnalytics } from '../../../lib/api/sales';
-import { requestWithSchema } from '../../../lib/api/request';
+import { ApiError, requestWithSchema } from '../../../lib/api/request';
 
 const mockRequestWithSchema = vi.mocked(requestWithSchema);
 
@@ -43,6 +56,7 @@ describe('sales API', () => {
     etsyPaymentGross: null,
     etsyPaymentFees: null,
     etsyPaymentNet: null,
+    etsyManualResolutionNote: null,
     etsyFeeReconciliationStatus: 'PENDING',
     etsyFeeReconciliationSource: null,
     etsyFeeReconciledAt: null,
@@ -257,6 +271,77 @@ describe('sales API', () => {
         '/sales/summary?verificationStatus=needs_verification',
         salesSummaryResponseSchema,
       );
+    });
+  });
+
+  describe('Etsy sale resolution', () => {
+    const resolution = {
+      type: 'manual_verify' as const,
+      attributed: true,
+      etsyOrderId: '123456',
+      offsiteAdsFeePence: 480,
+      vatOnOffsiteAdsFeePence: 96,
+      note: 'Confirmed from the receipt detail',
+    };
+    const preview = {
+      resolution,
+      baseReceiptId: '123456',
+      saleIds: ['sale-1'],
+      fingerprint: 'a'.repeat(64),
+      summary: {
+        oldFeesPence: 450,
+        newFeesPence: 1026,
+        feeDeltaPence: 576,
+        oldNetRevenuePence: 3050,
+        newNetRevenuePence: 2474,
+        netRevenueDeltaPence: -576,
+        oldMarginPence: 1550,
+        newMarginPence: 974,
+        marginDeltaPence: -576,
+      },
+      rows: [],
+      warnings: [],
+    };
+
+    it('posts a validated preview request with the normalized resolution', async () => {
+      mockRequestWithSchema.mockResolvedValue(preview);
+
+      await sales.previewEtsyResolution('sale-1', { resolution });
+
+      expect(mockRequestWithSchema).toHaveBeenCalledWith(
+        '/sales/sale-1/etsy-resolution/preview',
+        etsySaleResolutionPreviewSchema,
+        {
+          method: 'POST',
+          body: JSON.stringify({ resolution }),
+        },
+      );
+    });
+
+    it('posts the same resolution plus the preview fingerprint to apply', async () => {
+      mockRequestWithSchema.mockResolvedValue({ ...preview, applied: true });
+
+      await sales.applyEtsyResolution('sale-1', {
+        resolution,
+        fingerprint: preview.fingerprint,
+      });
+
+      expect(mockRequestWithSchema).toHaveBeenCalledWith(
+        '/sales/sale-1/etsy-resolution/apply',
+        etsySaleResolutionApplyResultSchema,
+        {
+          method: 'POST',
+          body: JSON.stringify({ resolution, fingerprint: preview.fingerprint }),
+        },
+      );
+    });
+
+    it('propagates a 409 ApiError from preview without rewriting it', async () => {
+      const error = new ApiError('The Etsy Sale changed; preview again', 409, { error: 'conflict' });
+      mockRequestWithSchema.mockRejectedValue(error);
+
+      await expect(sales.previewEtsyResolution('sale-1', { resolution })).rejects.toBe(error);
+      expect(error.status).toBe(409);
     });
   });
 

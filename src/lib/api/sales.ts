@@ -6,6 +6,12 @@ import {
   salesListResponseSchema,
   salesMarginAnalyticsResponseSchema,
   salesSummaryResponseSchema,
+  etsySaleResolutionApplyResultSchema,
+  etsySaleResolutionPreviewSchema,
+  type EtsySaleResolutionApplyBody as ContractEtsySaleResolutionApplyBody,
+  type EtsySaleResolutionApplyResult as ContractEtsySaleResolutionApplyResult,
+  type EtsySaleResolutionPreview as ContractEtsySaleResolutionPreview,
+  type EtsySaleResolutionPreviewBody as ContractEtsySaleResolutionPreviewBody,
   type SalePreviewResponse,
   type SaleResponse,
   type SalesCreateBody,
@@ -33,6 +39,10 @@ export type SaleCreateData = SalesCreateBody
 
 export type MarginAnalytics = SalesMarginAnalyticsResponse
 export type SalesSummary = SalesSummaryResponse
+export type EtsySaleResolutionPreview = ContractEtsySaleResolutionPreview
+export type EtsySaleResolutionApplyResult = ContractEtsySaleResolutionApplyResult
+export type EtsySaleResolutionPreviewBody = ContractEtsySaleResolutionPreviewBody
+export type EtsySaleResolutionApplyBody = ContractEtsySaleResolutionApplyBody
 
 export const sales = {
   list: (params?: {
@@ -53,6 +63,16 @@ export const sales = {
     return requestWithSchema(`/sales?${query.toString()}`, salesListResponseSchema)
   },
   get: (id: string) => requestWithSchema(`/sales/${id}`, saleResponseSchema),
+  previewEtsyResolution: (saleId: string, body: EtsySaleResolutionPreviewBody) =>
+    requestWithSchema(`/sales/${saleId}/etsy-resolution/preview`, etsySaleResolutionPreviewSchema, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  applyEtsyResolution: (saleId: string, body: EtsySaleResolutionApplyBody) =>
+    requestWithSchema(`/sales/${saleId}/etsy-resolution/apply`, etsySaleResolutionApplyResultSchema, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
   preview: (data: SalesPreviewBody) =>
     requestWithSchema('/sales/preview', salePreviewResponseSchema, {
       method: 'POST',

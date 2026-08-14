@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { useDateSearchFilter } from '../../../components/filters/DateSearchFilter'
 import {
   sales,
+  etsy,
   hampers,
   inventory,
   settings,
@@ -16,6 +17,7 @@ import {
 } from '../../../lib/api'
 import SalesListView from '../components/SalesListView'
 import SalesRecordView from '../components/SalesRecordView'
+import EtsySaleResolutionModal from '../components/EtsySaleResolutionModal'
 import { getOverrideKey } from '../utils'
 import type { LotOverride, SaleLineInput } from '../types'
 
@@ -30,6 +32,7 @@ export default function Sales() {
   const [viewMode, setViewMode] = useState<ViewMode>('list')
   const [expandedId, setExpandedId] = useState<string | null>(null)
   const [showEtsyOrdersPanel, setShowEtsyOrdersPanel] = useState(false)
+  const [resolutionSale, setResolutionSale] = useState<Sale | null>(null)
 
   // Summary and filter state
   const [showSummary, setShowSummary] = useState(false)
@@ -404,6 +407,21 @@ export default function Sales() {
     setExpandedId(expandedId === id ? null : id)
   }
 
+  const handleResolutionResolved = async (saleId: string) => {
+    await Promise.all([
+      loadData(),
+      etsy.getFeeReconciliationSummary(),
+    ])
+    const refreshedSale = await sales.get(saleId)
+    setSaleList((currentSales) => {
+      if (!currentSales.some((currentSale) => currentSale.id === refreshedSale.id)) {
+        if (expandedId === saleId) setExpandedId(null)
+        return currentSales
+      }
+      return currentSales.map((currentSale) => currentSale.id === refreshedSale.id ? refreshedSale : currentSale)
+    })
+  }
+
   if (loading && saleList.length === 0) {
     return <div className="text-center py-8 text-gray-500">Loading...</div>
   }
@@ -451,6 +469,7 @@ export default function Sales() {
   }
 
   return (
+    <>
     <SalesListView
       saleList={saleList}
       totalSales={totalSales}
@@ -473,8 +492,17 @@ export default function Sales() {
       expandedId={expandedId}
       handleExpand={handleExpand}
       setViewMode={setViewMode}
+      onResolveSale={setResolutionSale}
       loadData={loadData}
       loadMore={loadMore}
     />
+    {resolutionSale && (
+      <EtsySaleResolutionModal
+        sale={resolutionSale}
+        onClose={() => setResolutionSale(null)}
+        onResolved={() => handleResolutionResolved(resolutionSale.id)}
+      />
+    )}
+    </>
   )
 }

@@ -41,6 +41,9 @@ export default function EtsyFeeDetails({ sale }: { sale: Sale }) {
         <div>Status: {statusLabels[status]}</div>
         {source && <div>Source: {sourceLabels[source]}</div>}
         {sale.etsyFeeReconciledAt && <div>Reconciled: {formatDate(sale.etsyFeeReconciledAt)}</div>}
+        {sale.etsyManualResolutionNote && (
+          <div className="sm:col-span-2">Manual note: {sale.etsyManualResolutionNote}</div>
+        )}
       </div>
     </div>
   )

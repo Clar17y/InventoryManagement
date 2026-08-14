@@ -36,6 +36,7 @@ export default function SalesListView({
   expandedId,
   handleExpand,
   setViewMode,
+  onResolveSale,
   loadData,
   loadMore,
 }: {
@@ -60,6 +61,7 @@ export default function SalesListView({
   expandedId: string | null
   handleExpand: (id: string) => void
   setViewMode: (mode: 'list' | 'record') => void
+  onResolveSale: (sale: Sale) => void
   loadData: (isInitialLoad?: boolean) => void
   loadMore: () => void
 }) {
@@ -270,7 +272,21 @@ export default function SalesListView({
                     )}
                   </div>
 
-                  {sale.saleChannel === 'etsy' && <EtsyFeeDetails sale={sale} />}
+                  {sale.saleChannel === 'etsy' && (
+                    <>
+                      <EtsyFeeDetails sale={sale} />
+                      {sale.etsyFeeReconciliationStatus !== 'STATEMENT_VERIFIED'
+                        && sale.etsyFeeReconciliationStatus !== 'MANUALLY_VERIFIED' && (
+                          <button
+                            type="button"
+                            className="btn-secondary"
+                            onClick={() => onResolveSale(sale)}
+                          >
+                            Resolve Etsy sale
+                          </button>
+                        )}
+                    </>
+                  )}
 
                   {/* Postage breakdown */}
                   {(Number(sale.postageCharged) > 0 || Number(sale.postageCost) > 0) && (

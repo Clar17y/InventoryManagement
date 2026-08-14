@@ -7,7 +7,7 @@ import { calculateFeeAdjustment } from './calculations'
 import { allocateOrderPence } from './calculations'
 import { fingerprintReconciliationInput } from './fingerprint'
 import { groupSalesByReceipt } from './grouping'
-import { parseEtsyStatement } from './statementParser'
+import { parseEtsyStatement, type ParsedEtsyStatement } from './statementParser'
 import { isPaymentFeeValidationEnabled } from './paymentNormalizer'
 import type {
   NormalizedOrderEvidence,
@@ -652,9 +652,9 @@ function buildStatementGroupPlan(
 
 async function buildStatementPlan(
   input: StatementReconciliationInput,
+  parsed: ParsedEtsyStatement,
   db: FeeReconciliationRepository,
 ): Promise<ReconciliationPlan> {
-  const parsed = parseEtsyStatement({ csv: input.csv, statementMonth: input.statementMonth })
   const snapshots = await db.listEtsySaleSnapshots()
   const evidence = [...parsed.evidenceByReceipt.values()]
   const summary = createEmptyFeeReconciliationSummary()
@@ -708,7 +708,8 @@ export async function previewStatementReconciliation(
   input: StatementReconciliationInput,
   db: FeeReconciliationRepository,
 ): Promise<FeeReconciliationPreview> {
-  const plan = await buildStatementPlan(input, db)
+  const parsed = parseEtsyStatement({ csv: input.csv, statementMonth: input.statementMonth })
+  const plan = await buildStatementPlan(input, parsed, db)
   return {
     fingerprint: plan.fingerprint,
     statementChecksum: plan.statementChecksum,
@@ -755,7 +756,7 @@ export async function applyStatementReconciliation(
     return duplicateStatementResult(input, parsed, existing)
   }
 
-  const plan = await buildStatementPlan(input, db)
+  const plan = await buildStatementPlan(input, parsed, db)
   if (plan.fingerprint !== input.fingerprint) {
     throw new StatementReconciliationConflictError(
       'Statement preview is stale; reload sale state and preview again before applying',

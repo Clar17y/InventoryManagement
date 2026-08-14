@@ -1,8 +1,116 @@
 import { z } from 'zod'
 import { cuidSchema, isoDateTimeSchema } from '../http/primitives'
+import {
+  etsyFeeReconciliationSourceSchema,
+  etsyFeeReconciliationStatusSchema,
+} from '../domain/etsyFees'
 import { saleChannelSchema, saleSchema } from '../domain/sale'
 
 export const saleIdParamSchema = cuidSchema
+
+const fingerprintSchema = z.string().regex(/^[a-f0-9]{64}$/)
+const penceSchema = z.number().int().safe()
+const nullablePenceSchema = penceSchema.nullable()
+const manualResolutionNoteSchema = z.string().trim().min(1).max(500)
+const plausibleEtsyReceiptIdSchema = z.string()
+  .regex(/^\d{6,}$/)
+  .refine(
+    (value) => Number.isSafeInteger(Number(value)),
+    'Etsy receipt ID is outside the safe integer range',
+  )
+
+export const etsySaleResolutionSchema = z.discriminatedUnion('type', [
+  z.object({
+    type: z.literal('reclassify'),
+    channel: z.enum(['direct', 'fair']),
+    note: manualResolutionNoteSchema.optional(),
+  }),
+  z.object({
+    type: z.literal('correct_receipt_id'),
+    etsyOrderId: plausibleEtsyReceiptIdSchema,
+    note: manualResolutionNoteSchema.optional(),
+  }),
+  z.object({
+    type: z.literal('manual_verify'),
+    etsyOrderId: plausibleEtsyReceiptIdSchema.optional(),
+    attributed: z.boolean(),
+    offsiteAdsFeePence: z.number().int().nonnegative().safe(),
+    vatOnOffsiteAdsFeePence: z.number().int().nonnegative().safe(),
+    note: manualResolutionNoteSchema.optional(),
+  }),
+]).superRefine((value, ctx) => {
+  if (value.type === 'manual_verify' && !value.attributed
+    && (value.offsiteAdsFeePence !== 0 || value.vatOnOffsiteAdsFeePence !== 0)) {
+    ctx.addIssue({
+      code: 'custom',
+      message: 'Not-attributed receipts must have zero Offsite fee and VAT',
+    })
+  }
+})
+
+export const etsySaleResolutionPreviewBodySchema = z.object({
+  resolution: etsySaleResolutionSchema,
+}).strict()
+
+export const etsySaleResolutionApplyBodySchema = etsySaleResolutionPreviewBodySchema.extend({
+  fingerprint: fingerprintSchema,
+}).strict()
+
+const etsySaleResolutionStateSchema = z.object({
+  saleChannel: saleChannelSchema,
+  etsyOrderId: z.string().max(100).nullable(),
+  status: etsyFeeReconciliationStatusSchema,
+  source: etsyFeeReconciliationSourceSchema.nullable(),
+  offsiteAdsAttributed: z.boolean().nullable(),
+  transactionFeePence: penceSchema,
+  postageTransactionFeePence: penceSchema,
+  regulatoryFeePence: penceSchema,
+  processingFeePence: penceSchema,
+  vatOnProcessingFeePence: penceSchema,
+  listingFeePence: penceSchema,
+  offsiteAdsFeePence: nullablePenceSchema,
+  vatOnOffsiteAdsFeePence: nullablePenceSchema,
+  etsyFeesPence: penceSchema,
+  netRevenuePence: penceSchema,
+  marginPence: penceSchema,
+})
+
+const etsySaleResolutionRowSchema = z.object({
+  saleId: cuidSchema,
+  before: etsySaleResolutionStateSchema,
+  after: etsySaleResolutionStateSchema,
+})
+
+const etsySaleResolutionSummarySchema = z.object({
+  oldFeesPence: penceSchema,
+  newFeesPence: penceSchema,
+  feeDeltaPence: penceSchema,
+  oldNetRevenuePence: penceSchema,
+  newNetRevenuePence: penceSchema,
+  netRevenueDeltaPence: penceSchema,
+  oldMarginPence: penceSchema,
+  newMarginPence: penceSchema,
+  marginDeltaPence: penceSchema,
+})
+
+export const etsySaleResolutionPreviewSchema = z.object({
+  resolution: etsySaleResolutionSchema,
+  baseReceiptId: z.string().min(1),
+  saleIds: z.array(cuidSchema),
+  fingerprint: fingerprintSchema,
+  summary: etsySaleResolutionSummarySchema,
+  rows: z.array(etsySaleResolutionRowSchema),
+  warnings: z.array(z.string().min(1)),
+})
+
+export const etsySaleResolutionApplyResultSchema = etsySaleResolutionPreviewSchema.extend({
+  applied: z.boolean(),
+})
+
+export const salesVerificationFilterSchema = z.union([
+  z.literal('needs_verification'),
+  etsyFeeReconciliationStatusSchema,
+])
 
 export const saleLineInputSchema = z.object({
   hamperId: cuidSchema.optional(),
@@ -153,6 +261,12 @@ export const salesMarginAnalyticsResponseSchema = z.object({
 })
 
 export type SaleIdParam = z.infer<typeof saleIdParamSchema>
+export type EtsySaleResolution = z.infer<typeof etsySaleResolutionSchema>
+export type EtsySaleResolutionPreviewBody = z.input<typeof etsySaleResolutionPreviewBodySchema>
+export type EtsySaleResolutionApplyBody = z.input<typeof etsySaleResolutionApplyBodySchema>
+export type EtsySaleResolutionPreview = z.infer<typeof etsySaleResolutionPreviewSchema>
+export type EtsySaleResolutionApplyResult = z.infer<typeof etsySaleResolutionApplyResultSchema>
+export type SalesVerificationFilter = z.infer<typeof salesVerificationFilterSchema>
 export type SaleLineInput = z.input<typeof saleLineInputSchema>
 export type SalesPreviewBody = z.input<typeof salesPreviewBodySchema>
 export type SalePreviewResponse = z.infer<typeof salePreviewResponseSchema>

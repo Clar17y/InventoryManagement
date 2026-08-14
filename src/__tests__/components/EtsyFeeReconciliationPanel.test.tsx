@@ -44,6 +44,7 @@ const summary = {
     PENDING: 2411,
     PAYMENT_SYNCED: 0,
     STATEMENT_VERIFIED: 5,
+    MANUALLY_VERIFIED: 0,
     MANUAL_REVIEW: 0,
   },
 }

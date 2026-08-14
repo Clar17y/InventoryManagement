@@ -5,12 +5,14 @@ export const etsyFeeReconciliationStatusSchema = z.enum([
   'PENDING',
   'PAYMENT_SYNCED',
   'STATEMENT_VERIFIED',
+  'MANUALLY_VERIFIED',
   'MANUAL_REVIEW',
 ])
 
 export const etsyFeeReconciliationSourceSchema = z.enum([
   'ETSY_PAYMENT_API',
   'ETSY_STATEMENT',
+  'MANUAL',
 ])
 
 export type EtsyFeeReconciliationStatus = z.infer<typeof etsyFeeReconciliationStatusSchema>
@@ -101,6 +103,7 @@ export const etsyFeeReconciliationStatusCountsSchema = z.object({
   PENDING: z.number().int().nonnegative(),
   PAYMENT_SYNCED: z.number().int().nonnegative(),
   STATEMENT_VERIFIED: z.number().int().nonnegative(),
+  MANUALLY_VERIFIED: z.number().int().nonnegative(),
   MANUAL_REVIEW: z.number().int().nonnegative(),
 })
 

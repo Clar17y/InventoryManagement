@@ -31,6 +31,7 @@ function dependencies(): EtsyFeeRouterDependencies {
       PENDING: 1,
       PAYMENT_SYNCED: 0,
       STATEMENT_VERIFIED: 0,
+      MANUALLY_VERIFIED: 0,
       MANUAL_REVIEW: 0,
     }),
   }
@@ -436,6 +437,7 @@ describe('Etsy fee reconciliation routes', () => {
       PENDING: 1,
       PAYMENT_SYNCED: 0,
       STATEMENT_VERIFIED: 0,
+      MANUALLY_VERIFIED: 0,
       MANUAL_REVIEW: 0,
     })
   })
@@ -468,6 +470,7 @@ describe('Etsy fee reconciliation routes', () => {
       PENDING: 3,
       PAYMENT_SYNCED: 0,
       STATEMENT_VERIFIED: 2,
+      MANUALLY_VERIFIED: 0,
       MANUAL_REVIEW: 0,
     })
     expect(countEtsyFeeReconciliationStatuses).toHaveBeenCalledOnce()

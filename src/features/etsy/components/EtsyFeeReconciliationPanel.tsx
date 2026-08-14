@@ -161,10 +161,11 @@ export default function EtsyFeeReconciliationPanel({ onImportComplete }: EtsyFee
           <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm font-medium text-amber-900">
             {pendingCount.toLocaleString()} Etsy sales need statement verification
           </div>
-          <div className="grid grid-cols-2 gap-2 text-xs sm:grid-cols-5">
+          <div className="grid grid-cols-2 gap-2 text-xs sm:grid-cols-6">
             <div className="rounded border border-gray-200 p-2"><div className="text-gray-500">Pending</div><div className="font-semibold">{reconciliation.summary.PENDING}</div></div>
             <div className="rounded border border-gray-200 p-2"><div className="text-gray-500">Payment synced</div><div className="font-semibold">{reconciliation.summary.PAYMENT_SYNCED}</div></div>
             <div className="rounded border border-gray-200 p-2"><div className="text-gray-500">Statement verified</div><div className="font-semibold">{reconciliation.summary.STATEMENT_VERIFIED}</div></div>
+            <div className="rounded border border-gray-200 p-2"><div className="text-gray-500">Manually verified</div><div className="font-semibold">{reconciliation.summary.MANUALLY_VERIFIED}</div></div>
             <div className="rounded border border-gray-200 p-2"><div className="text-gray-500">Manual review</div><div className="font-semibold">{reconciliation.summary.MANUAL_REVIEW}</div></div>
             <div className="rounded border border-gray-200 p-2"><div className="text-gray-500">Not applicable</div><div className="font-semibold">{reconciliation.summary.NOT_APPLICABLE}</div></div>
           </div>

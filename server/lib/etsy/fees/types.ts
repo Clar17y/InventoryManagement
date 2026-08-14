@@ -73,5 +73,5 @@ export interface SaleFeeProposal {
   etsyPaymentFeesPence: number | null
   etsyPaymentNetPence: number | null
   status: EtsyFeeReconciliationStatus
-  source: EtsyFeeReconciliationSource
+  source: EtsyFeeReconciliationSource | null
 }

@@ -116,10 +116,12 @@ export function createFeeDbFixture(initial: { sales: SaleFeeSnapshot[] }): FeeRe
               `Sale ${id} changed while applying Etsy fee evidence`,
             )
           }
-          const statementImport = statementImportId === null
+          const retainsCurrentStatement = statementImportId !== null
+            && statementImportId === current.etsyStatementImportId
+          const statementImport = statementImportId === null || retainsCurrentStatement
             ? null
             : workingImports.find((candidate) => candidate.id === statementImportId)
-          if (statementImportId !== null && !statementImport) {
+          if (statementImportId !== null && !retainsCurrentStatement && !statementImport) {
             throw new Error(`Unknown fixture statement import ${statementImportId}`)
           }
           workingSales[index] = {
@@ -132,7 +134,9 @@ export function createFeeDbFixture(initial: { sales: SaleFeeSnapshot[] }): FeeRe
             offsiteAdsAttributed: proposal.offsiteAdsAttributed,
             etsyFeeReconciliationSource: proposal.source,
             etsyStatementImportId: statementImportId,
-            etsyStatementMonth: statementImport?.statementMonth ?? null,
+            etsyStatementMonth: retainsCurrentStatement
+              ? (current.etsyStatementMonth ?? null)
+              : (statementImport?.statementMonth ?? null),
             etsyPaymentGrossPence: proposal.etsyPaymentGrossPence,
             etsyPaymentFeesPence: proposal.etsyPaymentFeesPence,
             etsyPaymentNetPence: proposal.etsyPaymentNetPence,

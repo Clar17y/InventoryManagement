@@ -38,6 +38,16 @@ const mockHampersList = vi.mocked(hampers.list);
 const mockEtsyGetStatus = vi.mocked(etsy.getStatus);
 const mockGetPostageTiers = vi.mocked(settings.getPostageTiers);
 
+function deferred<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+  return { promise, resolve, reject };
+}
+
 describe('Sales', () => {
   const sampleHampers = [
     {
@@ -136,6 +146,21 @@ describe('Sales', () => {
       estimatedMargin: 24,
     },
   };
+
+  const saleFor = (id: string, name: string, grossRevenue: number) => ({
+    ...sampleSales[0],
+    id,
+    grossRevenue,
+    lines: [{
+      ...sampleSales[0].lines[0],
+      hamper: { ...sampleSales[0].lines[0].hamper, name },
+    }],
+  });
+
+  const summaryFor = (totalRevenue: number) => ({
+    ...sampleSummary,
+    totals: { ...sampleSummary.totals, totalRevenue },
+  });
 
   beforeEach(() => {
     vi.clearAllMocks();
@@ -281,6 +306,74 @@ describe('Sales', () => {
         }));
       }, { timeout: 2000 });
       expect(filter).toHaveValue('PENDING');
+    });
+
+    it('ignores stale list and summary responses after rapid status changes', async () => {
+      const user = userEvent.setup();
+      render(<Sales />);
+      const filter = await screen.findByLabelText('Verification status');
+
+      const pendingList = deferred<{ sales: any[]; total: number }>();
+      const pendingSummary = deferred<typeof sampleSummary>();
+      const manualList = deferred<{ sales: any[]; total: number }>();
+      const manualSummary = deferred<typeof sampleSummary>();
+      mockSalesList.mockClear();
+      mockSalesSummary.mockClear();
+      mockSalesList.mockImplementation((params) => {
+        if (params?.verificationStatus === 'PENDING') return pendingList.promise;
+        if (params?.verificationStatus === 'MANUAL_REVIEW') return manualList.promise;
+        return Promise.resolve({ sales: sampleSales, total: 1 });
+      });
+      mockSalesSummary.mockImplementation((params) => {
+        if (params?.verificationStatus === 'PENDING') return pendingSummary.promise;
+        if (params?.verificationStatus === 'MANUAL_REVIEW') return manualSummary.promise;
+        return Promise.resolve(sampleSummary);
+      });
+
+      await user.selectOptions(filter, 'PENDING');
+      await waitFor(() => expect(mockSalesList).toHaveBeenCalledWith(expect.objectContaining({ verificationStatus: 'PENDING' })));
+      await user.selectOptions(filter, 'MANUAL_REVIEW');
+      await waitFor(() => expect(mockSalesList).toHaveBeenCalledWith(expect.objectContaining({ verificationStatus: 'MANUAL_REVIEW' })));
+
+      manualList.resolve({ sales: [saleFor('manual-sale', 'Manual sale', 75)], total: 1 });
+      manualSummary.resolve(summaryFor(75));
+      await waitFor(() => expect(screen.getByText('Manual sale ×1')).toBeInTheDocument());
+      await user.click(screen.getByTitle('Toggle summary'));
+      await waitFor(() => expect(screen.getAllByText('£75.00')).not.toHaveLength(0));
+
+      pendingList.resolve({ sales: [saleFor('pending-sale', 'Pending sale', 15)], total: 1 });
+      pendingSummary.resolve(summaryFor(15));
+      await waitFor(() => expect(screen.getByText('Manual sale ×1')).toBeInTheDocument());
+      expect(screen.queryByText('Pending sale ×1')).not.toBeInTheDocument();
+      expect(screen.getAllByText('£75.00')).not.toHaveLength(0);
+      expect(filter).toHaveValue('MANUAL_REVIEW');
+    });
+
+    it('does not append an old Load More response after the verification filter changes', async () => {
+      const user = userEvent.setup();
+      const moreSales = deferred<{ sales: any[]; total: number }>();
+      const initialSale = saleFor('initial-sale', 'Initial sale', 35);
+      const filteredSale = saleFor('filtered-sale', 'Filtered sale', 45);
+      const staleSale = saleFor('stale-sale', 'Stale sale', 55);
+      mockSalesList.mockImplementation((params) => {
+        if (params?.offset === 1 && !params?.verificationStatus) return moreSales.promise;
+        if (params?.verificationStatus === 'PENDING') return Promise.resolve({ sales: [filteredSale], total: 2 });
+        return Promise.resolve({ sales: [initialSale], total: 2 });
+      });
+      render(<Sales />);
+      await waitFor(() => expect(screen.getByText('Initial sale ×1')).toBeInTheDocument());
+
+      await user.click(screen.getByRole('button', { name: 'Load More (1 of 2)' }));
+      await waitFor(() => expect(mockSalesList).toHaveBeenCalledWith(expect.objectContaining({ offset: 1 })));
+
+      const filter = screen.getByLabelText('Verification status');
+      await user.selectOptions(filter, 'PENDING');
+      await waitFor(() => expect(screen.getByText('Filtered sale ×1')).toBeInTheDocument());
+
+      moreSales.resolve({ sales: [staleSale], total: 2 });
+      await waitFor(() => expect(screen.getByRole('button', { name: 'Load More (1 of 2)' })).toBeEnabled());
+      expect(screen.getByText('Filtered sale ×1')).toBeInTheDocument();
+      expect(screen.queryByText('Stale sale ×1')).not.toBeInTheDocument();
     });
   });
 

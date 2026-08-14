@@ -49,6 +49,7 @@ export default function Sales() {
 
   const [totalSales, setTotalSales] = useState(0)
   const PAGE_SIZE = 20
+  const dataRequestGeneration = useRef(0)
 
   // Record sale state
   const [lines, setLines] = useState<SaleLineInput[]>([{ quantity: 1 }])
@@ -73,6 +74,9 @@ export default function Sales() {
   const [overrides, setOverrides] = useState<Record<string, LotOverride[]>>({})
 
   const loadData = async (isInitialLoad = false) => {
+    const requestGeneration = ++dataRequestGeneration.current
+    setLoadingMore(false)
+
     try {
       // Only show full loading state on initial page load, not on filter changes
       if (isInitialLoad) {
@@ -104,19 +108,27 @@ export default function Sales() {
           verificationStatus: verificationStatus || undefined,
         }),
       ])
+      if (requestGeneration !== dataRequestGeneration.current) return
+
       setSaleList(salesData.sales)
       setTotalSales(salesData.total)
       setHamperList(hampersData)
       setSummary(summaryData)
       setError(null)
     } catch (err) {
+      if (requestGeneration !== dataRequestGeneration.current) return
+
       setError(err instanceof Error ? err.message : 'Failed to load data')
     } finally {
-      setLoading(false)
+      if (requestGeneration === dataRequestGeneration.current) {
+        setLoading(false)
+      }
     }
   }
 
   const loadMore = async () => {
+    const requestGeneration = dataRequestGeneration.current
+
     try {
       setLoadingMore(true)
       const params: {
@@ -136,11 +148,17 @@ export default function Sales() {
       if (verificationStatus) params.verificationStatus = verificationStatus
 
       const result = await sales.list(params)
-      setSaleList([...saleList, ...result.sales])
+      if (requestGeneration !== dataRequestGeneration.current) return
+
+      setSaleList((currentSales) => [...currentSales, ...result.sales])
     } catch (err) {
+      if (requestGeneration !== dataRequestGeneration.current) return
+
       setError(err instanceof Error ? err.message : 'Failed to load more sales')
     } finally {
-      setLoadingMore(false)
+      if (requestGeneration === dataRequestGeneration.current) {
+        setLoadingMore(false)
+      }
     }
   }
 

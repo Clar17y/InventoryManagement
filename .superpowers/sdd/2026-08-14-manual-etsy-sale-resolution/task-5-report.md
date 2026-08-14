@@ -74,3 +74,60 @@ Result: exit code 0; 2 files and 44/44 tests passed. Existing React `act(...)` w
 - Direct/fair `NOT_APPLICABLE` is exposed in the dropdown, and all statuses from the shared schema are represented.
 - Task 1 already supplied the contract schema/type, so `contracts/routes/sales.ts` required no additional diff in this task.
 - No functional blockers remain. The only concerns are the existing page-test `act(...)` warnings, two existing hook-dependency warnings, and the RTK direct-eslint PATH limitation documented above.
+
+## Task 5 Fix Round 1: Guard stale Sales responses
+
+Date: 2026-08-14
+Base: `c6cab2aec79409ea76197f3611884527ecf9c070`
+
+### TDD RED
+
+Command:
+
+```powershell
+$env:VITE_SUPABASE_URL='http://localhost'; $env:VITE_SUPABASE_ANON_KEY='test-anon-key'; rtk npm run test:client:run -- src/__tests__/pages/Sales.test.tsx --reporter=dot
+```
+
+Result: expected failure, exit code 1. Exact focused summary:
+
+```text
+> vitest run --project client src/__tests__/pages/Sales.test.tsx --reporter=dot
+ RUN  v4.0.16 D:/Code/InventoryManager/.worktrees/etsy-offsite-credit-netting
+·············xx··················
+ Test Files  1 failed (1)
+      Tests  2 failed | 31 passed (33)
+```
+
+The rapid-status test observed the older Pending sale after the Manual review response, and the pagination test observed the stale Load More sale after switching to Pending.
+
+### Fix and GREEN
+
+`SalesPage.tsx` now increments a shared request-generation ref for every full list/summary load. List, summary, error, and loading writes are accepted only for the current generation. Load More captures that generation, appends with a functional state update, and ignores stale success/error/finally handlers. Starting a filter reload clears the pagination loading state and invalidates the pending pagination generation. Deferred-response tests cover rapid status changes and Load More followed by a status change.
+
+Command:
+
+```powershell
+$env:VITE_SUPABASE_URL='http://localhost'; $env:VITE_SUPABASE_ANON_KEY='test-anon-key'; rtk npm run test:client:run -- src/__tests__/pages/Sales.test.tsx --reporter=dot
+```
+
+Result: exit code 0; exact focused summary:
+
+```text
+> vitest run --project client src/__tests__/pages/Sales.test.tsx --reporter=dot
+ RUN  v4.0.16 D:/Code/InventoryManager/.worktrees/etsy-offsite-credit-netting
+·································
+ Test Files  1 passed (1)
+      Tests  33 passed (33)
+```
+
+### Fix verification checks
+
+- `rtk tsc -p tsconfig.json --noEmit` — exit code 0; exact output: `TypeScript: No errors found`.
+- `rtk npm exec -- eslint src/features/sales/pages/SalesPage.tsx src/__tests__/pages/Sales.test.tsx` — exit code 0; 0 errors and 2 existing `react-hooks/exhaustive-deps` warnings at `SalesPage.tsx:172` and `SalesPage.tsx:189`.
+- `git diff --check` — exit code 0; Git emitted only the repository’s normal LF-to-CRLF conversion warnings for the three changed tracked files.
+
+### Self-review and unresolved concerns
+
+- The generation guard covers both full reloads and pagination, and the stale branches return before any state write, including error and loading cleanup. The current filter reload explicitly clears `loadingMore`, so an invalidated pagination request cannot leave its spinner stuck.
+- The test assertions verify that the selected Manual review rows/summary remain after the older Pending responses settle, and that the selected Pending rows remain without the old Load More row.
+- No production DB, Etsy, statement, Payment, or other external writes were performed. No functional blockers remain. Existing React `act(...)` warnings in the Sales page suite and the two existing hook-dependency warnings remain unchanged.

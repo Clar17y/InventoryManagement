@@ -320,6 +320,13 @@ npm run test:server:run   # Single run (server only)
 | 2026-08-13 | Codex | Support paired Etsy Offsite fee credits and refunds | Done | codex/etsy-offsite-credit-netting |
 | 2026-08-13 | Codex | Simplify Etsy Offsite credit netting | Done | codex/etsy-offsite-credit-netting |
 | 2026-08-13 | Codex | Address PR #39 Codex review findings | Done | codex/etsy-offsite-credit-netting |
+| 2026-08-13 | Codex | Design cross-month Etsy Offsite credit adjustments | Done | codex/etsy-offsite-credit-netting |
+| 2026-08-13 | Codex | Plan cross-month Etsy Offsite credit adjustments | Done | codex/etsy-offsite-credit-netting |
+| 2026-08-13 | Codex subagent | Task 1: Preserve component-level statement credit evidence | Done | codex/etsy-offsite-credit-netting |
+| 2026-08-14 | Codex subagent | Task 2: Make prior statement state and month part of preview safety | Done | codex/etsy-offsite-credit-netting |
+| 2026-08-14 | Codex | Task 3: Reconcile safe later credits and isolate unsafe receipts | Done | codex/etsy-offsite-credit-netting |
+| 2026-08-14 | Codex | Task 4: Verify cross-month credit routes and compatibility | Done | codex/etsy-offsite-credit-netting |
+| 2026-08-14 | Codex + subagents | Simplify cross-month Etsy credit adjustments | Done | codex/etsy-offsite-credit-netting |
 | 2026-08-13 | Codex subagent | Task 2: Make Payment Diagnostics Safe and Truthful | Done | codex/etsy-statement-payment-fixes |
 | 2026-08-13 | Codex subagent | Task 4: Final Verification and Handoff | Done | codex/etsy-statement-payment-fixes |
 
@@ -330,9 +337,14 @@ npm run test:server:run   # Single run (server only)
 
 > Leave notes here when ending a session so the next agent knows where you left off
 
-**Last Updated:** 2026-08-13
+**Last Updated:** 2026-08-14
 
 **Current State:**
+- **Cross-month credit Task 2 complete** (branch: `codex/etsy-offsite-credit-netting`): preview fingerprints now cover the uploaded statement month, component-level statement evidence, prior statement import/month provenance, and reconciliation source. Prisma and deterministic fixtures surface/persist this provenance, and duplicate file checks reject the same checksum under a different month—including a checksum-race loser. Focused parser/service tests pass (72/72), along with server TypeScript, focused ESLint, and `git diff --check`; no Prisma schema or migration changed. Report: `.superpowers/sdd/2026-08-13-etsy-cross-month-credit-adjustments/task-2-report.md`.
+- **Cross-month credit Task 3 complete** (branch: `codex/etsy-offsite-credit-netting`): verified later credits now subtract from saved component itemization in exact pence; unsafe, unordered, mixed, or untrusted receipts move to manual review with all money, attribution, Payment aggregates, nullable source, and prior statement link preserved while other receipts continue. Multi-sale credits use saved fee/VAT weights. RED: 12 new service failures with 23 existing passes. GREEN: parser/service/Payment focused suites pass (107/107), plus server TypeScript, focused ESLint, and `git diff --check`. No DB/Etsy/downloaded CSV/schema/public-contract change.
+- **Cross-month credit Task 4 complete** (branch: `codex/etsy-offsite-credit-netting`): actual Express route tests prove unsafe-receipt isolation, successful continuation, both statement-month fingerprint mismatch directions, and duplicate-checksum month rejection (16/16). The supplied December 2023 CSV was read only and classified order `3102744549` as fee credit adjustment 153p plus VAT credit adjustment 31p. Full server suite passes 19 files / 278 tests; server/client TypeScript, production build (1,194 modules), focused ESLint, and `git diff --check` pass. No database connection, Etsy request, CSV write, migration, schema, or public-contract change occurred.
+- **Cross-month credit simplify cleanup complete** (branch: `codex/etsy-offsite-credit-netting`): statement preview and apply now parse each CSV once and pass the typed parsed statement into plan construction. Focused reconciliation tests pass 52/52, with server TypeScript, touched-file ESLint, and `git diff --check` passing; no parser call-count test was added because module spying would be brittle.
+- **Cross-month credit Task 1 complete** (branch: `codex/etsy-offsite-credit-netting`): statement parsing now retains separate fee and VAT component operations (`absolute`, `credit_adjustment`, or `none`), preserves exact deduplicated credit totals, covers explicit VAT-only credits, and keeps top-level values null unless the component is absolute. Payment evidence remains unchanged because the statement detail is optional and parser-only. Focused parser tests pass (46/46), along with server TypeScript, focused ESLint, and `git diff --check`. Report: `.superpowers/sdd/2026-08-13-etsy-cross-month-credit-adjustments/task-1-report.md`.
 - **Real Etsy statement and Payment compatibility fixes complete** (branch: `codex/etsy-statement-payment-fixes`): real January 2022 and July 2026 monthly exports consistently use `Title`, pound-prefixed values, and `--`; the shipped parser now accepts those forms directly. The approved design preserves strict GBP/penny/reversal safety, keeps statements authoritative for Offsite attribution, keeps Payment canonical writes gated, skips obvious placeholder receipt IDs during automatic checks, and clarifies Payment preview wording. No database or Etsy mutation was in scope.
 - **Task 2 complete** (branch: `codex/etsy-statement-payment-fixes`): Payment normalization now tolerates missing currency metadata on zero adjustments while still validating primary aggregate currencies and adjustment amounts; automatic previews skip obvious placeholder receipt IDs; valid observe-only aggregates are excluded from the failure list while canonical writes remain gated. Report: `.superpowers/sdd/2026-08-13-etsy-statement-payment-fixes/task-2-report.md`.
 - **Task 4 complete** (branch: `codex/etsy-statement-payment-fixes`): operator guidance now covers genuine Etsy `Title`/`£`/`--` exports, no-resave source CSV handling, aggregate Payment diagnostics versus statement attribution, and automatic placeholder-ID skips without sale writes. Report: `.superpowers/sdd/2026-08-13-etsy-statement-payment-fixes/task-4-report.md`.
@@ -410,6 +422,16 @@ npm run test:server:run   # Single run (server only)
 **Documentation Review (2026-08-11):**
 - Approved design specification self-reviewed for unresolved placeholders, accounting consistency, evidence precedence, idempotency, historical order grouping, and no-write safety; `git diff --check` passed apart from the repository's existing CRLF conversion warning.
 - Implementation plan self-reviewed against every design section for requirement coverage, placeholder-free steps, type/signature consistency, TDD order, operational safety, and protection of the existing untracked price-pull plan.
+
+**Etsy Cross-Month Credit Design (2026-08-13):**
+- Written design records the approved receipt-level fallback: if an earlier verified statement balance cannot be trusted, that receipt moves to manual review with money and prior statement provenance unchanged while the rest of the uploaded statement continues.
+- Independent design review required and then approved safeguards for component-specific fee/VAT adjustments, VAT-only coverage, uploaded-month fingerprinting, and preservation of the prior statement link on manual-review outcomes.
+- Implementation is intentionally paused pending user review of the written specification.
+
+**Etsy Cross-Month Credit Plan (2026-08-13):**
+- Approved design decomposed into four serialized, independently reviewable TDD tasks: component evidence, provenance/fingerprint safety, adjustment reconciliation, and route/real-file verification.
+- Plan self-review mapped every design requirement, scanned for placeholders, checked cross-task type/signature consistency, and added exact manual-review messages plus duplicate-month conflict coverage.
+- Implementation has not started; no application code, database, or source CSV was changed during planning.
 
 **Task 10 Verification (2026-08-12):**
 - The application test/type/build commands used dummy localhost database URLs and example Supabase values; those commands made no database connection. The separate isolated Docker exercise connected only to its temporary local PostgreSQL database and applied migrations there. No production database connection, Etsy request, backup, production migration, or data backfill was performed.

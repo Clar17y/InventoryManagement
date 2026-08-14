@@ -7,7 +7,7 @@ import { calculateFeeAdjustment } from './calculations'
 import { allocateOrderPence } from './calculations'
 import { fingerprintReconciliationInput } from './fingerprint'
 import { groupSalesByReceipt } from './grouping'
-import { parseEtsyStatement } from './statementParser'
+import { parseEtsyStatement, type ParsedEtsyStatement } from './statementParser'
 import { isPaymentFeeValidationEnabled } from './paymentNormalizer'
 import type {
   NormalizedOrderEvidence,
@@ -89,6 +89,8 @@ export interface StatementReconciliationResult extends FeeReconciliationPreview 
 export interface SavedStatementImport {
   id: string
   checksum: string
+  /** Normalized persisted statement month (YYYY-MM). */
+  statementMonth: string
   summary: FeeReconciliationPreview['summary']
 }
 
@@ -130,6 +132,7 @@ interface SalePlan {
   proposal: SaleFeeProposal
   allocation: FeeOrderAllocation
   changed: boolean
+  preserveStatementImportLink: boolean
 }
 
 interface ReconciliationPlan extends FeeReconciliationPreview {
@@ -212,7 +215,7 @@ function proposalChanged(snapshot: SaleFeeSnapshot, proposal: SaleFeeProposal): 
 function unchangedProposal(
   snapshot: SaleFeeSnapshot,
   status: EtsyFeeReconciliationStatus,
-  source: EtsyFeeReconciliationSource,
+  source: EtsyFeeReconciliationSource | null,
 ): SaleFeeProposal {
   return {
     saleId: snapshot.id,
@@ -228,6 +231,247 @@ function unchangedProposal(
     etsyPaymentNetPence: snapshot.etsyPaymentNetPence ?? null,
     status,
     source,
+  }
+}
+
+function isCreditAdjustment(evidence: NormalizedOrderEvidence): boolean {
+  return evidence.statement?.offsiteAdsFee.operation === 'credit_adjustment'
+    || evidence.statement?.vatOnOffsiteAdsFee.operation === 'credit_adjustment'
+}
+
+function hasMixedStatementOperations(evidence: NormalizedOrderEvidence): boolean {
+  if (!evidence.statement) return false
+  const operations = [
+    evidence.statement.offsiteAdsFee.operation,
+    evidence.statement.vatOnOffsiteAdsFee.operation,
+  ]
+  return operations.includes('credit_adjustment') && operations.includes('absolute')
+}
+
+function trustedPriorFailure(
+  snapshots: readonly SaleFeeSnapshot[],
+  statementMonth: string,
+): string | null {
+  if (snapshots.some((snapshot) => snapshot.status !== 'STATEMENT_VERIFIED')) {
+    return 'its prior statement verification is missing'
+  }
+  if (snapshots.some((snapshot) => snapshot.etsyFeeReconciliationSource !== 'ETSY_STATEMENT')) {
+    return 'its prior fee source is not an Etsy statement'
+  }
+  if (snapshots.some((snapshot) => (
+    snapshot.previousOffsiteAdsFeePence === null
+    || snapshot.previousVatOnOffsiteAdsFeePence === null
+  ))) {
+    return 'its prior Offsite fee itemization is incomplete'
+  }
+  if (snapshots.some((snapshot) => !snapshot.etsyStatementImportId || !snapshot.etsyStatementMonth)) {
+    return 'its prior statement month is unavailable'
+  }
+  if (snapshots.some((snapshot) => snapshot.etsyStatementMonth! >= statementMonth)) {
+    return 'the credit statement is not later than its prior statement'
+  }
+  return null
+}
+
+function buildManualStatementGroupPlan(
+  receiptId: string,
+  snapshots: readonly SaleFeeSnapshot[],
+  reason: string,
+): { plans: SalePlan[]; change: FeeOrderChange } {
+  const plans: SalePlan[] = snapshots.map((snapshot) => {
+    const proposal = unchangedProposal(
+      snapshot,
+      'MANUAL_REVIEW',
+      snapshot.etsyFeeReconciliationSource ?? null,
+    )
+    return {
+      snapshot,
+      proposal,
+      allocation: {
+        saleId: snapshot.id,
+        offsiteAdsFeePence: snapshot.previousOffsiteAdsFeePence ?? 0,
+        vatOnOffsiteAdsFeePence: snapshot.previousVatOnOffsiteAdsFeePence ?? 0,
+      },
+      changed: proposalChanged(snapshot, proposal),
+      preserveStatementImportLink: true,
+    }
+  })
+  const oldFeesPence = addPence(snapshots.map((snapshot) => snapshot.etsyFeesPence), 'old fees')
+  const oldNetRevenuePence = addPence(
+    snapshots.map((snapshot) => snapshot.netRevenuePence),
+    'old net revenue',
+  )
+  return {
+    plans,
+    change: {
+      receiptId,
+      saleIds: snapshots.map((snapshot) => snapshot.id),
+      oldStatus: snapshots[0]?.status ?? null,
+      newStatus: 'MANUAL_REVIEW',
+      attributed: snapshots[0]?.offsiteAdsAttributed ?? null,
+      oldFeesPence,
+      newFeesPence: oldFeesPence,
+      feeDeltaPence: 0,
+      oldNetRevenuePence,
+      newNetRevenuePence: oldNetRevenuePence,
+      marginDeltaPence: 0,
+      offsiteAdsFeePence: addPence(
+        plans.map((plan) => plan.allocation.offsiteAdsFeePence),
+        'Offsite Ads fee',
+      ),
+      vatOnOffsiteAdsFeePence: addPence(
+        plans.map((plan) => plan.allocation.vatOnOffsiteAdsFeePence),
+        'VAT on Offsite Ads fee',
+      ),
+      source: snapshots[0]?.etsyFeeReconciliationSource ?? null,
+      outcome: 'manual_review',
+      message: `Order ${receiptId} needs manual review because ${reason}`,
+      allocations: plans.map((plan) => plan.allocation),
+    },
+  }
+}
+
+function buildCreditAdjustmentGroupPlan(
+  receiptId: string,
+  evidence: NormalizedOrderEvidence,
+  snapshots: readonly SaleFeeSnapshot[],
+  statementMonth: string,
+): { plans: SalePlan[]; change: FeeOrderChange } {
+  if (hasMixedStatementOperations(evidence)) {
+    return buildManualStatementGroupPlan(
+      receiptId,
+      snapshots,
+      'the statement mixes current charges with an earlier-period credit',
+    )
+  }
+  const priorFailure = trustedPriorFailure(snapshots, statementMonth)
+  if (priorFailure) return buildManualStatementGroupPlan(receiptId, snapshots, priorFailure)
+
+  const feeCredit = evidence.statement?.offsiteAdsFee.operation === 'credit_adjustment'
+    ? evidence.statement.offsiteAdsFee.creditPence
+    : 0
+  const vatCredit = evidence.statement?.vatOnOffsiteAdsFee.operation === 'credit_adjustment'
+    ? evidence.statement.vatOnOffsiteAdsFee.creditPence
+    : 0
+  const savedFee = addPence(
+    snapshots.map((snapshot) => snapshot.previousOffsiteAdsFeePence!),
+    'saved Offsite Ads fee',
+  )
+  const savedVat = addPence(
+    snapshots.map((snapshot) => snapshot.previousVatOnOffsiteAdsFeePence!),
+    'saved VAT on Offsite Ads fee',
+  )
+  if ((feeCredit > 0 && savedFee === 0) || (vatCredit > 0 && savedVat === 0)) {
+    return buildManualStatementGroupPlan(
+      receiptId,
+      snapshots,
+      'the credit cannot be allocated across its saved itemization',
+    )
+  }
+  if (feeCredit > savedFee) {
+    return buildManualStatementGroupPlan(
+      receiptId,
+      snapshots,
+      'its Offsite fee credit exceeds the saved fee',
+    )
+  }
+  if (vatCredit > savedVat) {
+    return buildManualStatementGroupPlan(
+      receiptId,
+      snapshots,
+      'its Offsite VAT credit exceeds the saved VAT',
+    )
+  }
+  if (savedFee - feeCredit === 0 && savedVat - vatCredit > 0) {
+    return buildManualStatementGroupPlan(
+      receiptId,
+      snapshots,
+      'the credit would leave VAT without an Offsite fee',
+    )
+  }
+
+  const feeCredits = allocateOrderPence(feeCredit, snapshots.map((snapshot) => ({
+    id: snapshot.id,
+    grossRevenuePence: snapshot.previousOffsiteAdsFeePence!,
+  })))
+  const vatCredits = allocateOrderPence(vatCredit, snapshots.map((snapshot) => ({
+    id: snapshot.id,
+    grossRevenuePence: snapshot.previousVatOnOffsiteAdsFeePence!,
+  })))
+  const plans: SalePlan[] = snapshots.map((snapshot) => {
+    const allocatedFeeCredit = feeCredits.get(snapshot.id) ?? 0
+    const allocatedVatCredit = vatCredits.get(snapshot.id) ?? 0
+    const allocation = {
+      saleId: snapshot.id,
+      offsiteAdsFeePence: snapshot.previousOffsiteAdsFeePence! - allocatedFeeCredit,
+      vatOnOffsiteAdsFeePence: snapshot.previousVatOnOffsiteAdsFeePence! - allocatedVatCredit,
+    }
+    const nextFees = addPence(
+      [snapshot.etsyFeesPence, -allocatedFeeCredit, -allocatedVatCredit],
+      `statement fee for ${snapshot.id}`,
+    )
+    const adjustment = calculateFeeAdjustment({
+      etsyFees: snapshot.etsyFeesPence,
+      netRevenue: snapshot.netRevenuePence,
+      margin: snapshot.marginPence,
+    }, nextFees)
+    const proposal: SaleFeeProposal = {
+      saleId: snapshot.id,
+      feeDeltaPence: adjustment.feeDeltaPence,
+      etsyFeesPence: adjustment.etsyFeesPence,
+      netRevenuePence: adjustment.netRevenuePence,
+      marginPence: adjustment.marginPence,
+      offsiteAdsAttributed: true,
+      offsiteAdsFeePence: allocation.offsiteAdsFeePence,
+      vatOnOffsiteAdsFeePence: allocation.vatOnOffsiteAdsFeePence,
+      etsyPaymentGrossPence: snapshot.etsyPaymentGrossPence ?? null,
+      etsyPaymentFeesPence: snapshot.etsyPaymentFeesPence ?? null,
+      etsyPaymentNetPence: snapshot.etsyPaymentNetPence ?? null,
+      status: 'STATEMENT_VERIFIED',
+      source: 'ETSY_STATEMENT',
+    }
+    return {
+      snapshot,
+      proposal,
+      allocation,
+      changed: proposalChanged(snapshot, proposal),
+      preserveStatementImportLink: false,
+    }
+  })
+  const oldFeesPence = addPence(snapshots.map((snapshot) => snapshot.etsyFeesPence), 'old fees')
+  const newFeesPence = addPence(plans.map((plan) => plan.proposal.etsyFeesPence), 'new fees')
+  const oldNetRevenuePence = addPence(
+    snapshots.map((snapshot) => snapshot.netRevenuePence),
+    'old net revenue',
+  )
+  const newNetRevenuePence = addPence(
+    plans.map((plan) => plan.proposal.netRevenuePence),
+    'new net revenue',
+  )
+  const marginDeltaPence = addPence(
+    plans.map((plan, index) => plan.proposal.marginPence - snapshots[index]!.marginPence),
+    'margin delta',
+  )
+  return {
+    plans,
+    change: {
+      receiptId,
+      saleIds: snapshots.map((snapshot) => snapshot.id),
+      oldStatus: snapshots[0]?.status ?? null,
+      newStatus: 'STATEMENT_VERIFIED',
+      attributed: true,
+      oldFeesPence,
+      newFeesPence,
+      feeDeltaPence: newFeesPence - oldFeesPence,
+      oldNetRevenuePence,
+      newNetRevenuePence,
+      marginDeltaPence,
+      offsiteAdsFeePence: savedFee - feeCredit,
+      vatOnOffsiteAdsFeePence: savedVat - vatCredit,
+      source: 'ETSY_STATEMENT',
+      outcome: plans.some((plan) => plan.changed) ? 'changed' : 'unchanged',
+      allocations: plans.map((plan) => plan.allocation),
+    },
   }
 }
 
@@ -264,8 +508,12 @@ function buildStatementGroupPlan(
   receiptId: string,
   evidence: NormalizedOrderEvidence,
   snapshots: readonly SaleFeeSnapshot[],
+  statementMonth: string,
   allowStatementRevision: boolean,
 ): { plans: SalePlan[]; change: FeeOrderChange } {
+  if (isCreditAdjustment(evidence)) {
+    return buildCreditAdjustmentGroupPlan(receiptId, evidence, snapshots, statementMonth)
+  }
   const weightedSales = snapshots.map((snapshot) => ({
     id: snapshot.id,
     grossRevenuePence: snapshot.grossRevenuePence,
@@ -315,6 +563,7 @@ function buildStatementGroupPlan(
         proposal,
         allocation,
         changed: proposalChanged(snapshot, proposal),
+        preserveStatementImportLink: false,
       }
     }
 
@@ -357,6 +606,7 @@ function buildStatementGroupPlan(
       proposal,
       allocation,
       changed: proposalChanged(snapshot, proposal),
+      preserveStatementImportLink: false,
     }
   })
 
@@ -402,9 +652,9 @@ function buildStatementGroupPlan(
 
 async function buildStatementPlan(
   input: StatementReconciliationInput,
+  parsed: ParsedEtsyStatement,
   db: FeeReconciliationRepository,
 ): Promise<ReconciliationPlan> {
-  const parsed = parseEtsyStatement({ csv: input.csv, statementMonth: input.statementMonth })
   const snapshots = await db.listEtsySaleSnapshots()
   const evidence = [...parsed.evidenceByReceipt.values()]
   const summary = createEmptyFeeReconciliationSummary()
@@ -426,6 +676,7 @@ async function buildStatementPlan(
       evidenceItem.receiptId,
       evidenceItem,
       grouped,
+      parsed.statementMonth,
       input.allowStatementRevision === true,
     )
     changes.push(groupPlan.change)
@@ -440,7 +691,9 @@ async function buildStatementPlan(
     }
   }
 
-  const fingerprint = fingerprintReconciliationInput(parsed.evidenceByReceipt, snapshots)
+  const fingerprint = fingerprintReconciliationInput(parsed.evidenceByReceipt, snapshots, {
+    statementMonth: parsed.statementMonth,
+  })
   return {
     fingerprint,
     statementChecksum: parsed.statementChecksum,
@@ -455,7 +708,8 @@ export async function previewStatementReconciliation(
   input: StatementReconciliationInput,
   db: FeeReconciliationRepository,
 ): Promise<FeeReconciliationPreview> {
-  const plan = await buildStatementPlan(input, db)
+  const parsed = parseEtsyStatement({ csv: input.csv, statementMonth: input.statementMonth })
+  const plan = await buildStatementPlan(input, parsed, db)
   return {
     fingerprint: plan.fingerprint,
     statementChecksum: plan.statementChecksum,
@@ -470,6 +724,11 @@ function duplicateStatementResult(
   parsed: ReturnType<typeof parseEtsyStatement>,
   existing: SavedStatementImport,
 ): StatementReconciliationResult {
+  if (existing.statementMonth !== input.statementMonth) {
+    throw new StatementReconciliationConflictError(
+      `This statement file was already imported for ${existing.statementMonth}; it cannot be applied as ${input.statementMonth}`,
+    )
+  }
   return {
     fingerprint: input.fingerprint,
     statementChecksum: parsed.statementChecksum,
@@ -497,7 +756,7 @@ export async function applyStatementReconciliation(
     return duplicateStatementResult(input, parsed, existing)
   }
 
-  const plan = await buildStatementPlan(input, db)
+  const plan = await buildStatementPlan(input, parsed, db)
   if (plan.fingerprint !== input.fingerprint) {
     throw new StatementReconciliationConflictError(
       'Statement preview is stale; reload sale state and preview again before applying',
@@ -513,10 +772,13 @@ export async function applyStatementReconciliation(
         checksum: parsed.statementChecksum,
       })
       for (const salePlan of plan.salePlans) {
+        const statementImportId = salePlan.preserveStatementImportLink
+          ? (salePlan.snapshot.etsyStatementImportId ?? null)
+          : statementImport.id
         await tx.updateSale(
           salePlan.snapshot.id,
           salePlan.proposal,
-          statementImport.id,
+          statementImportId,
           salePlan.snapshot.updatedAt,
         )
       }
@@ -639,6 +901,7 @@ export async function reconcileImportedPaymentEvidence(
           proposal,
           allocation: { saleId: snapshot.id, offsiteAdsFeePence: 0, vatOnOffsiteAdsFeePence: 0 },
           changed: false,
+          preserveStatementImportLink: false,
         })
         continue
       }
@@ -651,6 +914,7 @@ export async function reconcileImportedPaymentEvidence(
           proposal,
           allocation: { saleId: snapshot.id, offsiteAdsFeePence: 0, vatOnOffsiteAdsFeePence: 0 },
           changed: false,
+          preserveStatementImportLink: false,
         })
         continue
       }
@@ -683,6 +947,7 @@ export async function reconcileImportedPaymentEvidence(
         proposal,
         allocation: { saleId: snapshot.id, offsiteAdsFeePence: 0, vatOnOffsiteAdsFeePence: 0 },
         changed: proposalChanged(snapshot, proposal),
+        preserveStatementImportLink: false,
       })
     }
     salePlans.push(...plans)
@@ -749,6 +1014,11 @@ function pounds(value: number | null): number | null {
   return value === null ? null : value / 100
 }
 
+function statementMonthFromDate(value: Date | null): string | null {
+  if (!value) return null
+  return `${value.getUTCFullYear()}-${String(value.getUTCMonth() + 1).padStart(2, '0')}`
+}
+
 function snapshotFromPrisma(row: {
   id: string
   etsyOrderId: string | null
@@ -764,6 +1034,8 @@ function snapshotFromPrisma(row: {
   offsiteAdsAttributed: boolean | null
   etsyFeeReconciliationSource: EtsyFeeReconciliationSource | null
   etsyFeeReconciliationStatus: EtsyFeeReconciliationStatus
+  etsyStatementImportId: string | null
+  etsyStatementImport: { statementMonth: Date } | null
   updatedAt: Date
 }): SaleFeeSnapshot {
   const toPence = (value: { toNumber(): number }): number => Math.round(value.toNumber() * 100)
@@ -781,6 +1053,8 @@ function snapshotFromPrisma(row: {
     etsyPaymentNetPence: row.etsyPaymentNet === null ? null : toPence(row.etsyPaymentNet),
     offsiteAdsAttributed: row.offsiteAdsAttributed,
     etsyFeeReconciliationSource: row.etsyFeeReconciliationSource,
+    etsyStatementImportId: row.etsyStatementImportId,
+    etsyStatementMonth: statementMonthFromDate(row.etsyStatementImport?.statementMonth ?? null),
     status: row.etsyFeeReconciliationStatus,
     updatedAt: row.updatedAt.toISOString(),
   }
@@ -816,6 +1090,8 @@ export function createPrismaFeeReconciliationRepository(prisma: PrismaClient): F
           offsiteAdsAttributed: true,
           etsyFeeReconciliationSource: true,
           etsyFeeReconciliationStatus: true,
+          etsyStatementImportId: true,
+          etsyStatementImport: { select: { statementMonth: true } },
           updatedAt: true,
         },
       })
@@ -827,6 +1103,7 @@ export function createPrismaFeeReconciliationRepository(prisma: PrismaClient): F
         select: {
           id: true,
           checksum: true,
+          statementMonth: true,
           matched: true,
           changed: true,
           unchanged: true,
@@ -843,6 +1120,7 @@ export function createPrismaFeeReconciliationRepository(prisma: PrismaClient): F
       return {
         id: row.id,
         checksum: row.checksum,
+        statementMonth: statementMonthFromDate(row.statementMonth)!,
         summary: {
           matched: row.matched,
           changed: row.changed,

@@ -1,6 +1,10 @@
 import { createHash } from 'node:crypto'
 import * as XLSX from 'xlsx'
-import type { NormalizedOrderEvidence } from './types'
+import type {
+  NormalizedOrderEvidence,
+  StatementAdjustmentEvidence,
+  StatementComponentEvidence,
+} from './types'
 
 const ORDER_ID_PATTERN = /(?<!Pre[- ])\bOrder\s*(?:#|:)\s*([0-9]+)\b/i
 
@@ -41,8 +45,7 @@ interface ReceiptEvidence {
 
 interface NettedReceiptEvidence {
   attributed: boolean
-  offsiteAdsFeePence: number
-  vatOnOffsiteAdsFeePence: number
+  statement: StatementAdjustmentEvidence
 }
 
 /** Normalize only line endings and trailing file whitespace for file identity. */
@@ -205,58 +208,66 @@ function recordDuplicate(
   return next
 }
 
-function netPence(
-  charge: number | null,
+function sumCreditsExactly(
   credits: ReadonlyMap<string, number>,
   receiptId: string,
   kind: string,
 ): number {
-  if (credits.size > 0 && charge === null) {
-    throw new Error(`${kind} credit for order ${receiptId} has no matching charge`)
-  }
-
   const totalCredit = [...credits.values()].reduce((total, credit) => total + BigInt(credit), 0n)
   if (totalCredit > BigInt(Number.MAX_SAFE_INTEGER)) {
     throw new RangeError(`${kind} credit for order ${receiptId} exceeds the safe integer pence range`)
   }
-  if (totalCredit > BigInt(charge ?? 0)) {
+
+  return Number(totalCredit)
+}
+
+function resolveComponentEvidence(
+  charge: number | null,
+  credits: ReadonlyMap<string, number>,
+  receiptId: string,
+  kind: string,
+): StatementComponentEvidence {
+  const creditPence = sumCreditsExactly(credits, receiptId, kind)
+  if (charge === null) {
+    return creditPence === 0
+      ? { operation: 'none', absolutePence: null, creditPence: 0 }
+      : { operation: 'credit_adjustment', absolutePence: null, creditPence }
+  }
+  if (creditPence > charge) {
     throw new Error(`${kind} credit for order ${receiptId} is greater than its charge`)
   }
 
-  const net = (charge ?? 0) - Number(totalCredit)
-  if (!Number.isSafeInteger(net) || net < 0) {
+  const absolutePence = charge - creditPence
+  if (!Number.isSafeInteger(absolutePence) || absolutePence < 0) {
     throw new RangeError(`${kind} for order ${receiptId} exceeds the safe integer pence range`)
   }
-  return net
+  return { operation: 'absolute', absolutePence, creditPence }
 }
 
 function netReceiptEvidence(receipt: ReceiptEvidence, receiptId: string): NettedReceiptEvidence {
-  const offsiteAdsFeePence = netPence(
+  const offsiteAdsFee = resolveComponentEvidence(
     receipt.offsiteAdsFeeChargePence,
     receipt.offsiteAdsFeeCreditsPence,
     receiptId,
     'Offsite Ads fee',
   )
-  const vatOnOffsiteAdsFeePence = netPence(
+  const vatOnOffsiteAdsFee = resolveComponentEvidence(
     receipt.vatOnOffsiteAdsFeeChargePence,
     receipt.vatOnOffsiteAdsFeeCreditsPence,
     receiptId,
     'VAT on Offsite Ads fee',
   )
   if (
-    receipt.vatOnOffsiteAdsFeeCreditsPence.size > 0
-    && receipt.offsiteAdsFeeChargePence === null
+    vatOnOffsiteAdsFee.operation === 'absolute'
+    && vatOnOffsiteAdsFee.absolutePence! > 0
+    && (offsiteAdsFee.operation !== 'absolute' || offsiteAdsFee.absolutePence === 0)
   ) {
-    throw new Error(`VAT on Offsite Ads fee has no matching fee for order ${receiptId}`)
-  }
-  if (vatOnOffsiteAdsFeePence > 0 && offsiteAdsFeePence <= 0) {
     throw new Error(`VAT on Offsite Ads fee has no matching fee for order ${receiptId}`)
   }
 
   return {
-    attributed: receipt.offsiteAdsFeeChargePence !== null,
-    offsiteAdsFeePence,
-    vatOnOffsiteAdsFeePence,
+    attributed: offsiteAdsFee.operation !== 'none' || vatOnOffsiteAdsFee.operation !== 'none',
+    statement: { offsiteAdsFee, vatOnOffsiteAdsFee },
   }
 }
 
@@ -290,10 +301,7 @@ export function parseEtsyStatement(input: ParseEtsyStatementInput): ParsedEtsySt
       vatOnOffsiteAdsFeeChargePence: null,
       vatOnOffsiteAdsFeeCreditsPence: new Map<string, number>(),
     }
-    // An Offsite Ads fee row is positive attribution evidence in its own
-    // right. Sale/payment rows remain the only basis for explicit
-    // non-attribution, so refunds and adjustments do not provide coverage.
-    existing.covered ||= isCoverageRow || (isOffsiteRow && !isVatRow)
+    existing.covered ||= isCoverageRow
 
     if (isVatRow) {
       const vat = selectMoneyEvidence(row, receiptId, 'VAT on Offsite Ads fee', combinedText)
@@ -306,9 +314,11 @@ export function parseEtsyStatement(input: ParseEtsyStatementInput): ParsedEtsySt
         )
       } else {
         existing.vatOnOffsiteAdsFeeCreditsPence.set(row.sourceKey, vat.pence)
+        existing.covered = true
       }
     } else if (isOffsiteRow) {
       const fee = selectMoneyEvidence(row, receiptId, 'Offsite Ads fee', combinedText)
+      existing.covered = true
       if (fee.side === 'charge') {
         existing.offsiteAdsFeeChargePence = recordDuplicate(
           existing.offsiteAdsFeeChargePence,
@@ -336,16 +346,23 @@ export function parseEtsyStatement(input: ParseEtsyStatementInput): ParsedEtsySt
   const evidenceByReceipt = new Map<string, NormalizedOrderEvidence>()
   for (const receiptId of coveredReceiptIds) {
     const receipt = nettedReceipts.get(receiptId)!
+    const offsiteAdsFeePence = receipt.statement.offsiteAdsFee.operation === 'absolute'
+      ? receipt.statement.offsiteAdsFee.absolutePence
+      : null
+    const vatOnOffsiteAdsFeePence = receipt.statement.vatOnOffsiteAdsFee.operation === 'absolute'
+      ? receipt.statement.vatOnOffsiteAdsFee.absolutePence
+      : null
     evidenceByReceipt.set(receiptId, {
       receiptId,
       currency: 'GBP',
       attributed: receipt.attributed,
-      offsiteAdsFeePence: receipt.attributed ? receipt.offsiteAdsFeePence : 0,
-      vatOnOffsiteAdsFeePence: receipt.attributed ? receipt.vatOnOffsiteAdsFeePence : 0,
+      offsiteAdsFeePence: receipt.attributed ? offsiteAdsFeePence : 0,
+      vatOnOffsiteAdsFeePence: receipt.attributed ? vatOnOffsiteAdsFeePence : 0,
       paymentGrossPence: null,
       paymentFeesPence: null,
       paymentNetPence: null,
       source: 'ETSY_STATEMENT',
+      statement: receipt.statement,
     })
   }
 

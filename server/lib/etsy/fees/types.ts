@@ -21,8 +21,27 @@ export interface SaleFeeSnapshot {
   offsiteAdsAttributed?: boolean | null
   /** Persisted evidence source, omitted by older in-memory snapshots. */
   etsyFeeReconciliationSource?: EtsyFeeReconciliationSource | null
+  /** Persisted statement provenance, omitted by older in-memory snapshots. */
+  etsyStatementImportId?: string | null
+  /** Normalized statement month for the persisted statement provenance. */
+  etsyStatementMonth?: string | null
   status: EtsyFeeReconciliationStatus
   updatedAt: string
+}
+
+export type StatementComponentOperation = 'absolute' | 'credit_adjustment' | 'none'
+
+export interface StatementComponentEvidence {
+  operation: StatementComponentOperation
+  /** Netted value for absolute evidence; null for adjustments/absence. */
+  absolutePence: number | null
+  /** Positive total of exact, deduplicated statement credit rows. */
+  creditPence: number
+}
+
+export interface StatementAdjustmentEvidence {
+  offsiteAdsFee: StatementComponentEvidence
+  vatOnOffsiteAdsFee: StatementComponentEvidence
 }
 
 /** Normalized evidence from an Etsy statement or Payment API response. */
@@ -36,6 +55,8 @@ export interface NormalizedOrderEvidence {
   paymentFeesPence: number | null
   paymentNetPence: number | null
   source: EtsyFeeReconciliationSource
+  /** Present only for component-level evidence parsed from an Etsy statement. */
+  statement?: StatementAdjustmentEvidence
 }
 
 /** Proposed persisted values for a sale after fee reconciliation. */
@@ -52,5 +73,5 @@ export interface SaleFeeProposal {
   etsyPaymentFeesPence: number | null
   etsyPaymentNetPence: number | null
   status: EtsyFeeReconciliationStatus
-  source: EtsyFeeReconciliationSource
+  source: EtsyFeeReconciliationSource | null
 }

@@ -266,6 +266,140 @@ describe('Etsy fee reconciliation routes', () => {
     expect((started.deps.db as typeof started.deps.db & { writeCount: number }).writeCount).toBe(writesAfterFirst)
   })
 
+  it('isolates an unsafe credit receipt while applying the rest of the statement', async () => {
+    const csv = `Date,Type,Description,Info,Currency,Amount,Fees & Taxes,Net
+2 Dec 2023,Marketing,Credit for Offsite Ads fee,Order #3102744549,GBP,0,1.53,1.53
+2 Dec 2023,Tax,Credit for VAT on Offsite Ads fee,Order #3102744549,GBP,0,0.31,0.31
+3 Dec 2023,Sale,Payment for Order #3102744550,,GBP,50.00,-5.00,45.00
+3 Dec 2023,Marketing,Fee for sale through Offsite Ads,Order #3102744550,GBP,0,-5.00,-5.00
+3 Dec 2023,Tax,VAT on Offsite Ads fee,Order #3102744550,GBP,0,-1.00,-1.00`
+    const db = createFeeDbFixture({
+      sales: [
+        sale({
+          id: 'unsafe-sale',
+          etsyOrderId: '3102744549',
+          etsyFeesPence: 1200,
+          netRevenuePence: 4829,
+          marginPence: 3000,
+          previousOffsiteAdsFeePence: 723,
+          previousVatOnOffsiteAdsFeePence: 145,
+          offsiteAdsAttributed: true,
+          etsyFeeReconciliationSource: null,
+          etsyStatementImportId: 'november-import',
+          etsyStatementMonth: '2023-11',
+          status: 'STATEMENT_VERIFIED',
+        }),
+        sale({ id: 'ordinary-sale', etsyOrderId: '3102744550' }),
+      ],
+    })
+    const started = await startRouter({ ...dependencies(), db })
+    activeServer = started.server
+    const statement = { statementMonth: '2023-12', fileName: 'statement.csv', csv }
+
+    const previewResponse = await fetch(`${started.baseUrl}/statements/preview`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(statement),
+    })
+    const preview = await previewResponse.json() as {
+      fingerprint: string
+      changes: Array<{ receiptId: string; outcome: string }>
+    }
+
+    expect(previewResponse.status).toBe(200)
+    expect(preview.changes).toEqual(expect.arrayContaining([
+      expect.objectContaining({ receiptId: '3102744549', outcome: 'manual_review' }),
+      expect.objectContaining({ receiptId: '3102744550', outcome: 'changed' }),
+    ]))
+
+    const applyResponse = await fetch(`${started.baseUrl}/statements/apply`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ ...statement, fingerprint: preview.fingerprint }),
+    })
+
+    expect(applyResponse.status).toBe(200)
+    expect(db.sales[0]).toMatchObject({
+      etsyFeesPence: 1200,
+      netRevenuePence: 4829,
+      marginPence: 3000,
+      etsyStatementImportId: 'november-import',
+      etsyStatementMonth: '2023-11',
+      status: 'MANUAL_REVIEW',
+    })
+    expect(db.sales[1]).toMatchObject({
+      previousOffsiteAdsFeePence: 500,
+      previousVatOnOffsiteAdsFeePence: 100,
+      status: 'STATEMENT_VERIFIED',
+      etsyStatementMonth: '2023-12',
+    })
+  })
+
+  it.each([
+    ['2023-12', '2023-11'],
+    ['2023-11', '2023-12'],
+  ])('rejects applying a %s preview as %s without writing', async (previewMonth, applyMonth) => {
+    const db = createFeeDbFixture({
+      sales: [sale({ id: 's1', etsyOrderId: '4137418052' })],
+    })
+    const started = await startRouter({ ...dependencies(), db })
+    activeServer = started.server
+    const previewStatement = {
+      statementMonth: previewMonth,
+      fileName: 'statement.csv',
+      csv: attributedCsv,
+    }
+    const previewResponse = await fetch(`${started.baseUrl}/statements/preview`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(previewStatement),
+    })
+    const preview = await previewResponse.json() as { fingerprint: string }
+
+    const applyResponse = await fetch(`${started.baseUrl}/statements/apply`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        ...previewStatement,
+        statementMonth: applyMonth,
+        fingerprint: preview.fingerprint,
+      }),
+    })
+
+    expect(applyResponse.status).toBe(409)
+    expect(db.writeCount).toBe(0)
+  })
+
+  it('rejects a duplicate statement checksum submitted under an earlier month', async () => {
+    const db = createFeeDbFixture({
+      sales: [sale({ id: 's1', etsyOrderId: '4137418052' })],
+    })
+    const started = await startRouter({ ...dependencies(), db })
+    activeServer = started.server
+    const statement = { statementMonth: '2023-12', fileName: 'statement.csv', csv: attributedCsv }
+    const previewResponse = await fetch(`${started.baseUrl}/statements/preview`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(statement),
+    })
+    const preview = await previewResponse.json() as { fingerprint: string }
+    await fetch(`${started.baseUrl}/statements/apply`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ ...statement, fingerprint: preview.fingerprint }),
+    })
+    const writesAfterFirst = db.writeCount
+
+    const conflict = await fetch(`${started.baseUrl}/statements/apply`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ ...statement, statementMonth: '2023-11', fingerprint: preview.fingerprint }),
+    })
+
+    expect(conflict.status).toBe(409)
+    expect(db.writeCount).toBe(writesAfterFirst)
+  })
+
   it('keeps Payment API failures per-order and leaves the gate disabled', async () => {
     const deps = dependencies()
     deps.paymentClient = {

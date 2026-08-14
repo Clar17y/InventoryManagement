@@ -54,3 +54,27 @@ Commit subject: `feat: resolve Etsy Sales manually`
 - No database, Etsy account, statement upload, migration, or external write was used.
 - Existing repository test warnings remain (React `act(...)` warnings and the two pre-existing `SalesPage` hook-dependency warnings); no new ESLint errors were introduced.
 - No material unresolved implementation concern remains.
+
+## Task 6 review fix round 1 evidence
+
+1. RED was observed before the fixes with the focused modal/page command below: the new focus test failed because the modal did not move focus, and the new 21+ row test failed because the refreshed first page discarded the expanded Sale (`2 failed, 48 passed`).
+
+   `$env:VITE_SUPABASE_URL='http://localhost'; $env:VITE_SUPABASE_ANON_KEY='test-anon-key'; rtk npm run test:client:run -- src/__tests__/components/EtsySaleResolutionModal.test.tsx src/__tests__/pages/Sales.test.tsx`
+
+2. GREEN was observed after the fixes: the modal test now covers initial focus, Tab/Shift+Tab containment, and opener restoration; the Sales test loads 20 rows, loads row 21, expands it, resolves it, and verifies the expanded detail remains after a first-page refresh. Focused modal/page tests pass 2 files / 50 tests.
+
+   `$env:VITE_SUPABASE_URL='http://localhost'; $env:VITE_SUPABASE_ANON_KEY='test-anon-key'; rtk npm run test:client:run -- src/__tests__/components/EtsySaleResolutionModal.test.tsx src/__tests__/pages/Sales.test.tsx` — PASS, 2 files / 50 tests.
+
+3. `SalesPage` retains Task 5 generation guards and active filter values. Resolution refreshes merge the refreshed first page with loaded pages, then replace or remove the resolved row based on an explicit date/search/verification-status match; a stale generation cannot apply the detail update. Confirm still awaits the refresh callback before modal close, and modal Preview/Apply loading guards are unchanged.
+
+4. `$env:VITE_SUPABASE_URL='http://localhost'; $env:VITE_SUPABASE_ANON_KEY='test-anon-key'; rtk npm run test:client:run` — PASS, 38 files / 578 tests.
+
+5. `rtk npx tsc -p tsconfig.json --noEmit` — PASS, no TypeScript errors.
+
+6. `rtk npm run build` — PASS, Vite transformed 1,195 modules and produced the production bundle.
+
+7. `rtk npx eslint -- src/features/sales/pages/SalesPage.tsx src/features/sales/components/EtsySaleResolutionModal.tsx src/__tests__/pages/Sales.test.tsx src/__tests__/components/EtsySaleResolutionModal.test.tsx` — PASS, 0 errors; 2 existing `SalesPage` exhaustive-deps warnings.
+
+8. `rtk git diff --check` — PASS.
+
+9. Deferred Minor finding (pending preview deferred-response test) was not broadened in this fix round; the existing form-generation guard remains intact.

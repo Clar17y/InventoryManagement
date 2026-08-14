@@ -195,6 +195,27 @@ describe('EtsySaleResolutionModal', () => {
     mockApply.mockResolvedValue({ ...preview, applied: true })
   })
 
+  it('focuses the modal, traps keyboard focus, and restores the trigger focus on close', async () => {
+    const user = userEvent.setup()
+    const trigger = document.createElement('button')
+    trigger.type = 'button'
+    trigger.textContent = 'Open resolution'
+    document.body.append(trigger)
+    trigger.focus()
+
+    const { unmount } = renderModal()
+
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Close' })))
+    await user.tab({ shift: true })
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Cancel' }))
+    await user.tab()
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Close' }))
+
+    unmount()
+    expect(trigger).toHaveFocus()
+    trigger.remove()
+  })
+
   it('offers all three guarded resolution choices', () => {
     renderModal()
 

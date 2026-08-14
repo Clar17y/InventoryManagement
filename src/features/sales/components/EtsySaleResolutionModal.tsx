@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { EtsySaleResolutionPreview, EtsySaleResolutionPreviewBody, Sale } from '../../../lib/api'
 import { sales } from '../../../lib/api'
 import { ApiError } from '../../../lib/api/request'
@@ -12,6 +12,15 @@ export interface EtsySaleResolutionModalProps {
 
 type ResolutionType = 'reclassify' | 'correct_receipt_id' | 'manual_verify'
 type Resolution = EtsySaleResolutionPreviewBody['resolution']
+
+const FOCUSABLE_SELECTOR = [
+  'button:not([disabled])',
+  'input:not([disabled])',
+  'select:not([disabled])',
+  'textarea:not([disabled])',
+  'a[href]',
+  '[tabindex]:not([tabindex="-1"])',
+].join(', ')
 
 /** Convert an exact pounds-and-pence input to safe integer pence. */
 function poundsInputToPence(value: string): number | null {
@@ -121,6 +130,48 @@ export default function EtsySaleResolutionModal({ sale, onClose, onResolved }: E
   const [applyLoading, setApplyLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const formGeneration = useRef(0)
+  const modalRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    const modal = modalRef.current
+    const previousActiveElement = document.activeElement instanceof HTMLElement
+      ? document.activeElement
+      : null
+
+    modal?.querySelector<HTMLElement>('[data-modal-initial-focus]')?.focus()
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== 'Tab' || !modal) return
+
+      const focusableElements = Array.from(modal.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR))
+      if (focusableElements.length === 0) {
+        event.preventDefault()
+        modal.focus()
+        return
+      }
+
+      const first = focusableElements[0]
+      const last = focusableElements[focusableElements.length - 1]
+      if (!first || !last) return
+
+      if (!modal.contains(document.activeElement)) {
+        event.preventDefault()
+        ;(event.shiftKey ? last : first).focus()
+      } else if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault()
+        last.focus()
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault()
+        first.focus()
+      }
+    }
+
+    document.addEventListener('keydown', handleKeyDown)
+    return () => {
+      document.removeEventListener('keydown', handleKeyDown)
+      if (previousActiveElement?.isConnected) previousActiveElement.focus()
+    }
+  }, [])
 
   const invalidatePreview = () => {
     formGeneration.current += 1
@@ -238,14 +289,14 @@ export default function EtsySaleResolutionModal({ sale, onClose, onResolved }: E
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" role="dialog" aria-modal="true" aria-labelledby="etsy-sale-resolution-title">
+    <div ref={modalRef} className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" role="dialog" aria-modal="true" aria-labelledby="etsy-sale-resolution-title" tabIndex={-1}>
       <div className="max-h-[90vh] w-full max-w-3xl overflow-y-auto rounded-xl bg-white p-4 shadow-xl sm:p-6">
         <div className="flex items-start justify-between gap-4">
           <div>
             <h2 id="etsy-sale-resolution-title" className="text-lg font-semibold text-gray-900">Resolve Etsy sale</h2>
             <p className="mt-1 text-sm text-gray-600">Preview the complete receipt group before saving any changes.</p>
           </div>
-          <button type="button" className="btn-secondary" onClick={onClose} disabled={previewLoading || applyLoading}>Close</button>
+          <button type="button" className="btn-secondary" onClick={onClose} disabled={previewLoading || applyLoading} data-modal-initial-focus>Close</button>
         </div>
 
         {error && <div role="alert" className="alert-danger mt-4">{error}</div>}

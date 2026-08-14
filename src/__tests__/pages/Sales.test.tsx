@@ -561,6 +561,41 @@ describe('Sales', () => {
       expect(mockSalesSummary.mock.calls[mockSalesSummary.mock.calls.length - 1]?.[0]).toEqual(expect.objectContaining({ verificationStatus: 'PENDING' }));
       expect(screen.getByText('Etsy fee verification')).toBeInTheDocument();
     });
+
+    it('preserves an expanded loaded sale beyond the refreshed first page', async () => {
+      const user = userEvent.setup();
+      const firstPage = Array.from({ length: 20 }, (_, index) => saleFor(`sale-${index + 1}`, `Sale ${index + 1}`, 35));
+      const loadedSale = saleWithFeeEvidence({
+        id: 'sale-21',
+        lines: [{
+          ...sampleSales[0].lines[0],
+          hamper: { ...sampleSales[0].lines[0].hamper, name: 'Sale 21' },
+        }],
+      });
+      const refreshedSale = { ...loadedSale, margin: 12 };
+
+      mockSalesList.mockImplementation(async (params) => {
+        if (params?.offset === 20) return { sales: [loadedSale], total: 21 };
+        return { sales: firstPage, total: 21 };
+      });
+      mockSalesGet.mockResolvedValue(refreshedSale as any);
+      render(<Sales />);
+
+      await waitFor(() => expect(screen.getByText('Sale 1 ×1')).toBeInTheDocument());
+      await user.click(screen.getByRole('button', { name: 'Load More (20 of 21)' }));
+      await waitFor(() => expect(screen.getByText('Sale 21 ×1')).toBeInTheDocument());
+      await user.click(screen.getByText('Sale 21 ×1'));
+      await user.click(screen.getByRole('button', { name: 'Resolve Etsy sale' }));
+      await user.click(screen.getByRole('radio', { name: 'This was not an Etsy sale' }));
+      await user.click(screen.getByRole('button', { name: 'Preview resolution' }));
+      await screen.findByText('Preview ready');
+      await user.click(screen.getByRole('button', { name: 'Confirm resolution' }));
+
+      await waitFor(() => expect(mockSalesGet).toHaveBeenCalledWith('sale-21'));
+      expect(screen.getByText('Sale 21 ×1')).toBeInTheDocument();
+      expect(screen.getByText('Etsy fee verification')).toBeInTheDocument();
+      expect(screen.getByText('Net Margin')).toBeInTheDocument();
+    });
   });
 
   describe('summary toggle', () => {

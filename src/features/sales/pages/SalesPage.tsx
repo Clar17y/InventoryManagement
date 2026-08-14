@@ -23,6 +23,49 @@ import type { LotOverride, SaleLineInput } from '../types'
 
 type ViewMode = 'list' | 'record'
 
+const NEEDS_VERIFICATION_STATUSES = ['PENDING', 'PAYMENT_SYNCED', 'MANUAL_REVIEW'] as const
+
+function saleMatchesFilters(
+  sale: Sale,
+  filters: {
+    startDate: string
+    endDate: string
+    search: string
+    verificationStatus: SalesVerificationFilter | ''
+  },
+) {
+  if (filters.startDate) {
+    const start = new Date(`${filters.startDate}T00:00:00`).getTime()
+    if (new Date(sale.saleDate).getTime() < start) return false
+  }
+  if (filters.endDate) {
+    const end = new Date(`${filters.endDate}T23:59:59.999`).getTime()
+    if (new Date(sale.saleDate).getTime() > end) return false
+  }
+
+  if (filters.search.trim()) {
+    const searchTerm = filters.search.trim().toLowerCase()
+    const searchableText = [
+      sale.notes,
+      sale.etsyOrderId,
+      ...sale.lines.flatMap((line) => [line.description, line.hamper?.name]),
+    ]
+      .filter((value): value is string => typeof value === 'string')
+      .join(' ')
+      .toLowerCase()
+    if (!searchableText.includes(searchTerm)) return false
+  }
+
+  if (filters.verificationStatus) {
+    const statusMatches = filters.verificationStatus === 'needs_verification'
+      ? NEEDS_VERIFICATION_STATUSES.includes(sale.etsyFeeReconciliationStatus as typeof NEEDS_VERIFICATION_STATUSES[number])
+      : sale.etsyFeeReconciliationStatus === filters.verificationStatus
+    if (!statusMatches) return false
+  }
+
+  return true
+}
+
 export default function Sales() {
   const [saleList, setSaleList] = useState<Sale[]>([])
   const [hamperList, setHamperList] = useState<Hamper[]>([])
@@ -76,7 +119,7 @@ export default function Sales() {
   const [lotsLoading, setLotsLoading] = useState(false)
   const [overrides, setOverrides] = useState<Record<string, LotOverride[]>>({})
 
-  const loadData = async (isInitialLoad = false) => {
+  const loadData = async (isInitialLoad = false, preserveLoadedPages = false): Promise<boolean> => {
     const requestGeneration = ++dataRequestGeneration.current
     setLoadingMore(false)
 
@@ -111,17 +154,25 @@ export default function Sales() {
           verificationStatus: verificationStatus || undefined,
         }),
       ])
-      if (requestGeneration !== dataRequestGeneration.current) return
+      if (requestGeneration !== dataRequestGeneration.current) return false
 
-      setSaleList(salesData.sales)
+      setSaleList((currentSales) => {
+        if (!preserveLoadedPages) return salesData.sales
+
+        const refreshedIds = new Set(salesData.sales.map((sale) => sale.id))
+        const retainedPages = currentSales.filter((sale) => !refreshedIds.has(sale.id))
+        return [...salesData.sales, ...retainedPages]
+      })
       setTotalSales(salesData.total)
       setHamperList(hampersData)
       setSummary(summaryData)
       setError(null)
+      return true
     } catch (err) {
-      if (requestGeneration !== dataRequestGeneration.current) return
+      if (requestGeneration !== dataRequestGeneration.current) return false
 
       setError(err instanceof Error ? err.message : 'Failed to load data')
+      return false
     } finally {
       if (requestGeneration === dataRequestGeneration.current) {
         setLoading(false)
@@ -408,18 +459,33 @@ export default function Sales() {
   }
 
   const handleResolutionResolved = async (saleId: string) => {
-    await Promise.all([
-      loadData(),
+    const [dataRefreshed] = await Promise.all([
+      loadData(false, true),
       etsy.getFeeReconciliationSummary(),
     ])
+    if (!dataRefreshed) return
+
+    const refreshGeneration = dataRequestGeneration.current
     const refreshedSale = await sales.get(saleId)
+    if (refreshGeneration !== dataRequestGeneration.current) return
+
+    const matchesActiveFilters = saleMatchesFilters(refreshedSale, {
+      startDate,
+      endDate,
+      search: debouncedSearchQuery,
+      verificationStatus,
+    })
     setSaleList((currentSales) => {
+      if (!matchesActiveFilters) {
+        return currentSales.filter((currentSale) => currentSale.id !== refreshedSale.id)
+      }
+
       if (!currentSales.some((currentSale) => currentSale.id === refreshedSale.id)) {
-        if (expandedId === saleId) setExpandedId(null)
-        return currentSales
+        return expandedId === saleId ? [...currentSales, refreshedSale] : currentSales
       }
       return currentSales.map((currentSale) => currentSale.id === refreshedSale.id ? refreshedSale : currentSale)
     })
+    if (!matchesActiveFilters && expandedId === saleId) setExpandedId(null)
   }
 
   if (loading && saleList.length === 0) {

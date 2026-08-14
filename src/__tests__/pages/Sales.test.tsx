@@ -211,6 +211,77 @@ describe('Sales', () => {
         expect(screen.getByText('No sales recorded yet')).toBeInTheDocument();
       });
     });
+
+    it('shows every verification status filter option', async () => {
+      render(<Sales />);
+
+      const filter = await screen.findByLabelText('Verification status');
+      expect(filter).toHaveValue('');
+      expect(screen.getByRole('option', { name: 'All statuses' })).toBeInTheDocument();
+      expect(screen.getByRole('option', { name: 'Not applicable' })).toBeInTheDocument();
+      expect(screen.getByRole('option', { name: 'Pending' })).toBeInTheDocument();
+      expect(screen.getByRole('option', { name: 'Payment synced' })).toBeInTheDocument();
+      expect(screen.getByRole('option', { name: 'Statement verified' })).toBeInTheDocument();
+      expect(screen.getByRole('option', { name: 'Manually verified' })).toBeInTheDocument();
+      expect(screen.getByRole('option', { name: 'Manual review' })).toBeInTheDocument();
+      expect(screen.getByRole('option', { name: 'Needs verification' })).toBeInTheDocument();
+    });
+
+    it('passes an exact Pending filter to both list and summary requests', async () => {
+      const user = userEvent.setup();
+      render(<Sales />);
+      const filter = await screen.findByLabelText('Verification status');
+      vi.clearAllMocks();
+
+      await user.selectOptions(filter, 'PENDING');
+
+      await waitFor(() => {
+        expect(mockSalesList).toHaveBeenCalledWith(expect.objectContaining({
+          limit: 20,
+          offset: 0,
+          verificationStatus: 'PENDING',
+        }));
+        expect(mockSalesSummary).toHaveBeenCalledWith(expect.objectContaining({
+          verificationStatus: 'PENDING',
+        }));
+      });
+    });
+
+    it('passes the combined Needs verification filter consistently to list and summary', async () => {
+      const user = userEvent.setup();
+      render(<Sales />);
+      const filter = await screen.findByLabelText('Verification status');
+      vi.clearAllMocks();
+
+      await user.selectOptions(filter, 'needs_verification');
+
+      await waitFor(() => {
+        expect(mockSalesList).toHaveBeenCalledWith(expect.objectContaining({ verificationStatus: 'needs_verification' }));
+        expect(mockSalesSummary).toHaveBeenCalledWith(expect.objectContaining({ verificationStatus: 'needs_verification' }));
+      });
+      const listParams = mockSalesList.mock.calls[mockSalesList.mock.calls.length - 1]?.[0];
+      const summaryParams = mockSalesSummary.mock.calls[mockSalesSummary.mock.calls.length - 1]?.[0];
+      expect(listParams?.verificationStatus).toBe(summaryParams?.verificationStatus);
+    });
+
+    it('preserves the verification filter while another filter reloads the data', async () => {
+      const user = userEvent.setup();
+      render(<Sales />);
+      const filter = await screen.findByLabelText('Verification status');
+      await user.selectOptions(filter, 'PENDING');
+      await waitFor(() => expect(mockSalesSummary).toHaveBeenCalledWith(expect.objectContaining({ verificationStatus: 'PENDING' })));
+
+      const search = screen.getByPlaceholderText('Search sales...');
+      await user.type(search, 'gift');
+
+      await waitFor(() => {
+        expect(mockSalesSummary).toHaveBeenCalledWith(expect.objectContaining({
+          search: 'gift',
+          verificationStatus: 'PENDING',
+        }));
+      }, { timeout: 2000 });
+      expect(filter).toHaveValue('PENDING');
+    });
   });
 
   describe('sale expansion', () => {

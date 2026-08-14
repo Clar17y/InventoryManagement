@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { EtsyPayment } from '../../lib/etsy/types'
 import type { SaleFeeSnapshot } from '../../lib/etsy/fees/types'
 import { createEtsyFeeRouter, type EtsyFeeRouterDependencies } from '../../features/etsy/feeRouter'
+import { createPrismaFeeReconciliationRepository } from '../../lib/etsy/fees/reconciliationService'
 import { attributedCsv, createFeeDbFixture, sale } from './feeTestHelpers'
 
 const paymentFixture: EtsyPayment = {
@@ -476,5 +477,29 @@ describe('Etsy fee reconciliation routes', () => {
     })
     expect(countEtsyFeeReconciliationStatuses).toHaveBeenCalledOnce()
     expect(listEtsySaleSnapshots).not.toHaveBeenCalled()
+  })
+
+  it('counts Etsy statuses only and includes manually verified sales', async () => {
+    const groupBy = vi.fn(async () => ([
+      { etsyFeeReconciliationStatus: 'MANUALLY_VERIFIED' as const, _count: { _all: 4 } },
+    ]))
+    const db = createPrismaFeeReconciliationRepository({ sale: { groupBy } } as never)
+    const started = await startRouter({
+      ...dependencies(),
+      db,
+      summary: undefined,
+    })
+    activeServer = started.server
+
+    const response = await fetch(`${started.baseUrl}/reconciliation-summary`)
+    const body = await response.json() as { counts: Record<string, number> }
+
+    expect(response.status).toBe(200)
+    expect(body.counts.MANUALLY_VERIFIED).toBe(4)
+    expect(groupBy).toHaveBeenCalledWith({
+      where: { saleChannel: 'etsy' },
+      by: ['etsyFeeReconciliationStatus'],
+      _count: { _all: true },
+    })
   })
 })

@@ -13,6 +13,9 @@ import {
   type SalesPreviewBody,
   type SalesSummaryResponse,
 } from '#contracts/routes/sales'
+import type { SalesVerificationFilter as ContractSalesVerificationFilter } from '#contracts/routes/sales'
+
+export type SalesVerificationFilter = ContractSalesVerificationFilter
 
 export type SaleChannel = ContractSaleChannel
 
@@ -32,13 +35,21 @@ export type MarginAnalytics = SalesMarginAnalyticsResponse
 export type SalesSummary = SalesSummaryResponse
 
 export const sales = {
-  list: (params?: { limit?: number; offset?: number; startDate?: string; endDate?: string; search?: string }) => {
+  list: (params?: {
+    limit?: number
+    offset?: number
+    startDate?: string
+    endDate?: string
+    search?: string
+    verificationStatus?: SalesVerificationFilter
+  }) => {
     const query = new URLSearchParams()
     if (params?.limit) query.set('limit', String(params.limit))
     if (params?.offset) query.set('offset', String(params.offset))
     if (params?.startDate) query.set('startDate', params.startDate)
     if (params?.endDate) query.set('endDate', params.endDate)
     if (params?.search) query.set('search', params.search)
+    if (params?.verificationStatus) query.set('verificationStatus', params.verificationStatus)
     return requestWithSchema(`/sales?${query.toString()}`, salesListResponseSchema)
   },
   get: (id: string) => requestWithSchema(`/sales/${id}`, saleResponseSchema),
@@ -52,11 +63,17 @@ export const sales = {
       method: 'POST',
       body: JSON.stringify(data),
     }),
-  summary: (params?: { startDate?: string; endDate?: string; search?: string }) => {
+  summary: (params?: {
+    startDate?: string
+    endDate?: string
+    search?: string
+    verificationStatus?: SalesVerificationFilter
+  }) => {
     const query = new URLSearchParams()
     if (params?.startDate) query.set('startDate', params.startDate)
     if (params?.endDate) query.set('endDate', params.endDate)
     if (params?.search) query.set('search', params.search)
+    if (params?.verificationStatus) query.set('verificationStatus', params.verificationStatus)
     return requestWithSchema(`/sales/summary?${query.toString()}`, salesSummaryResponseSchema)
   },
   analytics: (days = 30) =>

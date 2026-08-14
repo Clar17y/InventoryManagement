@@ -14,6 +14,7 @@ import {
   saleIdParamSchema,
   salesCreateBodySchema,
   salesPreviewBodySchema,
+  salesVerificationFilterSchema,
 } from '#contracts/routes/sales'
 import {
   applyEtsySaleResolution,
@@ -446,9 +447,12 @@ router.post('/', async (req, res) => {
 // GET all sales
 router.get('/', async (req, res) => {
   try {
-    const { limit = '50', offset = '0', startDate, endDate, search } = req.query
+    const { limit = '50', offset = '0', startDate, endDate, search, verificationStatus } = req.query
+    const parsedVerificationStatus = verificationStatus === undefined
+      ? undefined
+      : salesVerificationFilterSchema.parse(verificationStatus)
 
-    const where = buildSalesWhereClause({ startDate, endDate, search })
+    const where = buildSalesWhereClause({ startDate, endDate, search, verificationStatus: parsedVerificationStatus })
 
     const [sales, total] = await Promise.all([
       prisma.sale.findMany({
@@ -476,6 +480,9 @@ router.get('/', async (req, res) => {
 
     res.json({ sales, total })
   } catch (error) {
+    if (error instanceof z.ZodError) {
+      return res.status(400).json({ error: 'Validation failed', details: error.errors })
+    }
     console.error('Error fetching sales:', error)
     res.status(500).json({ error: 'Failed to fetch sales' })
   }
@@ -484,9 +491,25 @@ router.get('/', async (req, res) => {
 // GET sales summary (like expenses summary)
 router.get('/summary', async (req, res) => {
   try {
-    const { startDate, endDate, search } = req.query
+    const { startDate, endDate, search, verificationStatus } = req.query
+    const parsedVerificationStatus = verificationStatus === undefined
+      ? undefined
+      : salesVerificationFilterSchema.parse(verificationStatus)
 
-    const where = buildSalesWhereClause({ startDate, endDate, search })
+    const where = buildSalesWhereClause({ startDate, endDate, search, verificationStatus: parsedVerificationStatus })
+    const unverifiedWhere = {
+      ...where,
+      saleChannel: 'etsy' as const,
+    }
+    if (where.etsyFeeReconciliationStatus === undefined) {
+      unverifiedWhere.etsyFeeReconciliationStatus = { not: 'STATEMENT_VERIFIED' }
+    } else {
+      delete unverifiedWhere.etsyFeeReconciliationStatus
+      unverifiedWhere.AND = [
+        { etsyFeeReconciliationStatus: where.etsyFeeReconciliationStatus },
+        { etsyFeeReconciliationStatus: { not: 'STATEMENT_VERIFIED' } },
+      ]
+    }
 
     const [sales, unverifiedEtsySales] = await Promise.all([
       prisma.sale.findMany({
@@ -498,11 +521,7 @@ router.get('/summary', async (req, res) => {
         },
       }),
       prisma.sale.count({
-        where: {
-          ...where,
-          saleChannel: 'etsy',
-          etsyFeeReconciliationStatus: { not: 'STATEMENT_VERIFIED' },
-        },
+        where: unverifiedWhere,
       }),
     ])
 
@@ -523,6 +542,9 @@ router.get('/summary', async (req, res) => {
       byHamper: groupSalesByHamper(sales),
     })
   } catch (error) {
+    if (error instanceof z.ZodError) {
+      return res.status(400).json({ error: 'Validation failed', details: error.errors })
+    }
     console.error('Error fetching sales summary:', error)
     res.status(500).json({ error: 'Failed to fetch sales summary' })
   }

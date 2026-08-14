@@ -114,6 +114,17 @@ describe('sales API', () => {
 
       expect(mockRequestWithSchema).toHaveBeenCalledWith('/sales?limit=10&search=test', salesListResponseSchema);
     });
+
+    it('encodes the verification status filter', async () => {
+      mockRequestWithSchema.mockResolvedValue({ sales: [], total: 0 });
+
+      await sales.list({ verificationStatus: 'needs_verification' });
+
+      expect(mockRequestWithSchema).toHaveBeenCalledWith(
+        '/sales?verificationStatus=needs_verification',
+        salesListResponseSchema,
+      );
+    });
   });
 
   describe('get', () => {
@@ -234,6 +245,17 @@ describe('sales API', () => {
       expect(mockRequestWithSchema).toHaveBeenCalledWith(
         '/sales/summary?startDate=2024-01-01&endDate=2024-01-31&search=chocolate',
         salesSummaryResponseSchema
+      );
+    });
+
+    it('encodes the verification status filter', async () => {
+      mockRequestWithSchema.mockResolvedValue(sampleSummary);
+
+      await sales.summary({ verificationStatus: 'needs_verification' });
+
+      expect(mockRequestWithSchema).toHaveBeenCalledWith(
+        '/sales/summary?verificationStatus=needs_verification',
+        salesSummaryResponseSchema,
       );
     });
   });

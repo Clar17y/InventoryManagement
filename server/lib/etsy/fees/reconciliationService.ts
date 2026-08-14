@@ -1098,6 +1098,7 @@ export function createPrismaFeeReconciliationRepository(prisma: PrismaClient): F
   return {
     async countEtsyFeeReconciliationStatuses() {
       const rows = await prisma.sale.groupBy({
+        where: { saleChannel: 'etsy' },
         by: ['etsyFeeReconciliationStatus'],
         _count: { _all: true },
       })

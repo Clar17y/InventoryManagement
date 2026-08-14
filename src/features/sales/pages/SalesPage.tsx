@@ -11,6 +11,7 @@ import {
   CategoryLot,
   SaleChannel,
   SalesSummary,
+  type SalesVerificationFilter,
   type PostageTier,
 } from '../../../lib/api'
 import SalesListView from '../components/SalesListView'
@@ -44,6 +45,7 @@ export default function Sales() {
     setEndDate,
     setSearchQuery,
   } = useDateSearchFilter()
+  const [verificationStatus, setVerificationStatus] = useState<SalesVerificationFilter | ''>('')
 
   const [totalSales, setTotalSales] = useState(0)
   const PAGE_SIZE = 20
@@ -76,18 +78,31 @@ export default function Sales() {
       if (isInitialLoad) {
         setLoading(true)
       }
-      const params: { limit?: number; offset?: number; startDate?: string; endDate?: string; search?: string } = {
+      const params: {
+        limit?: number
+        offset?: number
+        startDate?: string
+        endDate?: string
+        search?: string
+        verificationStatus?: SalesVerificationFilter
+      } = {
         limit: PAGE_SIZE,
         offset: 0,
       }
       if (startDate) params.startDate = startDate
       if (endDate) params.endDate = endDate
       if (debouncedSearchQuery) params.search = debouncedSearchQuery
+      if (verificationStatus) params.verificationStatus = verificationStatus
 
       const [salesData, hampersData, summaryData] = await Promise.all([
         sales.list(params),
         hampers.list(),
-        sales.summary({ startDate: startDate || undefined, endDate: endDate || undefined, search: debouncedSearchQuery || undefined }),
+        sales.summary({
+          startDate: startDate || undefined,
+          endDate: endDate || undefined,
+          search: debouncedSearchQuery || undefined,
+          verificationStatus: verificationStatus || undefined,
+        }),
       ])
       setSaleList(salesData.sales)
       setTotalSales(salesData.total)
@@ -104,13 +119,21 @@ export default function Sales() {
   const loadMore = async () => {
     try {
       setLoadingMore(true)
-      const params: { limit?: number; offset?: number; startDate?: string; endDate?: string; search?: string } = {
+      const params: {
+        limit?: number
+        offset?: number
+        startDate?: string
+        endDate?: string
+        search?: string
+        verificationStatus?: SalesVerificationFilter
+      } = {
         limit: PAGE_SIZE,
         offset: saleList.length,
       }
       if (startDate) params.startDate = startDate
       if (endDate) params.endDate = endDate
       if (debouncedSearchQuery) params.search = debouncedSearchQuery
+      if (verificationStatus) params.verificationStatus = verificationStatus
 
       const result = await sales.list(params)
       setSaleList([...saleList, ...result.sales])
@@ -145,7 +168,7 @@ export default function Sales() {
     if (!isFirstRender.current) {
       loadData(false)
     }
-  }, [startDate, endDate, debouncedSearchQuery])
+  }, [startDate, endDate, debouncedSearchQuery, verificationStatus])
 
   // Load preview when lines change
   useEffect(() => {
@@ -427,6 +450,8 @@ export default function Sales() {
       setStartDate={setStartDate}
       setEndDate={setEndDate}
       setSearchQuery={setSearchQuery}
+      verificationStatus={verificationStatus}
+      setVerificationStatus={setVerificationStatus}
       expandedId={expandedId}
       handleExpand={handleExpand}
       setViewMode={setViewMode}

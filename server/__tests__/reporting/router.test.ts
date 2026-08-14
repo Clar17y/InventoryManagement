@@ -20,6 +20,7 @@ vi.mock('../../lib/prisma', () => ({
 import { prisma } from '../../lib/prisma'
 import analyticsRouter from '../../features/analytics/router'
 import salesRouter from '../../features/sales/router'
+import { buildSalesWhereClause } from '../../lib/sales/filters'
 
 const mockPrisma = prisma as unknown as {
   sale: {
@@ -62,6 +63,63 @@ beforeEach(() => {
 })
 
 describe('sales and analytics reporting routers', () => {
+  it('builds exact and combined verification status predicates', () => {
+    expect(buildSalesWhereClause({ verificationStatus: 'PENDING' })).toMatchObject({
+      etsyFeeReconciliationStatus: 'PENDING',
+    })
+    expect(buildSalesWhereClause({ verificationStatus: 'needs_verification' })).toMatchObject({
+      etsyFeeReconciliationStatus: {
+        in: ['PENDING', 'PAYMENT_SYNCED', 'MANUAL_REVIEW'],
+      },
+    })
+  })
+
+  it('applies the same status, date, and search predicate to sales and summary routes', async () => {
+    mockPrisma.sale.findMany.mockResolvedValue([])
+    mockPrisma.sale.count.mockResolvedValue(0)
+    const baseUrl = await startServer()
+    const query = 'startDate=2026-08-01&endDate=2026-08-03&search=gift&verificationStatus=needs_verification'
+
+    const listResponse = await fetch(`${baseUrl}/api/sales?${query}`)
+    expect(listResponse.status).toBe(200)
+    const listWhere = mockPrisma.sale.findMany.mock.calls[0][0].where
+    expect(listWhere).toMatchObject({
+      saleDate: {
+        gte: new Date('2026-08-01'),
+        lte: new Date('2026-08-03T23:59:59.999'),
+      },
+      etsyFeeReconciliationStatus: {
+        in: ['PENDING', 'PAYMENT_SYNCED', 'MANUAL_REVIEW'],
+      },
+    })
+    expect(listWhere.OR).toHaveLength(3)
+    expect(mockPrisma.sale.count.mock.calls[0][0].where).toEqual(listWhere)
+
+    const summaryResponse = await fetch(`${baseUrl}/api/sales/summary?${query}`)
+    expect(summaryResponse.status).toBe(200)
+    const summaryWhere = mockPrisma.sale.findMany.mock.calls[1][0].where
+    expect(summaryWhere).toEqual(listWhere)
+    const expectedUnverifiedWhere = {
+      ...summaryWhere,
+      saleChannel: 'etsy',
+    }
+    delete expectedUnverifiedWhere.etsyFeeReconciliationStatus
+    expectedUnverifiedWhere.AND = [
+      { etsyFeeReconciliationStatus: { in: ['PENDING', 'PAYMENT_SYNCED', 'MANUAL_REVIEW'] } },
+      { etsyFeeReconciliationStatus: { not: 'STATEMENT_VERIFIED' } },
+    ]
+    expect(mockPrisma.sale.count.mock.calls[1][0].where).toEqual(expectedUnverifiedWhere)
+  })
+
+  it('rejects invalid verification status queries with HTTP 400', async () => {
+    const baseUrl = await startServer()
+
+    for (const path of ['/api/sales?verificationStatus=invalid', '/api/sales/summary?verificationStatus=invalid']) {
+      const response = await fetch(`${baseUrl}${path}`)
+      expect(response.status).toBe(400)
+    }
+  })
+
   it('counts unverified Etsy sales with the summary period/search filters', async () => {
     mockPrisma.sale.findMany.mockResolvedValue([])
     mockPrisma.sale.count.mockResolvedValue(4)

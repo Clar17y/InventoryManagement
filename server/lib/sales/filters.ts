@@ -1,12 +1,21 @@
+import type { Prisma, EtsyFeeReconciliationStatus } from '@prisma/client'
+import type { SalesVerificationFilter } from '#contracts/routes/sales'
+
+const NEEDS_VERIFICATION_STATUSES: EtsyFeeReconciliationStatus[] = [
+  'PENDING',
+  'PAYMENT_SYNCED',
+  'MANUAL_REVIEW',
+]
+
 export function buildSalesWhereClause(query: {
   startDate?: unknown
   endDate?: unknown
   search?: unknown
-}) {
-  const { startDate, endDate, search } = query
+  verificationStatus?: SalesVerificationFilter
+}): Prisma.SaleWhereInput {
+  const { startDate, endDate, search, verificationStatus } = query
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const where: any = {}
+  const where: Prisma.SaleWhereInput = {}
 
   if (startDate || endDate) {
     where.saleDate = {}
@@ -36,6 +45,12 @@ export function buildSalesWhereClause(query: {
         },
       },
     ]
+  }
+
+  if (verificationStatus) {
+    where.etsyFeeReconciliationStatus = verificationStatus === 'needs_verification'
+      ? { in: NEEDS_VERIFICATION_STATUSES }
+      : verificationStatus
   }
 
   return where

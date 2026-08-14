@@ -101,7 +101,10 @@ beforeEach(() => {
   mockPrisma.sale.findMany.mockResolvedValue([current])
   mockPrisma.sale.updateMany.mockResolvedValue({ count: 1 })
   mockPrisma.$transaction.mockImplementation(async (work: (tx: unknown) => Promise<unknown>) => work({
-    sale: { updateMany: mockPrisma.sale.updateMany },
+    sale: {
+      findMany: vi.fn().mockResolvedValue([current]),
+      updateMany: mockPrisma.sale.updateMany,
+    },
   }))
 })
 
@@ -206,6 +209,7 @@ describe('manual Etsy Sale resolution routes', () => {
     mockPrisma.$transaction.mockImplementation(async (work: (tx: unknown) => Promise<unknown>) => {
       await work({
         sale: {
+          findMany: vi.fn().mockResolvedValue([sale()]),
           updateMany: vi.fn().mockRejectedValue(new Error('database unavailable')),
         },
       })

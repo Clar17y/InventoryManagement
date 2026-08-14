@@ -331,6 +331,19 @@ const saleSnapshotSelect = {
   updatedAt: true,
 } as const
 
+const saleMembershipSelect = {
+  id: true,
+  etsyOrderId: true,
+  updatedAt: true,
+} as const
+
+function receiptGroupPredicates(baseReceiptIds: Iterable<string>) {
+  return [...baseReceiptIds].flatMap((baseReceiptId) => [
+    { etsyOrderId: baseReceiptId },
+    { etsyOrderId: { startsWith: `${baseReceiptId}-` } },
+  ])
+}
+
 type SaleSnapshotRow = {
   [key in keyof typeof saleSnapshotSelect]: unknown
 }
@@ -418,14 +431,62 @@ function writeData(data: EtsySaleResolutionWrite, appliedAt: Date): Prisma.SaleU
   }
 }
 
+async function assertGroupMembership(
+  tx: Prisma.TransactionClient,
+  proposals: readonly EtsySaleResolutionProposal[],
+): Promise<void> {
+  if (proposals.length === 0) return
+
+  const saleIds = proposals.map((proposal) => proposal.saleId)
+  const expectedRows = await tx.sale.findMany({
+    where: { id: { in: saleIds } },
+    select: saleMembershipSelect,
+  })
+  const expectedById = new Map(expectedRows.map((row) => [row.id, row]))
+  if (expectedById.size !== saleIds.length || saleIds.some((saleId) => !expectedById.has(saleId))) {
+    throw new EtsySaleResolutionConflictError('The Etsy receipt group changed; preview the resolution again')
+  }
+  for (const proposal of proposals) {
+    const row = expectedById.get(proposal.saleId)
+    if (!row || row.updatedAt.getTime() !== new Date(proposal.expectedUpdatedAt).getTime()) {
+      throw new EtsySaleResolutionConflictError('The Etsy Sale changed; preview the resolution again')
+    }
+  }
+
+  const baseReceiptIds = new Set<string>()
+  for (const row of expectedRows) {
+    if (row.etsyOrderId === null) continue
+    const identity = receiptIdentity(row.etsyOrderId)
+    if (identity) baseReceiptIds.add(identity.baseId)
+  }
+  for (const proposal of proposals) {
+    if (proposal.data.etsyOrderId === null) continue
+    const identity = receiptIdentity(proposal.data.etsyOrderId)
+    if (identity) baseReceiptIds.add(identity.baseId)
+  }
+  if (baseReceiptIds.size === 0) return
+
+  const candidateRows = await tx.sale.findMany({
+    where: { OR: receiptGroupPredicates(baseReceiptIds) },
+    select: saleMembershipSelect,
+  })
+  const candidateIds = new Set(
+    candidateRows
+      .filter((row) => row.etsyOrderId !== null
+        && baseReceiptIds.has(receiptIdentity(row.etsyOrderId)?.baseId ?? ''))
+      .map((row) => row.id),
+  )
+  const expectedIds = new Set(saleIds)
+  if (candidateIds.size !== expectedIds.size || [...expectedIds].some((saleId) => !candidateIds.has(saleId))) {
+    throw new EtsySaleResolutionConflictError('The Etsy receipt group changed; preview the resolution again')
+  }
+}
+
 export function createPrismaEtsySaleResolutionRepository(prisma: PrismaClient): EtsySaleResolutionRepository {
   async function loadGroupByBaseReceiptId(baseReceiptId: string): Promise<EtsySaleResolutionSnapshot[]> {
     const rows = await prisma.sale.findMany({
       where: {
-        OR: [
-          { etsyOrderId: baseReceiptId },
-          { etsyOrderId: { startsWith: `${baseReceiptId}-` } },
-        ],
+        OR: receiptGroupPredicates([baseReceiptId]),
       },
       select: saleSnapshotSelect,
     })
@@ -447,6 +508,7 @@ export function createPrismaEtsySaleResolutionRepository(prisma: PrismaClient): 
     loadGroupByBaseReceiptId,
     async applyProposals(proposals: readonly EtsySaleResolutionProposal[], appliedAt: Date): Promise<void> {
       await prisma.$transaction(async (tx) => {
+        await assertGroupMembership(tx, proposals)
         for (const proposal of proposals) {
           const result = await tx.sale.updateMany({
             where: { id: proposal.saleId, updatedAt: new Date(proposal.expectedUpdatedAt) },
@@ -454,7 +516,7 @@ export function createPrismaEtsySaleResolutionRepository(prisma: PrismaClient): 
           })
           if (result.count !== 1) throw new EtsySaleResolutionConflictError()
         }
-      })
+      }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable })
     },
   }
 }

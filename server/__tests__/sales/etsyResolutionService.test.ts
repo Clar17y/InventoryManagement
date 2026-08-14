@@ -1,9 +1,11 @@
-import { beforeEach, describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { Prisma } from '@prisma/client'
 import type {
   EtsySaleResolution,
 } from '#contracts/routes/sales'
 import {
   EtsySaleResolutionConflictError,
+  createPrismaEtsySaleResolutionRepository,
   type EtsySaleResolutionRepository,
   applyEtsySaleResolution,
   previewEtsySaleResolution,
@@ -14,6 +16,8 @@ import type {
 } from '../../lib/sales/etsyResolutionCalculations'
 
 const UPDATED_AT = '2026-08-14T12:00:00.000Z'
+const MAX_DATABASE_PENCE = 9_999_999_999
+const MIN_DATABASE_PENCE = -MAX_DATABASE_PENCE
 
 function snapshot(overrides: Partial<EtsySaleResolutionSnapshot> = {}): EtsySaleResolutionSnapshot {
   return {
@@ -237,5 +241,267 @@ describe('manual Etsy sale resolution service', () => {
       resolution: { type: 'correct_receipt_id', etsyOrderId: '4137418052' },
     }, { db })).rejects.toBeInstanceOf(EtsySaleResolutionConflictError)
     expect(db.applyCalls).toHaveLength(0)
+  })
+})
+
+function prismaSale(overrides: Record<string, unknown> = {}) {
+  return {
+    id: 'sale-1',
+    saleChannel: 'etsy',
+    etsyOrderId: '4137418052',
+    grossRevenue: new Prisma.Decimal('99999999.99'),
+    postageCharged: new Prisma.Decimal('0.00'),
+    postageCost: new Prisma.Decimal('0.00'),
+    transactionFee: new Prisma.Decimal('99999999.99'),
+    postageTransactionFee: new Prisma.Decimal('-99999999.99'),
+    regulatoryFee: new Prisma.Decimal('0.00'),
+    processingFee: new Prisma.Decimal('0.00'),
+    vatOnProcessingFee: new Prisma.Decimal('0.00'),
+    listingFee: new Prisma.Decimal('0.00'),
+    offsiteAdsAttributed: true,
+    offsiteAdsFee: new Prisma.Decimal('99999999.99'),
+    vatOnOffsiteAdsFee: new Prisma.Decimal('0.00'),
+    etsyFees: new Prisma.Decimal('99999999.99'),
+    packagingOverhead: new Prisma.Decimal('0.00'),
+    netRevenue: new Prisma.Decimal('-99999999.99'),
+    totalCost: new Prisma.Decimal('0.00'),
+    margin: new Prisma.Decimal('-99999999.99'),
+    etsyPaymentGross: new Prisma.Decimal('99999999.99'),
+    etsyPaymentFees: new Prisma.Decimal('-99999999.99'),
+    etsyPaymentNet: new Prisma.Decimal('0.00'),
+    etsyFeeReconciliationStatus: 'PENDING',
+    etsyFeeReconciliationSource: null,
+    etsyFeeReconciledAt: null,
+    etsyStatementImportId: null,
+    etsyManualResolutionNote: null,
+    updatedAt: new Date(UPDATED_AT),
+    ...overrides,
+  }
+}
+
+function proposalFor(
+  saleId: string,
+  expectedUpdatedAt = UPDATED_AT,
+  overrides: Partial<EtsySaleResolutionProposal['data']> = {},
+): EtsySaleResolutionProposal {
+  return {
+    saleId,
+    expectedUpdatedAt,
+    data: {
+      saleChannel: 'etsy',
+      etsyOrderId: '4137418052',
+      transactionFeePence: MAX_DATABASE_PENCE,
+      postageTransactionFeePence: MIN_DATABASE_PENCE,
+      regulatoryFeePence: MAX_DATABASE_PENCE,
+      processingFeePence: MIN_DATABASE_PENCE,
+      vatOnProcessingFeePence: MAX_DATABASE_PENCE,
+      listingFeePence: MIN_DATABASE_PENCE,
+      offsiteAdsAttributed: true,
+      offsiteAdsFeePence: MAX_DATABASE_PENCE,
+      vatOnOffsiteAdsFeePence: MIN_DATABASE_PENCE,
+      etsyFeesPence: MAX_DATABASE_PENCE,
+      netRevenuePence: MIN_DATABASE_PENCE,
+      marginPence: MAX_DATABASE_PENCE,
+      etsyPaymentGrossPence: MAX_DATABASE_PENCE,
+      etsyPaymentFeesPence: MIN_DATABASE_PENCE,
+      etsyPaymentNetPence: MAX_DATABASE_PENCE,
+      status: 'PENDING',
+      source: null,
+      reconciledAt: null,
+      statementImportId: null,
+      manualResolutionNote: null,
+      ...overrides,
+    },
+  }
+}
+
+describe('Prisma Etsy Sale resolution repository', () => {
+  it('revalidates exact/immediate group membership inside a serializable transaction', async () => {
+    const first = prismaSale()
+    const second = prismaSale({ id: 'sale-2', etsyOrderId: '4137418052-1' })
+    const phantom = prismaSale({ id: 'sale-3', etsyOrderId: '4137418052-2' })
+    const txFindMany = vi.fn()
+      .mockResolvedValueOnce([first, second])
+      .mockResolvedValueOnce([first, second, phantom])
+    const txUpdateMany = vi.fn().mockResolvedValue({ count: 1 })
+    let transactionOptions: unknown
+    const prisma = {
+      sale: {
+        findUnique: vi.fn(),
+        findMany: vi.fn(),
+      },
+      $transaction: vi.fn().mockImplementation(async (
+        work: (tx: unknown) => Promise<unknown>,
+        options: unknown,
+      ) => {
+        transactionOptions = options
+        return work({ sale: { findMany: txFindMany, updateMany: txUpdateMany } })
+      }),
+    }
+
+    const repository = createPrismaEtsySaleResolutionRepository(prisma as never)
+
+    await expect(repository.applyProposals([
+      proposalFor('sale-1'),
+      proposalFor('sale-2'),
+    ], new Date('2026-08-14T12:34:56.000Z'))).rejects.toBeInstanceOf(EtsySaleResolutionConflictError)
+    expect(transactionOptions).toMatchObject({
+      isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+    })
+    expect(txFindMany).toHaveBeenCalledTimes(2)
+    expect(txFindMany.mock.calls[1]?.[0]).toMatchObject({
+      where: {
+        OR: [
+          { etsyOrderId: '4137418052' },
+          { etsyOrderId: { startsWith: '4137418052-' } },
+        ],
+      },
+    })
+    expect(txUpdateMany).not.toHaveBeenCalled()
+  })
+
+  it('revalidates a corrected receipt destination group inside the transaction', async () => {
+    const current = prismaSale()
+    const destinationPhantom = prismaSale({ id: 'sale-2', etsyOrderId: '9876543210-1' })
+    const txFindMany = vi.fn()
+      .mockResolvedValueOnce([current])
+      .mockResolvedValueOnce([destinationPhantom])
+    const txUpdateMany = vi.fn().mockResolvedValue({ count: 1 })
+    const transaction = vi.fn().mockImplementation(async (work: (tx: unknown) => Promise<unknown>) => work({
+      sale: { findMany: txFindMany, updateMany: txUpdateMany },
+    }))
+    const prisma = {
+      sale: { findUnique: vi.fn(), findMany: vi.fn() },
+      $transaction: transaction,
+    }
+    const repository = createPrismaEtsySaleResolutionRepository(prisma as never)
+
+    await expect(repository.applyProposals([
+      proposalFor(current.id, UPDATED_AT, { etsyOrderId: '9876543210' }),
+    ], new Date('2026-08-14T12:34:56.000Z'))).rejects.toBeInstanceOf(EtsySaleResolutionConflictError)
+    expect(txUpdateMany).not.toHaveBeenCalled()
+  })
+
+  it('round-trips Decimal(10,2) boundary values exactly in both directions', async () => {
+    const row = prismaSale({
+      postageCharged: new Prisma.Decimal('-99999999.99'),
+      postageCost: new Prisma.Decimal('99999999.99'),
+      regulatoryFee: new Prisma.Decimal('99999999.99'),
+      processingFee: new Prisma.Decimal('-99999999.99'),
+      vatOnProcessingFee: new Prisma.Decimal('99999999.99'),
+      listingFee: new Prisma.Decimal('-99999999.99'),
+      vatOnOffsiteAdsFee: new Prisma.Decimal('-99999999.99'),
+      packagingOverhead: new Prisma.Decimal('-99999999.99'),
+      totalCost: new Prisma.Decimal('99999999.99'),
+      etsyPaymentNet: new Prisma.Decimal('99999999.99'),
+    })
+    const transaction = vi.fn().mockImplementation(async (work: (tx: unknown) => Promise<unknown>) => work({
+      sale: {
+        findMany: vi.fn()
+          .mockResolvedValueOnce([{ id: row.id, etsyOrderId: row.etsyOrderId, updatedAt: row.updatedAt }])
+          .mockResolvedValueOnce([{ id: row.id, etsyOrderId: row.etsyOrderId, updatedAt: row.updatedAt }]),
+        updateMany: vi.fn().mockResolvedValue({ count: 1 }),
+      },
+    }))
+    const prisma = {
+      sale: {
+        findUnique: vi.fn().mockResolvedValue(row),
+        findMany: vi.fn().mockResolvedValue([row]),
+      },
+      $transaction: transaction,
+    }
+    const repository = createPrismaEtsySaleResolutionRepository(prisma as never)
+    const loaded = await repository.loadGroupBySaleId(row.id)
+
+    expect(loaded[0]).toMatchObject({
+      grossRevenuePence: MAX_DATABASE_PENCE,
+      postageChargedPence: MIN_DATABASE_PENCE,
+      postageCostPence: MAX_DATABASE_PENCE,
+      transactionFeePence: MAX_DATABASE_PENCE,
+      postageTransactionFeePence: MIN_DATABASE_PENCE,
+      regulatoryFeePence: MAX_DATABASE_PENCE,
+      processingFeePence: MIN_DATABASE_PENCE,
+      vatOnProcessingFeePence: MAX_DATABASE_PENCE,
+      listingFeePence: MIN_DATABASE_PENCE,
+      offsiteAdsFeePence: MAX_DATABASE_PENCE,
+      vatOnOffsiteAdsFeePence: MIN_DATABASE_PENCE,
+      etsyFeesPence: MAX_DATABASE_PENCE,
+      packagingOverheadPence: MIN_DATABASE_PENCE,
+      netRevenuePence: MIN_DATABASE_PENCE,
+      totalCostPence: MAX_DATABASE_PENCE,
+      marginPence: MIN_DATABASE_PENCE,
+      etsyPaymentGrossPence: MAX_DATABASE_PENCE,
+      etsyPaymentFeesPence: MIN_DATABASE_PENCE,
+      etsyPaymentNetPence: MAX_DATABASE_PENCE,
+    })
+
+    const updateMany = vi.fn().mockResolvedValue({ count: 1 })
+    const txFindMany = vi.fn()
+      .mockResolvedValueOnce([{ id: row.id, etsyOrderId: row.etsyOrderId, updatedAt: row.updatedAt }])
+      .mockResolvedValueOnce([{ id: row.id, etsyOrderId: row.etsyOrderId, updatedAt: row.updatedAt }])
+    transaction.mockImplementationOnce(async (work: (tx: unknown) => Promise<unknown>) => work({
+      sale: { findMany: txFindMany, updateMany },
+    }))
+    await repository.applyProposals([proposalFor(row.id)], new Date('2026-08-14T12:34:56.000Z'))
+
+    const data = updateMany.mock.calls[0]?.[0].data as Record<string, Prisma.Decimal>
+    expect(data.transactionFee.toFixed(2)).toBe('99999999.99')
+    expect(data.postageTransactionFee.toFixed(2)).toBe('-99999999.99')
+    expect(data.regulatoryFee.toFixed(2)).toBe('99999999.99')
+    expect(data.processingFee.toFixed(2)).toBe('-99999999.99')
+    expect(data.vatOnProcessingFee.toFixed(2)).toBe('99999999.99')
+    expect(data.listingFee.toFixed(2)).toBe('-99999999.99')
+    expect(data.etsyFees.toFixed(2)).toBe('99999999.99')
+    expect(data.netRevenue.toFixed(2)).toBe('-99999999.99')
+    expect(data.margin.toFixed(2)).toBe('99999999.99')
+    expect(data.offsiteAdsFee.toFixed(2)).toBe('99999999.99')
+    expect(data.vatOnOffsiteAdsFee.toFixed(2)).toBe('-99999999.99')
+    expect(data.etsyPaymentGross.toFixed(2)).toBe('99999999.99')
+    expect(data.etsyPaymentFees.toFixed(2)).toBe('-99999999.99')
+    expect(data.etsyPaymentNet.toFixed(2)).toBe('99999999.99')
+  })
+
+  it('rolls back a first row when a later row fails its updatedAt compare-and-set', async () => {
+    const first = prismaSale()
+    const second = prismaSale({ id: 'sale-2', etsyOrderId: '4137418052-1' })
+    const state = new Map([[first.id, 'before-1'], [second.id, 'before-2']])
+    const txFindMany = vi.fn()
+      .mockResolvedValueOnce([
+        { id: first.id, etsyOrderId: first.etsyOrderId, updatedAt: first.updatedAt },
+        { id: second.id, etsyOrderId: second.etsyOrderId, updatedAt: second.updatedAt },
+      ])
+      .mockResolvedValueOnce([first, second])
+    const updateMany = vi.fn()
+      .mockImplementationOnce(async () => {
+        state.set(first.id, 'after-1')
+        return { count: 1 }
+      })
+      .mockResolvedValueOnce({ count: 0 })
+    const transaction = vi.fn().mockImplementation(async (work: (tx: unknown) => Promise<unknown>) => {
+      const before = new Map(state)
+      try {
+        return await work({ sale: { findMany: txFindMany, updateMany } })
+      } catch (error) {
+        state.clear()
+        for (const [id, value] of before) state.set(id, value)
+        throw error
+      }
+    })
+    const prisma = {
+      sale: { findUnique: vi.fn(), findMany: vi.fn() },
+      $transaction: transaction,
+    } as never
+    const repository = createPrismaEtsySaleResolutionRepository(prisma)
+
+    await expect(repository.applyProposals([
+      proposalFor(first.id),
+      proposalFor(second.id),
+    ], new Date('2026-08-14T12:34:56.000Z'))).rejects.toBeInstanceOf(EtsySaleResolutionConflictError)
+    expect(transaction).toHaveBeenCalledTimes(1)
+    expect(transaction.mock.calls[0]?.[1]).toMatchObject({
+      isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+    })
+    expect(updateMany).toHaveBeenCalledTimes(2)
+    expect(state).toEqual(new Map([[first.id, 'before-1'], [second.id, 'before-2']]))
   })
 })

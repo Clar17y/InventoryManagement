@@ -48,3 +48,56 @@ Commit subject: `feat: apply manual Etsy sale resolutions`
 
 - No production database, Etsy account, statement upload, migration, or external write was used.
 - No material unresolved implementation concern remains. The direct `rtk eslint` wrapper's PATH failure was environmental; the equivalent RTK/npm invocation passed.
+
+## Task 3 Fix Round 1
+
+Status: DONE
+
+### Review findings addressed
+
+- `applyProposals` now opens a Prisma `Serializable` transaction and revalidates both the proposal IDs/timestamps and the exact/immediate-suffix receipt-group membership before the first write. A new matching Sale therefore raises `EtsySaleResolutionConflictError` rather than being left unresolved; the existing `id + updatedAt` compare-and-set remains the final per-row guard.
+- Controlled Prisma-double tests now exercise exact Decimal(10,2) boundary conversion in both directions at `±9,999,999,999` pence, corrected destination-group membership, and state restoration after a later row's compare-and-set returns zero.
+- Actual-router transaction doubles now provide the adapter's in-transaction membership query as well as `updateMany`.
+
+### TDD evidence
+
+RED was captured before the membership implementation with:
+
+```text
+rtk npm run test:server:run -- server/__tests__/sales/etsyResolutionService.test.ts
+Test Files  1 failed (1)
+Tests  10 passed (10), 1 failed (11)
+```
+
+The failing test was the new phantom-membership revalidation case; the pre-existing service tests passed.
+
+GREEN and covering checks were then run with these exact commands and results:
+
+```text
+rtk npm run test:server:run -- server/__tests__/sales/etsyResolutionService.test.ts
+Test Files  1 passed (1)
+Tests  12 passed (12)
+
+rtk npm run test:server:run -- server/__tests__/sales/etsyResolutionRoutes.test.ts
+Test Files  1 passed (1)
+Tests  6 passed (6)
+
+rtk npm run test:server:run -- server/__tests__/sales/etsyResolutionService.test.ts server/__tests__/sales/etsyResolutionRoutes.test.ts
+Test Files  2 passed (2)
+Tests  18 passed (18)
+
+rtk npm run test:server:run
+Test Files  23 passed (23)
+Tests  320 passed (320)
+
+rtk tsc -p server/tsconfig.json --noEmit --rootDir .
+TypeScript: No errors found
+
+rtk npm exec eslint -- server/lib/sales/etsyResolutionService.ts server/features/sales/router.ts server/__tests__/sales/etsyResolutionService.test.ts server/__tests__/sales/etsyResolutionRoutes.test.ts
+ok
+
+rtk git diff --check
+(no output; exit code 0)
+```
+
+No production database, Etsy request, statement upload, migration, or external write was used during this fix round.

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { screen, waitFor } from '@testing-library/react';
+import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { render } from '../utils/test-utils';
 
@@ -538,7 +538,7 @@ describe('Sales', () => {
       }
     });
 
-    it('refreshes filtered list, summary, fee status, and expanded detail after resolution', async () => {
+    it('refreshes filtered list, summary, and expanded detail after resolution', async () => {
       const user = userEvent.setup();
       const unresolved = saleWithFeeEvidence();
       mockSalesList.mockResolvedValue({ sales: [unresolved], total: 1 });
@@ -556,10 +556,51 @@ describe('Sales', () => {
       await user.click(screen.getByRole('button', { name: 'Confirm resolution' }));
 
       await waitFor(() => expect(mockSalesGet).toHaveBeenCalledWith('sale-1'));
-      expect(mockEtsyFeeSummary).toHaveBeenCalled();
+      expect(mockEtsyFeeSummary).not.toHaveBeenCalled();
       expect(mockSalesList.mock.calls[mockSalesList.mock.calls.length - 1]?.[0]).toEqual(expect.objectContaining({ verificationStatus: 'PENDING' }));
       expect(mockSalesSummary.mock.calls[mockSalesSummary.mock.calls.length - 1]?.[0]).toEqual(expect.objectContaining({ verificationStatus: 'PENDING' }));
       expect(screen.getByText('Etsy fee verification')).toBeInTheDocument();
+    });
+
+    it('refreshes the mounted Etsy reconciliation panel counts after resolution', async () => {
+      const user = userEvent.setup();
+      const unresolved = saleWithFeeEvidence();
+      const resolved = { ...unresolved, saleChannel: 'direct', etsyFeeReconciliationStatus: 'NOT_APPLICABLE' };
+      mockSalesList.mockResolvedValue({ sales: [unresolved], total: 1 });
+      mockSalesGet.mockResolvedValue(resolved as any);
+      mockEtsyGetStatus.mockResolvedValue({ connected: true, shopId: 'shop-1', shopName: 'Savvy Hampers' });
+      mockEtsyFeeSummary
+        .mockResolvedValueOnce({ counts: {
+          NOT_APPLICABLE: 0,
+          PENDING: 1,
+          PAYMENT_SYNCED: 0,
+          STATEMENT_VERIFIED: 0,
+          MANUALLY_VERIFIED: 0,
+          MANUAL_REVIEW: 0,
+        } })
+        .mockResolvedValueOnce({ counts: {
+          NOT_APPLICABLE: 0,
+          PENDING: 0,
+          PAYMENT_SYNCED: 0,
+          STATEMENT_VERIFIED: 0,
+          MANUALLY_VERIFIED: 0,
+          MANUAL_REVIEW: 0,
+        } });
+      render(<Sales />);
+
+      await user.click(await screen.findByRole('button', { name: /etsy sync/i }));
+      expect(await screen.findByText('1 Etsy sales need statement verification')).toBeInTheDocument();
+      await user.click(screen.getByText(/Chocolate Lovers/));
+      await user.click(screen.getByRole('button', { name: 'Resolve Etsy sale' }));
+      await user.click(screen.getByRole('radio', { name: 'This was not an Etsy sale' }));
+      await user.click(screen.getByRole('button', { name: 'Preview resolution' }));
+      await screen.findByText('Preview ready');
+      await user.click(screen.getByRole('button', { name: 'Confirm resolution' }));
+
+      expect(await screen.findByText('0 Etsy sales need statement verification')).toBeInTheDocument();
+      const reconciliationPanel = screen.getByRole('heading', { name: 'Etsy fee reconciliation' }).closest('section');
+      expect(reconciliationPanel).not.toBeNull();
+      expect(within(reconciliationPanel!).getByText('Pending').parentElement).toHaveTextContent('0');
     });
 
     it('preserves an expanded loaded sale beyond the refreshed first page', async () => {

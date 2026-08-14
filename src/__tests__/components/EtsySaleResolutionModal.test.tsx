@@ -177,6 +177,16 @@ const preview = {
   warnings: ['Existing Etsy evidence will be cleared', 'Two local Sales will be updated'],
 }
 
+function deferred<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void
+  let reject!: (reason?: unknown) => void
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise
+    reject = rejectPromise
+  })
+  return { promise, resolve, reject }
+}
+
 function renderModal(overrides: Partial<ComponentProps<typeof EtsySaleResolutionModal>> = {}) {
   return render(
     <EtsySaleResolutionModal
@@ -274,6 +284,23 @@ describe('EtsySaleResolutionModal', () => {
     await user.click(screen.getByRole('radio', { name: 'Attributed to Offsite Ads' }))
     expect(feeInput).toBeEnabled()
     expect(vatInput).toBeEnabled()
+  })
+
+  it('normalizes a suffix-row receipt ID before manual verification', async () => {
+    const user = userEvent.setup()
+    renderModal({ sale: { ...sale, etsyOrderId: '123456-1' } })
+
+    await user.click(screen.getByRole('button', { name: 'Preview resolution' }))
+
+    await waitFor(() => expect(mockPreview).toHaveBeenCalledWith('sale-1', {
+      resolution: {
+        type: 'manual_verify',
+        etsyOrderId: '123456',
+        attributed: false,
+        offsiteAdsFeePence: 0,
+        vatOnOffsiteAdsFeePence: 0,
+      },
+    }))
   })
 
   it('converts exact pounds to pence and rejects fractional pennies', async () => {
@@ -398,6 +425,47 @@ describe('EtsySaleResolutionModal', () => {
     expect(onClose).toHaveBeenCalledTimes(1)
   })
 
+  it('closes after a committed apply even when post-commit refresh fails', async () => {
+    const user = userEvent.setup()
+    const onClose = vi.fn()
+    const onResolved = vi.fn().mockRejectedValue(new Error('Refresh unavailable'))
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    renderModal({ onClose, onResolved })
+    await user.click(screen.getByRole('radio', { name: 'Correct the Etsy receipt ID' }))
+    const idInput = screen.getByLabelText('Etsy receipt ID')
+    await user.clear(idInput)
+    await user.type(idInput, '123456')
+    await user.click(screen.getByRole('button', { name: 'Preview resolution' }))
+    await screen.findByText('Preview ready')
+
+    await user.click(screen.getByRole('button', { name: 'Confirm resolution' }))
+
+    await waitFor(() => expect(onResolved).toHaveBeenCalledTimes(1))
+    expect(mockApply).toHaveBeenCalledTimes(1)
+    expect(onClose).toHaveBeenCalledTimes(1)
+    expect(screen.queryByText('Refresh unavailable')).not.toBeInTheDocument()
+    consoleError.mockRestore()
+  })
+
+  it('does not restore an obsolete preview after the form changes while preview is pending', async () => {
+    const user = userEvent.setup()
+    const pendingPreview = deferred<typeof preview>()
+    mockPreview.mockReturnValueOnce(pendingPreview.promise)
+    renderModal()
+    await user.click(screen.getByRole('radio', { name: 'Correct the Etsy receipt ID' }))
+    const idInput = screen.getByLabelText('Etsy receipt ID')
+    await user.clear(idInput)
+    await user.type(idInput, '123456')
+    await user.click(screen.getByRole('button', { name: 'Preview resolution' }))
+
+    await user.type(idInput, '7')
+    await act(async () => { pendingPreview.resolve(preview) })
+
+    expect(idInput).toHaveValue('1234567')
+    expect(screen.queryByText('Preview ready')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Confirm resolution' })).toBeDisabled()
+  })
+
   it('prevents double preview and apply while each request is loading', async () => {
     const user = userEvent.setup()
     renderModal()
@@ -423,6 +491,11 @@ describe('EtsySaleResolutionModal', () => {
     await user.click(confirmButton)
     expect(mockApply).toHaveBeenCalledTimes(1)
     expect(confirmButton).toBeDisabled()
+    expect(idInput).toBeDisabled()
+    expect(screen.getByLabelText('Manual note')).toBeDisabled()
+    expect(screen.getByRole('radio', { name: 'This was not an Etsy sale' })).toBeDisabled()
+    expect(screen.getByRole('radio', { name: 'Correct the Etsy receipt ID' })).toBeDisabled()
+    expect(screen.getByRole('radio', { name: 'Manually verify this Etsy sale' })).toBeDisabled()
     await act(async () => { resolveApply({ ...preview, applied: true }) })
   })
 })

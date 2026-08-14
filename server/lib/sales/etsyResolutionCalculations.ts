@@ -6,6 +6,13 @@ import type {
 import type { EtsySaleResolution } from '#contracts/routes/sales'
 import { allocateOrderPence, calculateFeeAdjustment, compareIds } from '../etsy/fees/calculations'
 
+export class EtsySaleResolutionCalculationConflictError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'EtsySaleResolutionCalculationConflictError'
+  }
+}
+
 export interface EtsySaleResolutionSnapshot {
   id: string
   saleChannel: SaleChannel
@@ -205,7 +212,7 @@ function validateResolution(resolution: EtsySaleResolution): void {
 function assertMutableGroup(current: readonly EtsySaleResolutionSnapshot[]): void {
   if (current.some((snapshot) => snapshot.status === 'STATEMENT_VERIFIED'
     || snapshot.status === 'MANUALLY_VERIFIED')) {
-    throw new Error('statement-verified and manually verified Sales are immutable through manual resolution')
+    throw new EtsySaleResolutionCalculationConflictError('statement-verified and manually verified Sales are immutable through manual resolution')
   }
 }
 
@@ -226,7 +233,7 @@ function buildGroupContext(
     if (ids.has(snapshot.id)) throw new RangeError('receipt group contains duplicate Sale IDs')
     ids.add(snapshot.id)
     if (snapshot.saleChannel !== 'etsy') {
-      throw new Error('manual Etsy resolution requires Etsy Sales')
+      throw new EtsySaleResolutionCalculationConflictError('manual Etsy resolution requires Etsy Sales')
     }
   }
   assertMutableGroup(current)
@@ -277,7 +284,7 @@ function assertNoCorrectedIdCollision(
     if (snapshot.etsyOrderId === null) continue
     const identity = receiptIdentity(snapshot.etsyOrderId)
     if (identity?.baseId === correctedBaseId) {
-      throw new Error(`corrected Etsy receipt ID ${correctedBaseId} collision with an existing receipt group`)
+      throw new EtsySaleResolutionCalculationConflictError(`corrected Etsy receipt ID ${correctedBaseId} collision with an existing receipt group`)
     }
   }
 }
@@ -434,7 +441,7 @@ function assertIdOnlyCorrectionSafe(current: readonly EtsySaleResolutionSnapshot
       || snapshot.statementImportId !== null
       || snapshot.source !== null
       || snapshot.status === 'PAYMENT_SYNCED') {
-      throw new Error('ID-only correction is unsafe when authoritative Offsite or Payment evidence exists')
+      throw new EtsySaleResolutionCalculationConflictError('ID-only correction is unsafe when authoritative Offsite or Payment evidence exists')
     }
   }
 }

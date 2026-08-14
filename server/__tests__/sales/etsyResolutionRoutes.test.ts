@@ -150,6 +150,30 @@ describe('manual Etsy Sale resolution routes', () => {
     expect(mockPrisma.sale.findUnique).not.toHaveBeenCalled()
   })
 
+  it('returns 409 when ID-only correction encounters authoritative evidence', async () => {
+    const current = sale({
+      etsyOrderId: '1',
+      offsiteAdsAttributed: null,
+      offsiteAdsFee: null,
+      vatOnOffsiteAdsFee: null,
+      etsyPaymentGross: new Prisma.Decimal('35.00'),
+      etsyPaymentFees: new Prisma.Decimal('4.50'),
+      etsyPaymentNet: new Prisma.Decimal('30.50'),
+    })
+    mockPrisma.sale.findUnique.mockResolvedValue(current)
+    mockPrisma.sale.findMany.mockResolvedValue([current])
+    const baseUrl = await startServer()
+
+    const response = await post(baseUrl, 'preview', {
+      resolution: { type: 'correct_receipt_id', etsyOrderId: '4137418052' },
+    })
+
+    expect(response.status).toBe(409)
+    await expect(response.json()).resolves.toEqual({
+      error: 'ID-only correction is unsafe when authoritative Offsite or Payment evidence exists',
+    })
+  })
+
   it('maps collision, immutable, and stale preview failures to 409', async () => {
     const baseUrl = await startServer()
     const placeholderSale = sale({ etsyOrderId: '1' })

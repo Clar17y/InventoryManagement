@@ -7,6 +7,7 @@ import type {
 } from '#contracts/routes/sales'
 import {
   buildEtsySaleResolution,
+  EtsySaleResolutionCalculationConflictError,
   receiptIdentity,
   type EtsySaleResolutionProposal,
   type EtsySaleResolutionSnapshot,
@@ -184,10 +185,6 @@ function fingerprintFor(
   return createHash('sha256').update(JSON.stringify(canonical), 'utf8').digest('hex')
 }
 
-function isConflictMessage(message: string): boolean {
-  return /collision|immutable|statement[- ]verified|manually verified|requires Etsy Sales/i.test(message)
-}
-
 function wrapCalculationError(error: unknown): Error {
   if (error instanceof EtsySaleResolutionConflictError
     || error instanceof EtsySaleResolutionValidationError
@@ -195,7 +192,9 @@ function wrapCalculationError(error: unknown): Error {
     return error
   }
   const message = error instanceof Error ? error.message : 'Invalid Etsy Sale resolution'
-  if (isConflictMessage(message)) return new EtsySaleResolutionConflictError(message)
+  if (error instanceof EtsySaleResolutionCalculationConflictError) {
+    return new EtsySaleResolutionConflictError(message)
+  }
   return new EtsySaleResolutionValidationError(message)
 }
 

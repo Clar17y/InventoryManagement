@@ -37,6 +37,7 @@ export default function SalesListView({
   handleExpand,
   setViewMode,
   onResolveSale,
+  registerFeeSummaryRefresh,
   loadData,
   loadMore,
 }: {
@@ -62,6 +63,7 @@ export default function SalesListView({
   handleExpand: (id: string) => void
   setViewMode: (mode: 'list' | 'record') => void
   onResolveSale: (sale: Sale) => void
+  registerFeeSummaryRefresh: (refresh: (() => Promise<void>) | null) => void
   loadData: (isInitialLoad?: boolean) => void
   loadMore: () => void
 }) {
@@ -102,6 +104,7 @@ export default function SalesListView({
         isOpen={showEtsyOrdersPanel}
         onClose={() => setShowEtsyOrdersPanel(false)}
         onImportComplete={loadData}
+        registerFeeSummaryRefresh={registerFeeSummaryRefresh}
       />
 
       {error && <div className="alert-danger">{error}</div>}

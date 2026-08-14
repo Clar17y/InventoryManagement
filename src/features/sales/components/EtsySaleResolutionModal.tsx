@@ -34,6 +34,11 @@ function isPlausibleReceiptId(value: string): boolean {
   return /^\d{6,}$/.test(value) && Number.isSafeInteger(Number(value))
 }
 
+function receiptBaseInput(value: string | null): string {
+  const trimmed = value?.trim() ?? ''
+  return /^(\d+)(?:-\d+)?$/.exec(trimmed)?.[1] ?? trimmed
+}
+
 function formatPence(value: number): string {
   const amount = formatCurrency(Math.abs(value) / 100)
   return value < 0 ? `-${amount}` : amount
@@ -119,7 +124,7 @@ function ResolutionPreview({ preview }: { preview: EtsySaleResolutionPreview }) 
 export default function EtsySaleResolutionModal({ sale, onClose, onResolved }: EtsySaleResolutionModalProps) {
   const [resolutionType, setResolutionType] = useState<ResolutionType>('manual_verify')
   const [reclassifyChannel, setReclassifyChannel] = useState<'direct' | 'fair'>('direct')
-  const [etsyOrderId, setEtsyOrderId] = useState(sale.etsyOrderId ?? '')
+  const [etsyOrderId, setEtsyOrderId] = useState(() => receiptBaseInput(sale.etsyOrderId))
   const [attributed, setAttributed] = useState(false)
   const [offsiteAdsFee, setOffsiteAdsFee] = useState('0.00')
   const [vatOnOffsiteAdsFee, setVatOnOffsiteAdsFee] = useState('0.00')
@@ -130,6 +135,7 @@ export default function EtsySaleResolutionModal({ sale, onClose, onResolved }: E
   const [applyLoading, setApplyLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const formGeneration = useRef(0)
+  const applyPending = useRef(false)
   const modalRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -267,7 +273,8 @@ export default function EtsySaleResolutionModal({ sale, onClose, onResolved }: E
   }
 
   const handleApply = async () => {
-    if (!preview || !previewResolution || previewLoading || applyLoading) return
+    if (!preview || !previewResolution || previewLoading || applyPending.current) return
+    applyPending.current = true
     setApplyLoading(true)
     setError(null)
     try {
@@ -275,7 +282,11 @@ export default function EtsySaleResolutionModal({ sale, onClose, onResolved }: E
         resolution: previewResolution,
         fingerprint: preview.fingerprint,
       })
-      await onResolved()
+      try {
+        await onResolved()
+      } catch (refreshError) {
+        console.error('Etsy Sale resolution applied, but post-commit refresh failed:', refreshError)
+      }
       onClose()
     } catch (requestError) {
       if (errorStatus(requestError) === 409) {
@@ -284,6 +295,7 @@ export default function EtsySaleResolutionModal({ sale, onClose, onResolved }: E
       }
       setError(errorMessage(requestError))
     } finally {
+      applyPending.current = false
       setApplyLoading(false)
     }
   }
@@ -302,7 +314,7 @@ export default function EtsySaleResolutionModal({ sale, onClose, onResolved }: E
         {error && <div role="alert" className="alert-danger mt-4">{error}</div>}
 
         <div className="mt-4 space-y-3">
-          <fieldset className="space-y-2">
+          <fieldset className="space-y-2" disabled={applyLoading}>
             <legend className="text-sm font-medium text-gray-800">Resolution</legend>
             <label className="flex items-start gap-2 text-sm text-gray-700">
               <input
@@ -336,7 +348,7 @@ export default function EtsySaleResolutionModal({ sale, onClose, onResolved }: E
           {resolutionType === 'reclassify' && (
             <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
               <div>Etsy fees will be removed on save and the Sale will be reclassified.</div>
-              <fieldset className="mt-2 flex gap-4">
+              <fieldset className="mt-2 flex gap-4" disabled={applyLoading}>
                 <legend className="sr-only">New sale channel</legend>
                 <label className="flex items-center gap-2">
                   <input type="radio" name="reclassify-channel" checked={reclassifyChannel === 'direct'} onChange={() => { invalidatePreview(); setReclassifyChannel('direct') }} />
@@ -359,6 +371,7 @@ export default function EtsySaleResolutionModal({ sale, onClose, onResolved }: E
                 aria-label="Etsy receipt ID"
                 value={etsyOrderId}
                 onChange={(event) => { invalidatePreview(); setEtsyOrderId(event.target.value) }}
+                disabled={applyLoading}
                 inputMode="numeric"
                 aria-describedby="etsy-receipt-id-help"
               />
@@ -370,7 +383,7 @@ export default function EtsySaleResolutionModal({ sale, onClose, onResolved }: E
 
           {resolutionType === 'manual_verify' && (
             <div className="space-y-3 rounded-lg border border-gray-200 p-3">
-              <fieldset className="space-y-2">
+              <fieldset className="space-y-2" disabled={applyLoading}>
                 <legend className="text-sm font-medium text-gray-800">Offsite Ads attribution</legend>
                 <label className="flex items-center gap-2 text-sm text-gray-700">
                   <input type="radio" name="offsite-attribution" checked={attributed} onChange={() => updateAttributed(true)} />
@@ -390,7 +403,7 @@ export default function EtsySaleResolutionModal({ sale, onClose, onResolved }: E
                     aria-label="Offsite Ads fee"
                     value={offsiteAdsFee}
                     onChange={(event) => { invalidatePreview(); setOffsiteAdsFee(event.target.value) }}
-                    disabled={!attributed}
+                    disabled={applyLoading || !attributed}
                     inputMode="decimal"
                   />
                 </label>
@@ -402,7 +415,7 @@ export default function EtsySaleResolutionModal({ sale, onClose, onResolved }: E
                     aria-label="VAT on Offsite Ads fee"
                     value={vatOnOffsiteAdsFee}
                     onChange={(event) => { invalidatePreview(); setVatOnOffsiteAdsFee(event.target.value) }}
-                    disabled={!attributed}
+                    disabled={applyLoading || !attributed}
                     inputMode="decimal"
                   />
                 </label>
@@ -418,6 +431,7 @@ export default function EtsySaleResolutionModal({ sale, onClose, onResolved }: E
               value={note}
               maxLength={500}
               onChange={(event) => { invalidatePreview(); setNote(event.target.value) }}
+              disabled={applyLoading}
               rows={2}
             />
           </label>

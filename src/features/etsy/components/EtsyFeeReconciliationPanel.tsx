@@ -1,10 +1,11 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { ClipboardDocumentIcon, ExclamationTriangleIcon } from '@heroicons/react/24/outline'
 import type { EtsyFeeReconciliationPreview, EtsyPaymentFeePreview } from '../../../lib/api'
 import { useEtsyFeeReconciliation } from '../hooks/useEtsyFeeReconciliation'
 
 interface EtsyFeeReconciliationPanelProps {
   onImportComplete: () => void
+  registerSummaryRefresh?: (refresh: (() => Promise<void>) | null) => void
 }
 
 function formatMoney(value: number): string {
@@ -127,8 +128,9 @@ function PaymentReport({ preview }: { preview: EtsyPaymentFeePreview }) {
   )
 }
 
-export default function EtsyFeeReconciliationPanel({ onImportComplete }: EtsyFeeReconciliationPanelProps) {
+export default function EtsyFeeReconciliationPanel({ onImportComplete, registerSummaryRefresh }: EtsyFeeReconciliationPanelProps) {
   const reconciliation = useEtsyFeeReconciliation({ onImportComplete })
+  const { loadSummary } = reconciliation
   const paymentBusy = reconciliation.paymentLoadingAction !== null
   const statementBusy = reconciliation.statementLoadingAction !== null
   const paymentPreview = reconciliation.paymentPreview
@@ -137,6 +139,15 @@ export default function EtsyFeeReconciliationPanel({ onImportComplete }: EtsyFee
     ? reconciliation.summary.PENDING + reconciliation.summary.PAYMENT_SYNCED + reconciliation.summary.MANUAL_REVIEW
     : 0
 
+  useEffect(() => {
+    if (!registerSummaryRefresh) return
+    const refresh = async () => {
+      await loadSummary()
+    }
+    registerSummaryRefresh(refresh)
+    return () => registerSummaryRefresh(null)
+  }, [loadSummary, registerSummaryRefresh])
+
   return (
     <section aria-labelledby="etsy-fee-reconciliation-title" className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
       <div className="flex items-start justify-between gap-3">
@@ -144,7 +155,7 @@ export default function EtsyFeeReconciliationPanel({ onImportComplete }: EtsyFee
           <h3 id="etsy-fee-reconciliation-title" className="text-base font-semibold text-gray-900">Etsy fee reconciliation</h3>
           <p className="mt-1 text-sm text-gray-600">Review Etsy Payment aggregates and statements before changing sale fees.</p>
         </div>
-        <button type="button" className="btn-secondary text-xs" onClick={() => void reconciliation.loadSummary()} disabled={reconciliation.summaryLoading}>
+        <button type="button" className="btn-secondary text-xs" onClick={() => void loadSummary()} disabled={reconciliation.summaryLoading}>
           Refresh status
         </button>
       </div>

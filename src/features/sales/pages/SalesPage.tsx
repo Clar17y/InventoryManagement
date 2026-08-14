@@ -1,8 +1,7 @@
-import { useState, useEffect, useRef } from 'react'
+import { useCallback, useState, useEffect, useRef } from 'react'
 import { useDateSearchFilter } from '../../../components/filters/DateSearchFilter'
 import {
   sales,
-  etsy,
   hampers,
   inventory,
   settings,
@@ -96,6 +95,7 @@ export default function Sales() {
   const [totalSales, setTotalSales] = useState(0)
   const PAGE_SIZE = 20
   const dataRequestGeneration = useRef(0)
+  const feeSummaryRefresh = useRef<(() => Promise<void>) | null>(null)
 
   // Record sale state
   const [lines, setLines] = useState<SaleLineInput[]>([{ quantity: 1 }])
@@ -458,15 +458,28 @@ export default function Sales() {
     setExpandedId(expandedId === id ? null : id)
   }
 
+  const registerFeeSummaryRefresh = useCallback((refresh: (() => Promise<void>) | null) => {
+    feeSummaryRefresh.current = refresh
+  }, [])
+
   const handleResolutionResolved = async (saleId: string) => {
+    const refreshFeeSummary = feeSummaryRefresh.current
     const [dataRefreshed] = await Promise.all([
       loadData(false, true),
-      etsy.getFeeReconciliationSummary(),
+      refreshFeeSummary?.(),
     ])
     if (!dataRefreshed) return
 
     const refreshGeneration = dataRequestGeneration.current
-    const refreshedSale = await sales.get(saleId)
+    let refreshedSale: Sale
+    try {
+      refreshedSale = await sales.get(saleId)
+    } catch (refreshError) {
+      setError(refreshError instanceof Error
+        ? `Resolution applied, but Sale details could not be refreshed: ${refreshError.message}`
+        : 'Resolution applied, but Sale details could not be refreshed')
+      return
+    }
     if (refreshGeneration !== dataRequestGeneration.current) return
 
     const matchesActiveFilters = saleMatchesFilters(refreshedSale, {
@@ -559,6 +572,7 @@ export default function Sales() {
       handleExpand={handleExpand}
       setViewMode={setViewMode}
       onResolveSale={setResolutionSale}
+      registerFeeSummaryRefresh={registerFeeSummaryRefresh}
       loadData={loadData}
       loadMore={loadMore}
     />

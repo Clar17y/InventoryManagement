@@ -250,4 +250,26 @@ describe('manual Etsy Sale resolution routes', () => {
     expect(response.status).toBe(500)
     expect(committed).toBe(false)
   })
+
+  it('maps a Prisma serializable write conflict to HTTP 409', async () => {
+    const baseUrl = await startServer()
+    const preview = await post(baseUrl, 'preview', {
+      resolution: { type: 'reclassify', channel: 'direct' },
+    })
+    const previewBody = await preview.json() as { fingerprint: string }
+    mockPrisma.$transaction.mockRejectedValueOnce(new Prisma.PrismaClientKnownRequestError(
+      'serialization failure',
+      { code: 'P2034', clientVersion: '6.2.0' },
+    ))
+
+    const response = await post(baseUrl, 'apply', {
+      fingerprint: previewBody.fingerprint,
+      resolution: { type: 'reclassify', channel: 'direct' },
+    })
+
+    expect(response.status).toBe(409)
+    await expect(response.json()).resolves.toEqual({
+      error: 'The Etsy Sale changed; preview the resolution again',
+    })
+  })
 })

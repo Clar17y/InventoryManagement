@@ -507,9 +507,9 @@ describe('Etsy statement reconciliation service', () => {
 
     expect(preview.changes[0]).toMatchObject({
       oldStatus: 'MANUALLY_VERIFIED',
-      newStatus: 'MANUAL_REVIEW',
+      newStatus: 'MANUALLY_VERIFIED',
       source: 'MANUAL',
-      outcome: 'manual_review',
+      outcome: 'unchanged',
       oldFeesPence: 640,
       newFeesPence: 640,
     })

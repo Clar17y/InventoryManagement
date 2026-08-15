@@ -422,6 +422,7 @@ describe('EtsySaleResolutionModal', () => {
     })
     await user.click(screen.getByRole('button', { name: 'Confirm resolution' }))
     await waitFor(() => expect(onResolved).toHaveBeenCalledTimes(1))
+    expect(onResolved).toHaveBeenCalledWith(expect.objectContaining({ applied: true, rows: preview.rows }))
     expect(onClose).toHaveBeenCalledTimes(1)
   })
 

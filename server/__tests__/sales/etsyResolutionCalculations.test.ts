@@ -275,6 +275,24 @@ describe('buildEtsySaleResolution', () => {
     })
   })
 
+  it.each(['PENDING', 'PAYMENT_SYNCED', 'MANUAL_REVIEW'] as const)('allows manual resolution for %s Sales', (status) => {
+    expect(() => buildEtsySaleResolution(
+      'sale-1',
+      resolution({ type: 'reclassify', channel: 'direct' }),
+      [snapshot({ status })],
+      [],
+    )).not.toThrow()
+  })
+
+  it('rejects manual resolution for NOT_APPLICABLE Sales', () => {
+    expect(() => buildEtsySaleResolution(
+      'sale-1',
+      resolution({ type: 'reclassify', channel: 'direct' }),
+      [snapshot({ status: 'NOT_APPLICABLE' })],
+      [],
+    )).toThrow(/unresolved|verification/i)
+  })
+
   it('allocates a one-penny remainder by stable Sale ID for equal gross weights', () => {
     const currentGroup = [
       snapshot({ id: 'sale-c', etsyOrderId: '4137418052-2', grossRevenuePence: 1_000, offsiteAdsFeePence: 0, vatOnOffsiteAdsFeePence: 0, etsyFeesPence: 100 }),
@@ -330,7 +348,7 @@ describe('buildEtsySaleResolution', () => {
         resolution({ type: 'reclassify', channel: 'direct' }),
         [snapshot({ id: 'sale-1', status })],
         [],
-      )).toThrow(/immutable|verified/i)
+      )).toThrow(/immutable|verified|unresolved/i)
     }
   })
 

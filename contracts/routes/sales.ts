@@ -3,6 +3,7 @@ import { cuidSchema, isoDateTimeSchema } from '../http/primitives'
 import {
   etsyFeeReconciliationSourceSchema,
   etsyFeeReconciliationStatusSchema,
+  isPlausibleEtsyReceiptId,
 } from '../domain/etsyFees'
 import { saleChannelSchema, saleSchema } from '../domain/sale'
 
@@ -12,12 +13,10 @@ const fingerprintSchema = z.string().regex(/^[a-f0-9]{64}$/)
 const penceSchema = z.number().int().safe()
 const nullablePenceSchema = penceSchema.nullable()
 const manualResolutionNoteSchema = z.string().trim().min(1).max(500)
-const plausibleEtsyReceiptIdSchema = z.string()
-  .regex(/^\d{6,}$/)
-  .refine(
-    (value) => Number.isSafeInteger(Number(value)),
-    'Etsy receipt ID is outside the safe integer range',
-  )
+const plausibleEtsyReceiptIdSchema = z.string().refine(
+  isPlausibleEtsyReceiptId,
+  'Etsy receipt ID must contain at least six digits within the safe integer range',
+)
 
 export const etsySaleResolutionSchema = z.discriminatedUnion('type', [
   z.object({

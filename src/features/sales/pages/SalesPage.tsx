@@ -7,6 +7,7 @@ import {
   inventory,
   settings,
   Sale,
+  type EtsySaleResolutionApplyResult,
   SalePreview,
   Hamper,
   CategoryLot,
@@ -462,7 +463,11 @@ export default function Sales() {
     feeSummaryRefresh.current = refresh
   }, [])
 
-  const handleResolutionResolved = async (saleId: string) => {
+  const handleResolutionResolved = async (result: EtsySaleResolutionApplyResult) => {
+    const affectedSaleIds = [...new Set(result.rows.map((row) => row.saleId))]
+    const retainedPageTwoIds = new Set(saleList.slice(PAGE_SIZE).map((sale) => sale.id))
+    const targetSaleId = resolutionSale?.id
+    const refreshSaleIds = affectedSaleIds.filter((saleId) => saleId === targetSaleId || retainedPageTwoIds.has(saleId))
     const refreshFeeSummary = feeSummaryRefresh.current
     const [dataRefreshed] = await Promise.all([
       loadData(false, true),
@@ -471,9 +476,9 @@ export default function Sales() {
     if (!dataRefreshed) return
 
     const refreshGeneration = dataRequestGeneration.current
-    let refreshedSale: Sale
+    let refreshedSales: Sale[]
     try {
-      refreshedSale = await sales.get(saleId)
+      refreshedSales = await Promise.all(refreshSaleIds.map((saleId) => sales.get(saleId)))
     } catch (refreshError) {
       setError(refreshError instanceof Error
         ? `Resolution applied, but Sale details could not be refreshed: ${refreshError.message}`
@@ -482,23 +487,32 @@ export default function Sales() {
     }
     if (refreshGeneration !== dataRequestGeneration.current) return
 
-    const matchesActiveFilters = saleMatchesFilters(refreshedSale, {
+    const matchesById = new Map(refreshedSales.map((sale) => [sale.id, saleMatchesFilters(sale, {
       startDate,
       endDate,
       search: debouncedSearchQuery,
       verificationStatus,
-    })
+    })]))
+    const refreshedById = new Map(refreshedSales.map((sale) => [sale.id, sale]))
+    const shouldClearExpanded = expandedId !== null
+      && refreshedById.has(expandedId)
+      && !matchesById.get(expandedId)
     setSaleList((currentSales) => {
-      if (!matchesActiveFilters) {
-        return currentSales.filter((currentSale) => currentSale.id !== refreshedSale.id)
+      const refreshed = currentSales.flatMap((currentSale) => {
+        const nextSale = refreshedById.get(currentSale.id)
+        if (!nextSale) return [currentSale]
+        return matchesById.get(currentSale.id) ? [nextSale] : []
+      })
+      if (targetSaleId !== null && targetSaleId !== undefined
+        && !currentSales.some((currentSale) => currentSale.id === targetSaleId)
+        && refreshedById.has(targetSaleId)
+        && matchesById.get(targetSaleId)) {
+        const targetSale = refreshedById.get(targetSaleId)
+        if (targetSale) refreshed.push(targetSale)
       }
-
-      if (!currentSales.some((currentSale) => currentSale.id === refreshedSale.id)) {
-        return expandedId === saleId ? [...currentSales, refreshedSale] : currentSales
-      }
-      return currentSales.map((currentSale) => currentSale.id === refreshedSale.id ? refreshedSale : currentSale)
+      return refreshed
     })
-    if (!matchesActiveFilters && expandedId === saleId) setExpandedId(null)
+    if (shouldClearExpanded) setExpandedId(null)
   }
 
   if (loading && saleList.length === 0) {
@@ -580,7 +594,7 @@ export default function Sales() {
       <EtsySaleResolutionModal
         sale={resolutionSale}
         onClose={() => setResolutionSale(null)}
-        onResolved={() => handleResolutionResolved(resolutionSale.id)}
+        onResolved={handleResolutionResolved}
       />
     )}
     </>

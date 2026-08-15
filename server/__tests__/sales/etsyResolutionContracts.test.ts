@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  isPlausibleEtsyReceiptId,
   etsyFeeReconciliationSourceSchema,
   etsyFeeReconciliationStatusSchema,
 } from '#contracts/domain/etsyFees'
@@ -19,6 +20,14 @@ const validResolution = {
 }
 
 describe('manual Etsy Sale resolution contracts', () => {
+  it('uses one plausibility rule for numeric Etsy receipt IDs', () => {
+    expect(isPlausibleEtsyReceiptId('123456')).toBe(true)
+    expect(isPlausibleEtsyReceiptId('9007199254740991')).toBe(true)
+    expect(isPlausibleEtsyReceiptId('12345')).toBe(false)
+    expect(isPlausibleEtsyReceiptId('123456-1')).toBe(false)
+    expect(isPlausibleEtsyReceiptId('9007199254740992')).toBe(false)
+  })
+
   it('accepts the new status, source, and verification filter values', () => {
     expect(etsyFeeReconciliationStatusSchema.parse('MANUALLY_VERIFIED')).toBe('MANUALLY_VERIFIED')
     expect(etsyFeeReconciliationSourceSchema.parse('MANUAL')).toBe('MANUAL')

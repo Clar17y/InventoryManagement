@@ -1,5 +1,11 @@
 import { useEffect, useRef, useState } from 'react'
-import type { EtsySaleResolutionPreview, EtsySaleResolutionPreviewBody, Sale } from '../../../lib/api'
+import { isPlausibleEtsyReceiptId } from '#contracts/domain/etsyFees'
+import type {
+  EtsySaleResolutionApplyResult,
+  EtsySaleResolutionPreview,
+  EtsySaleResolutionPreviewBody,
+  Sale,
+} from '../../../lib/api'
 import { sales } from '../../../lib/api'
 import { ApiError } from '../../../lib/api/request'
 import { formatCurrency } from '../../../lib/formatting'
@@ -7,7 +13,7 @@ import { formatCurrency } from '../../../lib/formatting'
 export interface EtsySaleResolutionModalProps {
   sale: Sale
   onClose(): void
-  onResolved(): Promise<void> | void
+  onResolved(result: EtsySaleResolutionApplyResult): Promise<void> | void
 }
 
 type ResolutionType = 'reclassify' | 'correct_receipt_id' | 'manual_verify'
@@ -28,10 +34,6 @@ function poundsInputToPence(value: string): number | null {
   const [whole, fraction = ''] = value.split('.')
   const pence = BigInt(whole ?? '0') * 100n + BigInt(fraction.padEnd(2, '0'))
   return pence <= BigInt(Number.MAX_SAFE_INTEGER) ? Number(pence) : null
-}
-
-function isPlausibleReceiptId(value: string): boolean {
-  return /^\d{6,}$/.test(value) && Number.isSafeInteger(Number(value))
 }
 
 function receiptBaseInput(value: string | null): string {
@@ -217,7 +219,7 @@ export default function EtsySaleResolutionModal({ sale, onClose, onResolved }: E
     }
 
     if (resolutionType === 'correct_receipt_id') {
-      if (!isPlausibleReceiptId(etsyOrderId)) {
+      if (!isPlausibleEtsyReceiptId(etsyOrderId)) {
         setError('Enter a valid Etsy receipt ID (at least 6 digits)')
         return null
       }
@@ -229,7 +231,7 @@ export default function EtsySaleResolutionModal({ sale, onClose, onResolved }: E
     }
 
     const correctedReceiptId = etsyOrderId.trim()
-    if (correctedReceiptId && !isPlausibleReceiptId(correctedReceiptId)) {
+    if (correctedReceiptId && !isPlausibleEtsyReceiptId(correctedReceiptId)) {
       setError('Enter a valid Etsy receipt ID (at least 6 digits) or leave it blank')
       return null
     }
@@ -278,12 +280,12 @@ export default function EtsySaleResolutionModal({ sale, onClose, onResolved }: E
     setApplyLoading(true)
     setError(null)
     try {
-      await sales.applyEtsyResolution(sale.id, {
+      const result = await sales.applyEtsyResolution(sale.id, {
         resolution: previewResolution,
         fingerprint: preview.fingerprint,
       })
       try {
-        await onResolved()
+        await onResolved(result)
       } catch (refreshError) {
         console.error('Etsy Sale resolution applied, but post-commit refresh failed:', refreshError)
       }

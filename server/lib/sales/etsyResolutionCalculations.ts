@@ -3,7 +3,7 @@ import type {
   EtsyFeeReconciliationSource,
   EtsyFeeReconciliationStatus,
 } from '#contracts/domain/etsyFees'
-import { needsVerification } from '#contracts/domain/etsyFees'
+import { isPlausibleEtsyReceiptId, needsVerification } from '#contracts/domain/etsyFees'
 import type { EtsySaleResolution } from '#contracts/routes/sales'
 import { allocateOrderPence, calculateFeeAdjustment, compareIds } from '../etsy/fees/calculations'
 
@@ -85,7 +85,6 @@ export interface EtsySaleResolutionCalculation {
 }
 
 const RECEIPT_ID_PATTERN = /^(\d+)(-\d+)?$/
-const PLAUSIBLE_RECEIPT_ID_PATTERN = /^\d{6,}$/
 const MAX_SAFE_PENCE = BigInt(Number.MAX_SAFE_INTEGER)
 const MIN_SAFE_PENCE = BigInt(Number.MIN_SAFE_INTEGER)
 const MAX_DATABASE_PENCE = 9_999_999_999n
@@ -149,12 +148,8 @@ function normalizeNote(note: string | undefined): string | null {
   return normalized.length > 0 ? normalized : null
 }
 
-function isPlausibleReceiptId(value: string): boolean {
-  return PLAUSIBLE_RECEIPT_ID_PATTERN.test(value) && Number.isSafeInteger(Number(value))
-}
-
 function assertPlausibleReceiptId(value: string, name: string): void {
-  if (!isPlausibleReceiptId(value)) {
+  if (!isPlausibleEtsyReceiptId(value)) {
     throw new RangeError(`${name} must be a plausible safe Etsy receipt ID`)
   }
 }

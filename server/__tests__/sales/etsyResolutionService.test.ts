@@ -504,4 +504,21 @@ describe('Prisma Etsy Sale resolution repository', () => {
     expect(updateMany).toHaveBeenCalledTimes(2)
     expect(state).toEqual(new Map([[first.id, 'before-1'], [second.id, 'before-2']]))
   })
+
+  it('maps a Prisma serializable write conflict to a typed resolution conflict', async () => {
+    const transaction = vi.fn().mockRejectedValue(new Prisma.PrismaClientKnownRequestError(
+      'serialization failure',
+      { code: 'P2034', clientVersion: '6.2.0' },
+    ))
+    const prisma = {
+      sale: { findUnique: vi.fn(), findMany: vi.fn() },
+      $transaction: transaction,
+    }
+    const repository = createPrismaEtsySaleResolutionRepository(prisma as never)
+
+    await expect(repository.applyProposals(
+      [proposalFor('sale-1')],
+      new Date('2026-08-14T12:34:56.000Z'),
+    )).rejects.toBeInstanceOf(EtsySaleResolutionConflictError)
+  })
 })

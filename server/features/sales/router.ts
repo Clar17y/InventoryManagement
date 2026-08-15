@@ -630,7 +630,8 @@ router.get('/analytics/margins', async (req, res) => {
     })
 
     const unverifiedEtsySales = sales.filter(
-      (sale) => sale.saleChannel === 'etsy' && sale.etsyFeeReconciliationStatus !== 'STATEMENT_VERIFIED',
+      (sale) => sale.saleChannel === 'etsy'
+        && NEEDS_VERIFICATION_STATUSES.includes(sale.etsyFeeReconciliationStatus),
     ).length
 
     const totalRevenue = sales.reduce((sum, s) => sum + Number(s.grossRevenue), 0)

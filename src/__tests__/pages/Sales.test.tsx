@@ -196,7 +196,7 @@ describe('Sales', () => {
       rows: [],
       warnings: ['Etsy fees will be removed'],
     } as any);
-    mockApplyEtsyResolution.mockResolvedValue({} as any);
+    mockApplyEtsyResolution.mockResolvedValue({ rows: [{ saleId: 'sale-1' }] } as any);
     mockEtsyGetStatus.mockResolvedValue({ connected: false });
     mockGetPostageTiers.mockResolvedValue([]);
     mockEtsyFeeSummary.mockResolvedValue({ counts: {
@@ -620,6 +620,7 @@ describe('Sales', () => {
         return { sales: firstPage, total: 21 };
       });
       mockSalesGet.mockResolvedValue(refreshedSale as any);
+      mockApplyEtsyResolution.mockResolvedValue({ rows: [{ saleId: loadedSale.id }] } as any);
       render(<Sales />);
 
       await waitFor(() => expect(screen.getByText('Sale 1 ×1')).toBeInTheDocument());
@@ -636,6 +637,58 @@ describe('Sales', () => {
       expect(screen.getByText('Sale 21 ×1')).toBeInTheDocument();
       expect(screen.getByText('Etsy fee verification')).toBeInTheDocument();
       expect(screen.getByText('Net Margin')).toBeInTheDocument();
+    });
+
+    it('refreshes and removes an affected page-two sibling under the active status filter', async () => {
+      const user = userEvent.setup();
+      const firstPage = Array.from({ length: 20 }, (_, index) => saleFor(`sale-${index + 1}`, `Sale ${index + 1}`, 35));
+      const target = saleWithFeeEvidence({
+        id: 'sale-21',
+        lines: [{
+          ...sampleSales[0].lines[0],
+          hamper: { ...sampleSales[0].lines[0].hamper, name: 'Sale 21' },
+        }],
+      });
+      const sibling = saleWithFeeEvidence({
+        id: 'sale-22',
+        lines: [{
+          ...sampleSales[0].lines[0],
+          hamper: { ...sampleSales[0].lines[0].hamper, name: 'Sale 22' },
+        }],
+      });
+      const resolvedTarget = { ...target, saleChannel: 'direct', etsyFeeReconciliationStatus: 'NOT_APPLICABLE' };
+      const resolvedSibling = { ...sibling, saleChannel: 'direct', etsyFeeReconciliationStatus: 'NOT_APPLICABLE' };
+
+      mockSalesList.mockImplementation(async (params) => {
+        if (params?.offset === 20) return { sales: [target, sibling], total: 22 };
+        return { sales: firstPage, total: 22 };
+      });
+      mockSalesGet.mockImplementation(async (id) => {
+        if (id === target.id) return resolvedTarget as any;
+        if (id === sibling.id) return resolvedSibling as any;
+        return target as any;
+      });
+      mockApplyEtsyResolution.mockResolvedValue({
+        applied: true,
+        rows: [{ saleId: target.id }, { saleId: sibling.id }],
+      } as any);
+      render(<Sales />);
+
+      const filter = await screen.findByLabelText('Verification status');
+      await user.selectOptions(filter, 'PENDING');
+      await waitFor(() => expect(mockSalesList).toHaveBeenCalledWith(expect.objectContaining({ verificationStatus: 'PENDING' })));
+      await user.click(screen.getByRole('button', { name: 'Load More (20 of 22)' }));
+      await waitFor(() => expect(screen.getByText('Sale 22 ×1')).toBeInTheDocument());
+      await user.click(screen.getByText('Sale 21 ×1'));
+      await user.click(screen.getByRole('button', { name: 'Resolve Etsy sale' }));
+      await user.click(screen.getByRole('radio', { name: 'This was not an Etsy sale' }));
+      await user.click(screen.getByRole('button', { name: 'Preview resolution' }));
+      await screen.findByText('Preview ready');
+      await user.click(screen.getByRole('button', { name: 'Confirm resolution' }));
+
+      await waitFor(() => expect(mockSalesGet).toHaveBeenCalledWith(sibling.id));
+      expect(screen.queryByText('Sale 21 ×1')).not.toBeInTheDocument();
+      expect(screen.queryByText('Sale 22 ×1')).not.toBeInTheDocument();
     });
   });
 

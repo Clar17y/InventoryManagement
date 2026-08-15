@@ -31,6 +31,10 @@ export function needsVerification(status: EtsyFeeReconciliationStatus): boolean 
   return (NEEDS_VERIFICATION_STATUSES as readonly EtsyFeeReconciliationStatus[]).includes(status)
 }
 
+export function isPlausibleEtsyReceiptId(value: string): boolean {
+  return /^\d{6,}$/u.test(value) && Number.isSafeInteger(Number(value))
+}
+
 const moneySchema = z.number().finite()
 const nullableMoneySchema = moneySchema.nullable()
 const fingerprintSchema = z.string().regex(/^[a-f0-9]{64}$/)

@@ -342,6 +342,7 @@ npm run test:server:run   # Single run (server only)
 | 2026-08-14 | Codex subagent | Task 7: Verify migration, compatibility, and operator handoff | Done | codex/manual-etsy-sale-resolution |
 | 2026-08-14 | Codex subagent | Final review fix wave: manual Etsy Sale resolution | Done | codex/manual-etsy-sale-resolution |
 | 2026-08-15 | Codex subagent | Simplify cleanup: centralize Etsy resolution form locking | Done | codex/manual-etsy-sale-resolution |
+| 2026-08-15 | Codex subagent | PR #41 review follow-up: manual Etsy Sale resolution | Done | codex/manual-etsy-sale-resolution |
 | 2026-08-13 | Codex subagent | Task 2: Make Payment Diagnostics Safe and Truthful | Done | codex/etsy-statement-payment-fixes |
 | 2026-08-13 | Codex subagent | Task 4: Final Verification and Handoff | Done | codex/etsy-statement-payment-fixes |
 

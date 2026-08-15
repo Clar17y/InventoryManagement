@@ -106,7 +106,7 @@ describe('sales and analytics reporting routers', () => {
     delete expectedUnverifiedWhere.etsyFeeReconciliationStatus
     expectedUnverifiedWhere.AND = [
       { etsyFeeReconciliationStatus: { in: ['PENDING', 'PAYMENT_SYNCED', 'MANUAL_REVIEW'] } },
-      { etsyFeeReconciliationStatus: { not: 'STATEMENT_VERIFIED' } },
+      { etsyFeeReconciliationStatus: { in: ['PENDING', 'PAYMENT_SYNCED', 'MANUAL_REVIEW'] } },
     ]
     expect(mockPrisma.sale.count.mock.calls[1][0].where).toEqual(expectedUnverifiedWhere)
   })
@@ -138,9 +138,40 @@ describe('sales and analytics reporting routers', () => {
       where: {
         ...findManyWhere,
         saleChannel: 'etsy',
-        etsyFeeReconciliationStatus: { not: 'STATEMENT_VERIFIED' },
+        etsyFeeReconciliationStatus: { in: ['PENDING', 'PAYMENT_SYNCED', 'MANUAL_REVIEW'] },
       },
     })
+  })
+
+  it('counts only unresolved Etsy statuses in sales margin analytics', async () => {
+    const sale = (status: string, saleChannel = 'etsy') => ({
+      saleChannel,
+      etsyFeeReconciliationStatus: status,
+      grossRevenue: 10,
+      etsyFees: 1,
+      packagingOverhead: 0,
+      postageCharged: 0,
+      postageCost: 0,
+      totalCost: 2,
+      margin: 7,
+      lines: [],
+    })
+    mockPrisma.sale.findMany.mockResolvedValue([
+      sale('PENDING'),
+      sale('PAYMENT_SYNCED'),
+      sale('MANUAL_REVIEW'),
+      sale('STATEMENT_VERIFIED'),
+      sale('MANUALLY_VERIFIED'),
+      sale('NOT_APPLICABLE'),
+      sale('NOT_APPLICABLE', 'direct'),
+    ])
+    const baseUrl = await startServer()
+
+    const response = await fetch(`${baseUrl}/api/sales/analytics/margins?days=30`)
+    const body = await response.json() as { summary: { unverifiedEtsySales: number } }
+
+    expect(response.status).toBe(200)
+    expect(body.summary.unverifiedEtsySales).toBe(3)
   })
 
   it('maps Decimal and null Offsite Ads sums without changing existing profit totals', async () => {

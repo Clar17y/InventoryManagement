@@ -1,11 +1,8 @@
 import type { Prisma, EtsyFeeReconciliationStatus } from '@prisma/client'
 import type { SalesVerificationFilter } from '#contracts/routes/sales'
+import { NEEDS_VERIFICATION_STATUSES as UNRESOLVED_STATUSES } from '#contracts/domain/etsyFees'
 
-const NEEDS_VERIFICATION_STATUSES: EtsyFeeReconciliationStatus[] = [
-  'PENDING',
-  'PAYMENT_SYNCED',
-  'MANUAL_REVIEW',
-]
+export const NEEDS_VERIFICATION_STATUSES: EtsyFeeReconciliationStatus[] = [...UNRESOLVED_STATUSES]
 
 export function buildSalesWhereClause(query: {
   startDate?: unknown

@@ -1,4 +1,5 @@
 import { useCallback, useState, useEffect, useRef } from 'react'
+import { needsVerification } from '#contracts/domain/etsyFees'
 import { useDateSearchFilter } from '../../../components/filters/DateSearchFilter'
 import {
   sales,
@@ -22,7 +23,6 @@ import type { LotOverride, SaleLineInput } from '../types'
 
 type ViewMode = 'list' | 'record'
 
-const NEEDS_VERIFICATION_STATUSES = ['PENDING', 'PAYMENT_SYNCED', 'MANUAL_REVIEW'] as const
 
 function saleMatchesFilters(
   sale: Sale,
@@ -57,7 +57,7 @@ function saleMatchesFilters(
 
   if (filters.verificationStatus) {
     const statusMatches = filters.verificationStatus === 'needs_verification'
-      ? NEEDS_VERIFICATION_STATUSES.includes(sale.etsyFeeReconciliationStatus as typeof NEEDS_VERIFICATION_STATUSES[number])
+      ? needsVerification(sale.etsyFeeReconciliationStatus)
       : sale.etsyFeeReconciliationStatus === filters.verificationStatus
     if (!statusMatches) return false
   }

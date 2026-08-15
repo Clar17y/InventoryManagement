@@ -18,6 +18,19 @@ export const etsyFeeReconciliationSourceSchema = z.enum([
 export type EtsyFeeReconciliationStatus = z.infer<typeof etsyFeeReconciliationStatusSchema>
 export type EtsyFeeReconciliationSource = z.infer<typeof etsyFeeReconciliationSourceSchema>
 
+// Statuses whose Offsite fee evidence is still unresolved. STATEMENT_VERIFIED and
+// MANUALLY_VERIFIED are terminal, and NOT_APPLICABLE has no Etsy evidence to verify,
+// so all three are excluded from "needs verification" counts and from manual resolution.
+export const NEEDS_VERIFICATION_STATUSES = [
+  'PENDING',
+  'PAYMENT_SYNCED',
+  'MANUAL_REVIEW',
+] as const satisfies readonly EtsyFeeReconciliationStatus[]
+
+export function needsVerification(status: EtsyFeeReconciliationStatus): boolean {
+  return (NEEDS_VERIFICATION_STATUSES as readonly EtsyFeeReconciliationStatus[]).includes(status)
+}
+
 const moneySchema = z.number().finite()
 const nullableMoneySchema = moneySchema.nullable()
 const fingerprintSchema = z.string().regex(/^[a-f0-9]{64}$/)

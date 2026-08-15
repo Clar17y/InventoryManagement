@@ -4,7 +4,7 @@ import type { EtsyFeeReconciliationStatus } from '@prisma/client'
 import { prisma } from '../../lib/prisma'
 import { allocateStockForRequirement, allocateStockForVariantRequirement, type AllocationLine } from '../../lib/sales/allocation'
 import { calculateEtsyFees, calculatePackagingOverhead } from '../../lib/sales/fees'
-import { buildSalesWhereClause } from '../../lib/sales/filters'
+import { buildSalesWhereClause, NEEDS_VERIFICATION_STATUSES } from '../../lib/sales/filters'
 import { groupSalesByChannel, groupSalesByHamper } from '../../lib/sales/grouping'
 import {
   etsySaleResolutionApplyBodySchema,
@@ -502,12 +502,12 @@ router.get('/summary', async (req, res) => {
       saleChannel: 'etsy' as const,
     }
     if (where.etsyFeeReconciliationStatus === undefined) {
-      unverifiedWhere.etsyFeeReconciliationStatus = { not: 'STATEMENT_VERIFIED' }
+      unverifiedWhere.etsyFeeReconciliationStatus = { in: NEEDS_VERIFICATION_STATUSES }
     } else {
       delete unverifiedWhere.etsyFeeReconciliationStatus
       unverifiedWhere.AND = [
         { etsyFeeReconciliationStatus: where.etsyFeeReconciliationStatus },
-        { etsyFeeReconciliationStatus: { not: 'STATEMENT_VERIFIED' } },
+        { etsyFeeReconciliationStatus: { in: NEEDS_VERIFICATION_STATUSES } },
       ]
     }
 

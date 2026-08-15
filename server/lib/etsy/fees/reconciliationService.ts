@@ -315,7 +315,7 @@ function buildManualStatementGroupPlan(
       receiptId,
       saleIds: snapshots.map((snapshot) => snapshot.id),
       oldStatus: snapshots[0]?.status ?? null,
-      newStatus: 'MANUAL_REVIEW',
+      newStatus: preservesManualVerification ? snapshots[0]?.status ?? null : 'MANUAL_REVIEW',
       attributed: snapshots[0]?.offsiteAdsAttributed ?? null,
       oldFeesPence,
       newFeesPence: oldFeesPence,
@@ -332,8 +332,10 @@ function buildManualStatementGroupPlan(
         'VAT on Offsite Ads fee',
       ),
       source: snapshots[0]?.etsyFeeReconciliationSource ?? null,
-      outcome: 'manual_review',
-      message: `Order ${receiptId} needs manual review because ${reason}`,
+      outcome: preservesManualVerification ? 'unchanged' : 'manual_review',
+      message: preservesManualVerification
+        ? `Order ${receiptId} keeps its manual verification because ${reason}`
+        : `Order ${receiptId} needs manual review because ${reason}`,
       allocations: plans.map((plan) => plan.allocation),
     },
   }

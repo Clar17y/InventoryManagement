@@ -5,6 +5,7 @@ import {
   ChevronUpIcon,
   PlusIcon,
 } from '@heroicons/react/24/outline'
+import { needsVerification } from '#contracts/domain/etsyFees'
 import EtsyOrdersSyncPanel from '../../../components/EtsyOrdersSyncPanel'
 import DateSearchFilter from '../../../components/filters/DateSearchFilter'
 import type { Sale, SaleChannel, SalesSummary, SalesVerificationFilter } from '../../../lib/api'
@@ -278,16 +279,15 @@ export default function SalesListView({
                   {sale.saleChannel === 'etsy' && (
                     <>
                       <EtsyFeeDetails sale={sale} />
-                      {sale.etsyFeeReconciliationStatus !== 'STATEMENT_VERIFIED'
-                        && sale.etsyFeeReconciliationStatus !== 'MANUALLY_VERIFIED' && (
-                          <button
-                            type="button"
-                            className="btn-secondary"
-                            onClick={() => onResolveSale(sale)}
-                          >
-                            Resolve Etsy sale
-                          </button>
-                        )}
+                      {needsVerification(sale.etsyFeeReconciliationStatus) && (
+                        <button
+                          type="button"
+                          className="btn-secondary"
+                          onClick={() => onResolveSale(sale)}
+                        >
+                          Resolve Etsy sale
+                        </button>
+                      )}
                     </>
                   )}
 

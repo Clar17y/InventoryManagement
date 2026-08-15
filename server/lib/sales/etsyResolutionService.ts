@@ -481,6 +481,12 @@ async function assertGroupMembership(
   }
 }
 
+// P2034 is Prisma's code for a write conflict or deadlock, which is how a Serializable
+// transaction reports that a concurrent writer touched the same rows.
+function isTransactionConflict(error: unknown): boolean {
+  return error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2034'
+}
+
 export function createPrismaEtsySaleResolutionRepository(prisma: PrismaClient): EtsySaleResolutionRepository {
   async function loadGroupByBaseReceiptId(baseReceiptId: string): Promise<EtsySaleResolutionSnapshot[]> {
     const rows = await prisma.sale.findMany({
@@ -506,16 +512,25 @@ export function createPrismaEtsySaleResolutionRepository(prisma: PrismaClient): 
     },
     loadGroupByBaseReceiptId,
     async applyProposals(proposals: readonly EtsySaleResolutionProposal[], appliedAt: Date): Promise<void> {
-      await prisma.$transaction(async (tx) => {
-        await assertGroupMembership(tx, proposals)
-        for (const proposal of proposals) {
-          const result = await tx.sale.updateMany({
-            where: { id: proposal.saleId, updatedAt: new Date(proposal.expectedUpdatedAt) },
-            data: writeData(proposal.data, appliedAt),
-          })
-          if (result.count !== 1) throw new EtsySaleResolutionConflictError()
+      try {
+        await prisma.$transaction(async (tx) => {
+          await assertGroupMembership(tx, proposals)
+          for (const proposal of proposals) {
+            const result = await tx.sale.updateMany({
+              where: { id: proposal.saleId, updatedAt: new Date(proposal.expectedUpdatedAt) },
+              data: writeData(proposal.data, appliedAt),
+            })
+            if (result.count !== 1) throw new EtsySaleResolutionConflictError()
+          }
+        }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable })
+      } catch (error) {
+        // Serializable isolation surfaces concurrent writes as P2034; report them as a
+        // retryable conflict rather than letting them escape as an unhandled HTTP 500.
+        if (isTransactionConflict(error)) {
+          throw new EtsySaleResolutionConflictError('The Etsy Sale changed; preview the resolution again')
         }
-      }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable })
+        throw error
+      }
     },
   }
 }

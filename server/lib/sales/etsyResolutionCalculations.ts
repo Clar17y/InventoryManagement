@@ -3,6 +3,7 @@ import type {
   EtsyFeeReconciliationSource,
   EtsyFeeReconciliationStatus,
 } from '#contracts/domain/etsyFees'
+import { needsVerification } from '#contracts/domain/etsyFees'
 import type { EtsySaleResolution } from '#contracts/routes/sales'
 import { allocateOrderPence, calculateFeeAdjustment, compareIds } from '../etsy/fees/calculations'
 
@@ -210,9 +211,8 @@ function validateResolution(resolution: EtsySaleResolution): void {
 }
 
 function assertMutableGroup(current: readonly EtsySaleResolutionSnapshot[]): void {
-  if (current.some((snapshot) => snapshot.status === 'STATEMENT_VERIFIED'
-    || snapshot.status === 'MANUALLY_VERIFIED')) {
-    throw new EtsySaleResolutionCalculationConflictError('statement-verified and manually verified Sales are immutable through manual resolution')
+  if (current.some((snapshot) => !needsVerification(snapshot.status))) {
+    throw new EtsySaleResolutionCalculationConflictError('only unresolved Etsy Sales (pending, payment-synced, or manual review) can be changed through manual resolution')
   }
 }
 

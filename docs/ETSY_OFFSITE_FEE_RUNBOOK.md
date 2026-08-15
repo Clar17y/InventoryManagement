@@ -292,7 +292,35 @@ Re-importing the same normalized statement checksum returns the saved summary an
 
 If a new file changes an already `STATEMENT_VERIFIED` order, first preview without revision permission. If the service reports a revision conflict, confirm the revision in the UI (or set `allowStatementRevision = $true` only after data-owner review), then preview again. Send the same `allowStatementRevision` value with apply. Review the old/new evidence and totals before approval; never force a revision to clear a discrepancy.
 
-## 9. Post-apply checks
+## 9. Resolve an exceptional Etsy Sale manually
+
+Use the monthly Etsy statement whenever it contains authoritative order-level evidence. The statement workflow remains the normal path for a genuine Etsy receipt: it proves Offsite Ads attribution (or its absence), applies the exact statement fee/VAT rows, and keeps the statement import as provenance. Use manual resolution only for an exception the statement cannot safely establish, such as an in-person sale recorded as Etsy with a placeholder order ID (`1`), a genuine receipt with a wrong local ID, a missing/malformed statement row, or a receipt that the Payment API cannot safely return or normalize.
+
+Payment data cannot establish itemized Offsite Ads attribution. Its values are aggregate gross/fees/net diagnostics, not a receipt-level Offsite charge. Keep `ETSY_PAYMENT_FEES_VALIDATED=false` unless the separate two-example validation gate is approved; use statement evidence or this explicit manual workflow for the individual Sale.
+
+Open **Sales**, expand an unresolved Etsy row, and choose **Resolve Etsy sale**. The action is unavailable for Direct/Fair rows and for `STATEMENT_VERIFIED` or `MANUALLY_VERIFIED` rows. Choose exactly one mode:
+
+1. **This was not an Etsy sale** — choose Direct or Fair. This is the correct path for a placeholder such as order ID `1` when the transaction was in person. The complete local receipt group is reclassified, the Etsy receipt ID is cleared, every standard Etsy fee component and total `etsyFees` become zero, Offsite/Payment evidence is cleared, status becomes `NOT_APPLICABLE`, and source becomes `MANUAL`. Net revenue is recomputed as `grossRevenue + postageCharged - packagingOverhead`; margin is recomputed as `netRevenue - totalCost - postageCost`. Revenue, postage, packaging, stock consumption, and total cost are not changed. Add an optional note describing the evidence.
+2. **Correct the Etsy receipt ID** — enter the corrected numeric Etsy ID. It must contain at least six digits, be safe for Etsy/JavaScript integer handling, and not collide with another exact or suffixed receipt group. This mode preserves financial values but clears stale attribution, Payment aggregates, statement link, source, and timestamp, and returns the group to `PENDING`. Use manual verification or reclassification instead when authoritative evidence is already stored.
+3. **Manually verify this Etsy sale** — select attributed or not attributed and enter final receipt-level Offsite Ads fee and VAT amounts. These are final balances, not deltas: enter non-negative whole pence; if not attributed both values are forced to zero; if attributed, both are required and VAT may legitimately be zero. No fee percentage is inferred. Existing standard Etsy fee components stay unchanged, while the prior Offsite fee/VAT components are replaced by the entered final balances, status becomes `MANUALLY_VERIFIED`, source becomes `MANUAL`, Payment aggregates and statement link are cleared, and net revenue/margin move by the exact fee delta.
+
+All three modes operate on the full local receipt group. An exact base ID and its immediate numeric suffixes belong together (`12345`, `12345-1`, `12345-2`); a placeholder group (`1`, `1-1`, `1-2`) is grouped the same way. Correcting a base ID preserves those suffixes. The final manual fee and VAT are allocated across the group by gross-revenue weight using deterministic largest-remainder pence allocation (Sale ID breaks equal remainders), so row allocations add exactly to the entered receipt totals. A malformed ID, collision, mixed/unsafe group, or statement-verified member is a no-write conflict.
+
+The modal always uses **Preview → Confirm**. Preview rebuilds the complete group from current database values and shows affected-row count, old/new receipt-level fee, net revenue and margin totals, row-level before/after values, and warnings for cleared evidence or channel changes; it performs no writes. Confirm is enabled only for the unchanged preview fingerprint. Any form change invalidates the preview, and a `409` stale/conflict response requires discarding it and previewing again. Apply recalculates inside one transaction, compares every row's `id + updatedAt`, and commits all group rows or none. Cancel, validation errors, stale previews, collisions, and failed transactions do not write partial financial state.
+
+`STATEMENT_VERIFIED` is immutable through manual resolution: the action is hidden and the service rejects any group containing one without writes. `MANUALLY_VERIFIED` is also protected from manual resolution and Payment reconciliation. An explicitly reviewed statement may supersede a manual result through the normal statement Preview → Apply flow; the preview must show the change and the manual note is retained as historical context.
+
+### Verification-status filter
+
+Use the Sales **Verification status** dropdown to find work without changing the date/search scope. `Needs verification` is the combined population `PENDING + PAYMENT_SYNCED + MANUAL_REVIEW`; the exact options include Pending, Payment synced, Manual review, Statement verified, Manually verified, and Not applicable. The selected value is sent to both the Sales list and Sales summary endpoints, so rows and totals describe the same population; after a resolution the row may disappear while the selected filter remains. The Etsy reconciliation status summary counts Etsy Sales only, so Direct/Fair rows cannot inflate the unresolved Etsy count.
+
+### Backup, migration, and rollback order
+
+For any production rollout, obtain explicit owner authorization first. Immediately before the authorized action, record the provider's PITR/recovery-point timestamp and take the normal JSON backup; the JSON export is supplemental and does not replace provider recovery because it omits `EtsyStatementImport` and has no restore command. Verify the disposable migration exercise and all pending migrations before production. Apply the additive migration through the existing Render startup migration command **before** deploying application code that references `MANUALLY_VERIFIED`, `MANUAL`, or `etsyManualResolutionNote`; this migration has no data backfill. Then deploy the compatible application, perform read-only status/smoke checks, and only afterward follow the separate statement/manual approval gate. Never run a migration against a production URL during an unapproved check.
+
+If a preview is malformed, stale, contradictory, or unexpectedly broad, abort without applying it. There is no application-level rollback endpoint. If an authorized apply has already committed incorrect values, stop further reconciliation, preserve the preview/apply response, fingerprint, checksum, backup name, and approval, and obtain explicit provider-owner approval for restore to the pre-apply backup or PITR point. A provider restore may undo unrelated writes; after it, rerun the migration-preservation queries and monthly totals/status checks. Do not reverse `etsyFees`, `netRevenue`, `margin`, Offsite fields, or status rows with ad hoc SQL.
+
+## 10. Post-apply checks
 
 After each approved apply:
 
@@ -303,13 +331,13 @@ After each approved apply:
 5. submit the same statement again as a controlled duplicate check and confirm `duplicate: true` with no writes;
 6. retain the backup filename, preview/apply fingerprints, checksums, review-ID files, and approval record according to the normal operations retention policy.
 
-## Rollback / abort
+## 11. Rollback / abort
 
 There is no application-level rollback endpoint. If a preview is malformed, stale, contradictory, or unexpectedly changes scope, do not apply it; previews and failed transactions are no-write outcomes. If an apply has already completed and the saved totals are wrong, stop further reconciliation, preserve the response/fingerprint/checksum, and obtain explicit owner approval for a database-provider restore to the pre-apply backup or point-in-time snapshot. A restore can also undo unrelated writes, so it must be coordinated and followed by the two migration-preservation queries and monthly totals check. Do not attempt ad hoc SQL edits to reverse `etsyFees`, `netRevenue`, `margin`, Offsite fields, or status rows.
 
-## Production boundary for this task
+## 12. Production boundary for this task
 
 This runbook was written and verified without accessing Etsy, a production database, a live receipt, or a statement. No migration, backup, backfill, Payment apply, or statement apply was performed by this task. Production execution remains a separately approved operator action.
-## Production recovery prerequisite
+## 13. Production recovery prerequisite
 
 Before any production reconciliation or migration, the database provider must have point-in-time recovery (PITR) enabled and a verified recovery-point timestamp recorded immediately before the authorized action. The repository's `npm run db:backup` JSON export is supplemental only: it is incomplete (it omits `EtsyStatementImport`) and has no restore procedure, so it does not satisfy this mandatory provider backup/PITR gate.

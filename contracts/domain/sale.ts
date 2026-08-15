@@ -77,6 +77,7 @@ export const saleSchema = z.object({
   etsyPaymentNet: decimalSchema.nullable(),
   etsyFeeReconciliationStatus: etsyFeeReconciliationStatusSchema,
   etsyFeeReconciliationSource: etsyFeeReconciliationSourceSchema.nullable(),
+  etsyManualResolutionNote: z.string().max(500).nullable(),
   etsyFeeReconciledAt: isoDateTimeSchema.nullable(),
   etsyStatementImportId: cuidSchema.nullable(),
   packagingOverhead: decimalSchema,

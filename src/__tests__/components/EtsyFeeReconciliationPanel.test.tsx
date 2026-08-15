@@ -44,6 +44,7 @@ const summary = {
     PENDING: 2411,
     PAYMENT_SYNCED: 0,
     STATEMENT_VERIFIED: 5,
+    MANUALLY_VERIFIED: 17,
     MANUAL_REVIEW: 0,
   },
 }
@@ -160,6 +161,14 @@ describe('EtsyFeeReconciliationPanel', () => {
     render(<EtsyFeeReconciliationPanel onImportComplete={vi.fn()} />)
 
     expect(screen.getByText(/Upload the original Etsy statement CSV as downloaded\. Do not resave or sanitize it\./i)).toBeInTheDocument()
+  })
+
+  it('shows manually verified counts without including them in the unresolved total', async () => {
+    render(<EtsyFeeReconciliationPanel onImportComplete={vi.fn()} />)
+
+    expect(await screen.findByText('2,411 Etsy sales need statement verification')).toBeInTheDocument()
+    expect(screen.getByText('Manually verified')).toBeInTheDocument()
+    expect(screen.getByText('17')).toBeInTheDocument()
   })
 
   it('clarifies observe-only Payment results and hides canonical apply', async () => {

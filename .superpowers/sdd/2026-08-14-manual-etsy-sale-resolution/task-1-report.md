@@ -1,7 +1,9 @@
 # Task 1 report — Persist and contract manual Etsy Sale resolution state
 
-Date: 2026-08-14  
-Branch: `codex/manual-etsy-sale-resolution`  
+Date: 2026-08-14
+
+Branch: `codex/manual-etsy-sale-resolution`
+
 Base commit: `d12ace5962bee49c2c26e094afe4d8e0a4392a43`
 
 ## Status

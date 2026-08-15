@@ -313,8 +313,8 @@ export default function EtsySaleResolutionModal({ sale, onClose, onResolved }: E
 
         {error && <div role="alert" className="alert-danger mt-4">{error}</div>}
 
-        <div className="mt-4 space-y-3">
-          <fieldset className="space-y-2" disabled={applyLoading}>
+        <fieldset className="mt-4 space-y-3 border-0 p-0" disabled={applyLoading}>
+          <fieldset className="space-y-2">
             <legend className="text-sm font-medium text-gray-800">Resolution</legend>
             <label className="flex items-start gap-2 text-sm text-gray-700">
               <input
@@ -348,7 +348,7 @@ export default function EtsySaleResolutionModal({ sale, onClose, onResolved }: E
           {resolutionType === 'reclassify' && (
             <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
               <div>Etsy fees will be removed on save and the Sale will be reclassified.</div>
-              <fieldset className="mt-2 flex gap-4" disabled={applyLoading}>
+              <fieldset className="mt-2 flex gap-4">
                 <legend className="sr-only">New sale channel</legend>
                 <label className="flex items-center gap-2">
                   <input type="radio" name="reclassify-channel" checked={reclassifyChannel === 'direct'} onChange={() => { invalidatePreview(); setReclassifyChannel('direct') }} />
@@ -371,7 +371,6 @@ export default function EtsySaleResolutionModal({ sale, onClose, onResolved }: E
                 aria-label="Etsy receipt ID"
                 value={etsyOrderId}
                 onChange={(event) => { invalidatePreview(); setEtsyOrderId(event.target.value) }}
-                disabled={applyLoading}
                 inputMode="numeric"
                 aria-describedby="etsy-receipt-id-help"
               />
@@ -383,7 +382,7 @@ export default function EtsySaleResolutionModal({ sale, onClose, onResolved }: E
 
           {resolutionType === 'manual_verify' && (
             <div className="space-y-3 rounded-lg border border-gray-200 p-3">
-              <fieldset className="space-y-2" disabled={applyLoading}>
+              <fieldset className="space-y-2">
                 <legend className="text-sm font-medium text-gray-800">Offsite Ads attribution</legend>
                 <label className="flex items-center gap-2 text-sm text-gray-700">
                   <input type="radio" name="offsite-attribution" checked={attributed} onChange={() => updateAttributed(true)} />
@@ -403,7 +402,7 @@ export default function EtsySaleResolutionModal({ sale, onClose, onResolved }: E
                     aria-label="Offsite Ads fee"
                     value={offsiteAdsFee}
                     onChange={(event) => { invalidatePreview(); setOffsiteAdsFee(event.target.value) }}
-                    disabled={applyLoading || !attributed}
+                    disabled={!attributed}
                     inputMode="decimal"
                   />
                 </label>
@@ -415,7 +414,7 @@ export default function EtsySaleResolutionModal({ sale, onClose, onResolved }: E
                     aria-label="VAT on Offsite Ads fee"
                     value={vatOnOffsiteAdsFee}
                     onChange={(event) => { invalidatePreview(); setVatOnOffsiteAdsFee(event.target.value) }}
-                    disabled={applyLoading || !attributed}
+                    disabled={!attributed}
                     inputMode="decimal"
                   />
                 </label>
@@ -431,11 +430,10 @@ export default function EtsySaleResolutionModal({ sale, onClose, onResolved }: E
               value={note}
               maxLength={500}
               onChange={(event) => { invalidatePreview(); setNote(event.target.value) }}
-              disabled={applyLoading}
               rows={2}
             />
           </label>
-        </div>
+        </fieldset>
 
         <div className="mt-4 flex flex-wrap gap-2">
           <button type="button" className="btn-secondary" onClick={() => void handlePreview()} disabled={previewLoading || applyLoading}>

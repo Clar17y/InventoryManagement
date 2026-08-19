@@ -1,7 +1,9 @@
 /* eslint-disable react-refresh/only-export-components */
 
-import { useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { KeyboardEvent } from 'react'
+
+const DESKTOP_QUERY = '(min-width: 768px)'
 
 export const settingsSections = [
   { id: 'postage', label: 'Postage' },
@@ -18,8 +20,38 @@ interface SettingsSectionNavProps {
   onChange: (section: SettingsSection) => void
 }
 
+function getDesktopMatch() {
+  return typeof window !== 'undefined'
+    && typeof window.matchMedia === 'function'
+    && window.matchMedia(DESKTOP_QUERY).matches
+}
+
+function useDesktopLayout() {
+  const [isDesktop, setIsDesktop] = useState(getDesktopMatch)
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return
+
+    const mediaQuery = window.matchMedia(DESKTOP_QUERY)
+    const handleChange = (event: MediaQueryListEvent) => setIsDesktop(event.matches)
+
+    setIsDesktop(mediaQuery.matches)
+
+    if (mediaQuery.addEventListener) {
+      mediaQuery.addEventListener('change', handleChange)
+      return () => mediaQuery.removeEventListener('change', handleChange)
+    }
+
+    mediaQuery.addListener(handleChange)
+    return () => mediaQuery.removeListener(handleChange)
+  }, [])
+
+  return isDesktop
+}
+
 export default function SettingsSectionNav({ active, onChange }: SettingsSectionNavProps) {
   const tabRefs = useRef<Array<HTMLButtonElement | null>>([])
+  const isDesktop = useDesktopLayout()
 
   const handleKeyDown = (event: KeyboardEvent<HTMLButtonElement>, index: number) => {
     let nextIndex: number | null = null
@@ -53,7 +85,7 @@ export default function SettingsSectionNav({ active, onChange }: SettingsSection
       <div
         role="tablist"
         aria-label="Settings sections"
-        aria-orientation="horizontal"
+        aria-orientation={isDesktop ? 'vertical' : 'horizontal'}
         className="flex min-w-max gap-1 overflow-x-auto md:min-w-0 md:flex-col md:overflow-visible"
       >
         {settingsSections.map((section, index) => {

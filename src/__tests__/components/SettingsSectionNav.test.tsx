@@ -1,9 +1,52 @@
 import { useState } from 'react'
-import { describe, expect, it, vi } from 'vitest'
-import { screen } from '@testing-library/react'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { act, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { render } from '../utils/test-utils'
 import SettingsSectionNav from '../../features/settings/components/SettingsSectionNav'
+
+const DESKTOP_QUERY = '(min-width: 768px)'
+const defaultMatchMedia = window.matchMedia
+
+function installMatchMediaMock(initialMatches: boolean) {
+  let currentMatches = initialMatches
+  const listeners = new Set<(event: MediaQueryListEvent) => void>()
+  const mediaQuery = {
+    get matches() {
+      return currentMatches
+    },
+    media: DESKTOP_QUERY,
+    onchange: null,
+    addEventListener: vi.fn((_event: string, listener: (event: MediaQueryListEvent) => void) => {
+      listeners.add(listener)
+    }),
+    removeEventListener: vi.fn((_event: string, listener: (event: MediaQueryListEvent) => void) => {
+      listeners.delete(listener)
+    }),
+    addListener: vi.fn((listener: (event: MediaQueryListEvent) => void) => {
+      listeners.add(listener)
+    }),
+    removeListener: vi.fn((listener: (event: MediaQueryListEvent) => void) => {
+      listeners.delete(listener)
+    }),
+    dispatchEvent: vi.fn(),
+  } as unknown as MediaQueryList
+
+  const matchMedia = vi.fn().mockReturnValue(mediaQuery)
+  window.matchMedia = matchMedia
+
+  return {
+    mediaQuery,
+    setMatches(nextMatches: boolean) {
+      currentMatches = nextMatches
+      listeners.forEach((listener) => listener({ matches: nextMatches, media: DESKTOP_QUERY } as MediaQueryListEvent))
+    },
+  }
+}
+
+afterEach(() => {
+  window.matchMedia = defaultMatchMedia
+})
 
 describe('SettingsSectionNav', () => {
   it('renders every section and reports the selected tab', async () => {
@@ -20,6 +63,31 @@ describe('SettingsSectionNav', () => {
     await user.click(screen.getByRole('tab', { name: 'Suppliers' }))
 
     expect(onChange).toHaveBeenCalledWith('suppliers')
+  })
+
+  it('exposes horizontal orientation below the desktop breakpoint', async () => {
+    installMatchMediaMock(false)
+
+    render(<SettingsSectionNav active="postage" onChange={vi.fn()} />)
+
+    await waitFor(() => {
+      expect(screen.getByRole('tablist')).toHaveAttribute('aria-orientation', 'horizontal')
+    })
+  })
+
+  it('exposes vertical orientation at desktop width and follows media-query changes', async () => {
+    const controller = installMatchMediaMock(true)
+
+    render(<SettingsSectionNav active="postage" onChange={vi.fn()} />)
+
+    await waitFor(() => {
+      expect(screen.getByRole('tablist')).toHaveAttribute('aria-orientation', 'vertical')
+    })
+    expect(controller.mediaQuery.addEventListener).toHaveBeenCalledWith('change', expect.any(Function))
+
+    act(() => controller.setMatches(false))
+
+    expect(screen.getByRole('tablist')).toHaveAttribute('aria-orientation', 'horizontal')
   })
 
   it('supports keyboard navigation and updates the selected tab', async () => {

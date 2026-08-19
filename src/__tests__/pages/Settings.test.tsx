@@ -44,6 +44,13 @@ const mockGetAccounts = vi.mocked(etsy.getAccounts);
 const mockSuppliersList = vi.mocked(suppliers.list);
 const mockSuppliersCreate = vi.mocked(suppliers.create);
 
+const renderSettingsAt = (search = '') => {
+  window.history.replaceState({}, '', `/settings${search}`);
+  return render(<Settings />);
+};
+
+const renderSettings = (section: string) => renderSettingsAt(`?section=${section}`);
+
 describe('Settings', () => {
   const sampleEtsyFee = {
     id: 'fee-1',
@@ -66,6 +73,7 @@ describe('Settings', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    window.history.replaceState({}, '', '/settings');
     mockGetEtsyFees.mockResolvedValue([sampleEtsyFee] as any);
     mockGetPackagingOverhead.mockResolvedValue({
       overheads: [sampleOverhead],
@@ -116,23 +124,94 @@ describe('Settings', () => {
     });
   });
 
+  describe('section navigation boundaries', () => {
+    it('keeps every existing More link destination unchanged', async () => {
+      renderSettingsAt();
+
+      await waitFor(() => {
+        const expectedLinks = [
+          ['Sales', '/sales'],
+          ['Analytics', '/analytics'],
+          ['Shopping List', '/shopping-list'],
+          ['Categories', '/categories'],
+          ['Products', '/products'],
+          ['Business Expenses', '/expenses'],
+        ] as const;
+
+        for (const [name, destination] of expectedLinks) {
+          expect(screen.getByRole('link', { name: new RegExp(`^${name}\\b`, 'i') })).toHaveAttribute('href', destination);
+        }
+      });
+    });
+
+    it('starts on the Suppliers section when the URL requests it', async () => {
+      renderSettings('suppliers');
+
+      await waitFor(() => {
+        expect(screen.getByRole('heading', { name: 'Suppliers / Shops' })).toBeInTheDocument();
+        expect(screen.getByRole('tab', { name: 'Suppliers' })).toHaveAttribute('aria-selected', 'true');
+        expect(screen.queryByText('Postage Tiers')).not.toBeInTheDocument();
+      });
+    });
+
+    it('updates the URL and only renders the selected section panel', async () => {
+      const user = userEvent.setup();
+      renderSettingsAt('?section=postage&view=all');
+
+      await waitFor(() => {
+        expect(screen.getByText('Postage Tiers')).toBeInTheDocument();
+      });
+
+      await user.click(screen.getByRole('tab', { name: 'Packaging' }));
+
+      await waitFor(() => {
+        const search = new URLSearchParams(window.location.search);
+        expect(search.get('section')).toBe('packaging');
+        expect(search.get('view')).toBe('all');
+        expect(screen.getByText('Packaging Overhead')).toBeInTheDocument();
+        expect(screen.queryByText('Postage Tiers')).not.toBeInTheDocument();
+      });
+    });
+
+    it('falls back to Postage for an unknown URL section', async () => {
+      renderSettingsAt('?section=unknown');
+
+      await waitFor(() => {
+        expect(screen.getByRole('tab', { name: 'Postage' })).toHaveAttribute('aria-selected', 'true');
+        expect(screen.getByText('Postage Tiers')).toBeInTheDocument();
+      });
+    });
+
+    it('keeps Etsy Access Management outside the redesigned section panel', async () => {
+      renderSettingsAt();
+
+      await waitFor(() => {
+        const accessHeading = screen.getByRole('heading', { name: 'Etsy Access Management' });
+        const tablist = screen.getByRole('tablist');
+
+        expect(accessHeading.closest('[role="tabpanel"]')).toBeNull();
+        expect(tablist.compareDocumentPosition(accessHeading) & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(0);
+      });
+    });
+  });
+
   describe('Etsy fees section', () => {
     it('displays Etsy Fees header', async () => {
-      render(<Settings />);
+      renderSettings('etsy-fees');
       await waitFor(() => {
-        expect(screen.getByText('Etsy Fees')).toBeInTheDocument();
+        expect(screen.getByRole('heading', { name: 'Etsy Fees' })).toBeInTheDocument();
       });
     });
 
     it('displays configured fee name', async () => {
-      render(<Settings />);
+      renderSettings('etsy-fees');
       await waitFor(() => {
         expect(screen.getByText('UK Etsy Fees 2024')).toBeInTheDocument();
       });
     });
 
     it('displays fee percentages', async () => {
-      render(<Settings />);
+      renderSettings('etsy-fees');
       await waitFor(() => {
         expect(screen.getByText('6.5%')).toBeInTheDocument(); // Transaction fee
         expect(screen.getByText('0.32%')).toBeInTheDocument(); // Regulatory fee
@@ -142,7 +221,7 @@ describe('Settings', () => {
     it('shows setup prompt when no fees configured', async () => {
       mockGetEtsyFees.mockResolvedValue([]);
 
-      render(<Settings />);
+      renderSettings('etsy-fees');
 
       await waitFor(() => {
         expect(screen.getByText(/no etsy fee configuration found/i)).toBeInTheDocument();
@@ -152,7 +231,7 @@ describe('Settings', () => {
     it('has button to use default fees when none configured', async () => {
       mockGetEtsyFees.mockResolvedValue([]);
 
-      render(<Settings />);
+      renderSettings('etsy-fees');
 
       await waitFor(() => {
         expect(screen.getByRole('button', { name: /use default uk etsy fees/i })).toBeInTheDocument();
@@ -164,7 +243,7 @@ describe('Settings', () => {
       mockGetEtsyFees.mockResolvedValue([]);
       mockCreateEtsyFees.mockResolvedValue(sampleEtsyFee as any);
 
-      render(<Settings />);
+      renderSettings('etsy-fees');
 
       await waitFor(() => {
         expect(screen.getByRole('button', { name: /use default uk etsy fees/i })).toBeInTheDocument();
@@ -180,28 +259,28 @@ describe('Settings', () => {
 
   describe('Packaging overhead section', () => {
     it('displays Packaging Overhead header', async () => {
-      render(<Settings />);
+      renderSettings('packaging');
       await waitFor(() => {
         expect(screen.getByText('Packaging Overhead')).toBeInTheDocument();
       });
     });
 
     it('displays existing overhead items', async () => {
-      render(<Settings />);
+      renderSettings('packaging');
       await waitFor(() => {
         expect(screen.getByText('Gift Box')).toBeInTheDocument();
       });
     });
 
     it('displays total per order', async () => {
-      render(<Settings />);
+      renderSettings('packaging');
       await waitFor(() => {
         expect(screen.getByText('Total per order')).toBeInTheDocument();
       });
     });
 
     it('has input for adding new overhead', async () => {
-      render(<Settings />);
+      renderSettings('packaging');
       await waitFor(() => {
         expect(screen.getByPlaceholderText('Item name (e.g., Tape)')).toBeInTheDocument();
         expect(screen.getByPlaceholderText('Cost')).toBeInTheDocument();
@@ -212,7 +291,7 @@ describe('Settings', () => {
       const user = userEvent.setup();
       mockCreatePackagingOverhead.mockResolvedValue(sampleOverhead as any);
 
-      render(<Settings />);
+      renderSettings('packaging');
 
       await waitFor(() => {
         expect(screen.getByPlaceholderText('Item name (e.g., Tape)')).toBeInTheDocument();
@@ -234,7 +313,7 @@ describe('Settings', () => {
       const user = userEvent.setup();
       mockDeletePackagingOverhead.mockResolvedValue(undefined);
 
-      render(<Settings />);
+      renderSettings('packaging');
 
       await waitFor(() => {
         expect(screen.getByText('Gift Box')).toBeInTheDocument();
@@ -259,7 +338,7 @@ describe('Settings', () => {
     };
 
     it('renders postage tiers section', async () => {
-      render(<Settings />);
+      renderSettings('postage');
       await waitFor(() => {
         expect(screen.getByText('Postage Tiers')).toBeInTheDocument();
       });
@@ -268,7 +347,7 @@ describe('Settings', () => {
     it('displays existing tiers', async () => {
       mockGetPostageTiers.mockResolvedValue([samplePostageTier] as any);
 
-      render(<Settings />);
+      renderSettings('postage');
 
       await waitFor(() => {
         expect(screen.getByText(/£5\.00/)).toBeInTheDocument();
@@ -280,7 +359,7 @@ describe('Settings', () => {
       const user = userEvent.setup();
       mockCreatePostageTier.mockResolvedValue(samplePostageTier as any);
 
-      render(<Settings />);
+      renderSettings('postage');
 
       await waitFor(() => {
         expect(screen.getByPlaceholderText('Etsy charge')).toBeInTheDocument();
@@ -289,10 +368,7 @@ describe('Settings', () => {
       await user.type(screen.getByPlaceholderText('Etsy charge'), '5.00');
       await user.type(screen.getByPlaceholderText('Actual cost'), '5.05');
 
-      // Find the Add button within the postage tiers section
-      const addButtons = screen.getAllByRole('button', { name: 'Add' });
-      // Postage tiers Add button is after packaging overhead Add button
-      await user.click(addButtons[1]!);
+      await user.click(screen.getByRole('button', { name: 'Add' }));
 
       await waitFor(() => {
         expect(mockCreatePostageTier).toHaveBeenCalledWith({
@@ -313,7 +389,7 @@ describe('Settings', () => {
     };
 
     it('renders suppliers section', async () => {
-      render(<Settings />);
+      renderSettings('suppliers');
       await waitFor(() => {
         expect(screen.getByText('Suppliers / Shops')).toBeInTheDocument();
       });
@@ -322,7 +398,7 @@ describe('Settings', () => {
     it('displays existing suppliers', async () => {
       mockSuppliersList.mockResolvedValue([sampleSupplier] as any);
 
-      render(<Settings />);
+      renderSettings('suppliers');
 
       await waitFor(() => {
         expect(screen.getByText('Home Bargains')).toBeInTheDocument();
@@ -333,7 +409,7 @@ describe('Settings', () => {
       const user = userEvent.setup();
       mockSuppliersCreate.mockResolvedValue(sampleSupplier as any);
 
-      render(<Settings />);
+      renderSettings('suppliers');
 
       await waitFor(() => {
         expect(screen.getByPlaceholderText('Shop name (e.g., Home Bargains)')).toBeInTheDocument();
@@ -341,10 +417,7 @@ describe('Settings', () => {
 
       await user.type(screen.getByPlaceholderText('Shop name (e.g., Home Bargains)'), 'Home Bargains');
 
-      // Find the Add button in the suppliers section
-      const addButtons = screen.getAllByRole('button', { name: 'Add' });
-      // Suppliers Add button is after packaging overhead and postage tiers Add buttons
-      await user.click(addButtons[2]!);
+      await user.click(screen.getByRole('button', { name: 'Add' }));
 
       await waitFor(() => {
         expect(mockSuppliersCreate).toHaveBeenCalledWith({ name: 'Home Bargains' });

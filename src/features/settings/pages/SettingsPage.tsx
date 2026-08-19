@@ -1,10 +1,12 @@
 import { useState, useEffect } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { settings, etsy, suppliers, EtsyFeeConfig, PackagingOverhead, PostageTier, EtsyAccount, Supplier } from '../../../lib/api'
 import EtsyAccessManagementSection from '../components/EtsyAccessManagementSection'
 import EtsyFeesSection from '../components/EtsyFeesSection'
 import PackagingOverheadSection from '../components/PackagingOverheadSection'
 import PostageTiersSection from '../components/PostageTiersSection'
 import SettingsLinksList from '../components/SettingsLinksList'
+import SettingsSectionNav, { settingsSections, type SettingsSection } from '../components/SettingsSectionNav'
 import SupplierManagementSection from '../components/SupplierManagementSection'
 
 const settingsLinks = [
@@ -52,6 +54,7 @@ const DEFAULT_ETSY_FEES = {
 }
 
 export default function Settings() {
+  const [searchParams, setSearchParams] = useSearchParams()
   const [etsyFees, setEtsyFees] = useState<EtsyFeeConfig | null>(null)
   const [packagingOverheads, setPackagingOverheads] = useState<PackagingOverhead[]>([])
   const [packagingTotal, setPackagingTotal] = useState(0)
@@ -80,6 +83,17 @@ export default function Settings() {
   const [etsyAccounts, setEtsyAccounts] = useState<EtsyAccount[]>([])
   const [loadingAccounts, setLoadingAccounts] = useState(false)
   const [accountsError, setAccountsError] = useState<string | null>(null)
+
+  const requestedSection = searchParams.get('section')
+  const activeSection: SettingsSection = settingsSections.some(({ id }) => id === requestedSection)
+    ? requestedSection as SettingsSection
+    : 'postage'
+
+  const handleSectionChange = (section: SettingsSection) => {
+    const nextSearchParams = new URLSearchParams(searchParams)
+    nextSearchParams.set('section', section)
+    setSearchParams(nextSearchParams)
+  }
 
   const loadSettings = async () => {
     try {
@@ -296,49 +310,75 @@ export default function Settings() {
 
       <SettingsLinksList links={settingsLinks} />
 
-      <EtsyFeesSection
-        etsyFees={etsyFees}
-        editing={editingEtsy}
-        etsyForm={etsyForm}
-        setEtsyForm={setEtsyForm}
-        saving={saving}
-        onStartEdit={() => setEditingEtsy(true)}
-        onCancelEdit={() => setEditingEtsy(false)}
-        onSave={handleSaveEtsyFees}
-        onUseDefaults={handleSetDefaultEtsyFees}
-      />
+      <div className="grid gap-4 md:grid-cols-[12rem_minmax(0,1fr)] md:items-start">
+        <SettingsSectionNav active={activeSection} onChange={handleSectionChange} />
 
-      <PackagingOverheadSection
-        packagingOverheads={packagingOverheads}
-        packagingTotal={packagingTotal}
-        newOverheadName={newOverheadName}
-        newOverheadCost={newOverheadCost}
-        onNewOverheadNameChange={setNewOverheadName}
-        onNewOverheadCostChange={setNewOverheadCost}
-        saving={saving}
-        onAddOverhead={handleAddOverhead}
-        onDeleteOverhead={handleDeleteOverhead}
-      />
+        <section
+          id={`settings-panel-${activeSection}`}
+          role="tabpanel"
+          aria-labelledby={`settings-tab-${activeSection}`}
+          tabIndex={0}
+        >
+          {activeSection === 'etsy-fees' && (
+            <EtsyFeesSection
+              etsyFees={etsyFees}
+              editing={editingEtsy}
+              etsyForm={etsyForm}
+              setEtsyForm={setEtsyForm}
+              saving={saving}
+              onStartEdit={() => setEditingEtsy(true)}
+              onCancelEdit={() => setEditingEtsy(false)}
+              onSave={handleSaveEtsyFees}
+              onUseDefaults={handleSetDefaultEtsyFees}
+            />
+          )}
 
-      <PostageTiersSection
-        tiers={postageTiers}
-        newEtsyCharge={newEtsyCharge}
-        newActualCost={newActualCost}
-        onNewEtsyChargeChange={setNewEtsyCharge}
-        onNewActualCostChange={setNewActualCost}
-        saving={saving}
-        onAddTier={handleAddPostageTier}
-        onDeleteTier={handleDeletePostageTier}
-      />
+          {activeSection === 'packaging' && (
+            <PackagingOverheadSection
+              packagingOverheads={packagingOverheads}
+              packagingTotal={packagingTotal}
+              newOverheadName={newOverheadName}
+              newOverheadCost={newOverheadCost}
+              onNewOverheadNameChange={setNewOverheadName}
+              onNewOverheadCostChange={setNewOverheadCost}
+              saving={saving}
+              onAddOverhead={handleAddOverhead}
+              onDeleteOverhead={handleDeleteOverhead}
+            />
+          )}
 
-      <SupplierManagementSection
-        suppliersList={suppliersList}
-        newSupplierName={newSupplierName}
-        onNewSupplierNameChange={setNewSupplierName}
-        saving={saving}
-        onAddSupplier={handleAddSupplier}
-        onDeleteSupplier={handleDeleteSupplier}
-      />
+          {activeSection === 'postage' && (
+            <PostageTiersSection
+              tiers={postageTiers}
+              newEtsyCharge={newEtsyCharge}
+              newActualCost={newActualCost}
+              onNewEtsyChargeChange={setNewEtsyCharge}
+              onNewActualCostChange={setNewActualCost}
+              saving={saving}
+              onAddTier={handleAddPostageTier}
+              onDeleteTier={handleDeletePostageTier}
+            />
+          )}
+
+          {activeSection === 'suppliers' && (
+            <SupplierManagementSection
+              suppliersList={suppliersList}
+              newSupplierName={newSupplierName}
+              onNewSupplierNameChange={setNewSupplierName}
+              saving={saving}
+              onAddSupplier={handleAddSupplier}
+              onDeleteSupplier={handleDeleteSupplier}
+            />
+          )}
+
+          {activeSection === 'audit' && (
+            <section className="card space-y-2">
+              <h3 className="font-medium">Audit History</h3>
+              <p className="text-sm text-gray-500">Recent settings changes will appear here.</p>
+            </section>
+          )}
+        </section>
+      </div>
 
       <EtsyAccessManagementSection
         etsyAccounts={etsyAccounts}

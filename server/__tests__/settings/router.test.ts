@@ -306,7 +306,8 @@ describe('settings router', () => {
       label: 'Tracked',
       isActive: true,
     }
-    transactionMock.postageTier.update.mockResolvedValue(restoredTier)
+    transactionMock.postageTier.updateMany.mockResolvedValue({ count: 1 })
+    transactionMock.postageTier.findUnique.mockResolvedValue(restoredTier)
     await startServer()
 
     const response = await request('/api/settings/postage-tiers', {
@@ -319,8 +320,8 @@ describe('settings router', () => {
       outcome: 'restored',
       item: { id: 'tier-5', etsyCharge: '5.00', actualCost: '3.65', label: 'Tracked', isActive: true },
     })
-    expect(transactionMock.postageTier.update).toHaveBeenCalledWith({
-      where: { id: 'tier-5' },
+    expect(transactionMock.postageTier.updateMany).toHaveBeenCalledWith({
+      where: { id: 'tier-5', isActive: false },
       data: { actualCost: 3.65, label: 'Tracked', isActive: true },
     })
     expect(transactionMock.settingsAuditLog.create).toHaveBeenCalledWith(expect.objectContaining({
@@ -364,6 +365,43 @@ describe('settings router', () => {
     expect(transactionMock.settingsAuditLog.create).toHaveBeenCalledWith(expect.objectContaining({
       data: expect.objectContaining({ action: 'UPDATE', settingId: 'tier-5' }),
     }))
+  })
+
+  it('returns the authoritative active tier without a duplicate restore audit when a concurrent restore wins', async () => {
+    prismaMock.postageTier.findUnique.mockResolvedValue(archivedTier)
+    transactionMock.postageTier.updateMany.mockResolvedValue({ count: 0 })
+    transactionMock.postageTier.findUnique.mockResolvedValue({ ...archivedTier, isActive: true })
+    await startServer()
+
+    const response = await request('/api/settings/postage-tiers', {
+      method: 'POST', body: JSON.stringify({ etsyCharge: 5, actualCost: 3.65 }),
+    })
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toMatchObject({ outcome: 'updated', item: { id: 'tier-5', isActive: true } })
+    expect(transactionMock.postageTier.updateMany).toHaveBeenCalledWith({
+      where: { id: 'tier-5', isActive: false },
+      data: { actualCost: 3.65, label: undefined, isActive: true },
+    })
+    expect(transactionMock.settingsAuditLog.create).not.toHaveBeenCalled()
+  })
+
+  it('avoids a duplicate restore audit when the P2002 winner becomes active first', async () => {
+    prismaMock.postageTier.findUnique.mockResolvedValue(null)
+    transactionMock.postageTier.create.mockRejectedValueOnce(knownRequestError('P2002'))
+    transactionMock.postageTier.findUnique
+      .mockResolvedValueOnce(archivedTier)
+      .mockResolvedValueOnce({ ...archivedTier, isActive: true })
+    transactionMock.postageTier.updateMany.mockResolvedValue({ count: 0 })
+    await startServer()
+
+    const response = await request('/api/settings/postage-tiers', {
+      method: 'POST', body: JSON.stringify({ etsyCharge: 5, actualCost: 3.65 }),
+    })
+
+    expect(response.status).toBe(200)
+    expect((await response.json()).outcome).toBe('updated')
+    expect(transactionMock.settingsAuditLog.create).not.toHaveBeenCalled()
   })
 
   it('rejects editing a tier to a charge owned by a different tier', async () => {

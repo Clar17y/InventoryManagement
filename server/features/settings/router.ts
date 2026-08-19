@@ -343,29 +343,42 @@ router.post('/postage-tiers', async (req, res) => {
     const existing = await prisma.postageTier.findUnique({ where: { etsyCharge: data.etsyCharge } })
 
     if (existing) {
-      const outcome = existing.isActive ? 'updated' : 'restored'
-      const tier = await prisma.$transaction(async (tx) => {
-        const updated = await tx.postageTier.update({
-          where: { id: existing.id },
-          data: {
-            actualCost: data.actualCost,
-            label: data.label,
-            isActive: true,
-          },
+      if (existing.isActive) {
+        const tier = await prisma.$transaction(async (tx) => {
+          const updated = await tx.postageTier.update({
+            where: { id: existing.id },
+            data: { actualCost: data.actualCost, label: data.label, isActive: true },
+          })
+          await writeSettingsAudit(tx, {
+            settingType: 'POSTAGE_TIER', settingId: updated.id, action: 'UPDATE',
+            before: postageSnapshot(existing), after: postageSnapshot(updated),
+          })
+          return updated
         })
+        res.json({ item: tier, outcome: 'updated' })
+        return
+      }
+
+      const restored = await prisma.$transaction(async (tx) => {
+        const changed = await tx.postageTier.updateMany({
+          where: { id: existing.id, isActive: false },
+          data: { actualCost: data.actualCost, label: data.label, isActive: true },
+        })
+        const current = await tx.postageTier.findUnique({ where: { id: existing.id } })
+        if (!current) return null
+        if (changed.count === 0) return { item: current, outcome: 'updated' as const }
 
         await writeSettingsAudit(tx, {
-          settingType: 'POSTAGE_TIER',
-          settingId: updated.id,
-          action: outcome === 'restored' ? 'RESTORE' : 'UPDATE',
-          before: postageSnapshot(existing),
-          after: postageSnapshot(updated),
+          settingType: 'POSTAGE_TIER', settingId: current.id, action: 'RESTORE',
+          before: postageSnapshot(existing), after: postageSnapshot(current),
         })
-
-        return updated
+        return { item: current, outcome: 'restored' as const }
       })
-
-      res.json({ item: tier, outcome })
+      if (!restored) {
+        notFound(res, 'Postage tier not found')
+        return
+      }
+      res.json(restored)
       return
     }
 
@@ -397,25 +410,34 @@ router.post('/postage-tiers', async (req, res) => {
         const winner = await tx.postageTier.findUnique({ where: { etsyCharge: data.etsyCharge } })
         if (!winner) return null
 
-        const outcome = winner.isActive ? 'updated' : 'restored'
-        const updated = await tx.postageTier.update({
-          where: { id: winner.id },
-          data: {
-            actualCost: data.actualCost,
-            label: data.label,
-            isActive: true,
-          },
+        if (winner.isActive) {
+          const updated = await tx.postageTier.update({
+            where: { id: winner.id },
+            data: { actualCost: data.actualCost, label: data.label, isActive: true },
+          })
+          await writeSettingsAudit(tx, {
+            settingType: 'POSTAGE_TIER', settingId: updated.id, action: 'UPDATE',
+            before: postageSnapshot(winner), after: postageSnapshot(updated),
+          })
+          return { item: updated, outcome: 'updated' as const }
+        }
+
+        const changed = await tx.postageTier.updateMany({
+          where: { id: winner.id, isActive: false },
+          data: { actualCost: data.actualCost, label: data.label, isActive: true },
         })
+        const current = await tx.postageTier.findUnique({ where: { id: winner.id } })
+        if (!current) return null
+        if (changed.count === 0) return { item: current, outcome: 'updated' as const }
 
         await writeSettingsAudit(tx, {
           settingType: 'POSTAGE_TIER',
-          settingId: updated.id,
-          action: outcome === 'restored' ? 'RESTORE' : 'UPDATE',
+          settingId: current.id,
+          action: 'RESTORE',
           before: postageSnapshot(winner),
-          after: postageSnapshot(updated),
+          after: postageSnapshot(current),
         })
-
-        return { item: updated, outcome }
+        return { item: current, outcome: 'restored' as const }
       })
 
       if (!raced) {

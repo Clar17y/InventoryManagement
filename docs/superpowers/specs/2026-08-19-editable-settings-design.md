@@ -7,7 +7,7 @@
 
 Redesign only the editable configuration area within the existing **Settings & More** page. Keep the page title and its links to Sales, Analytics, Shopping List, Categories, Products, and Expenses unchanged.
 
-The configuration area will use section navigation and make postage tiers, packaging overheads, and supplier names fully editable. Existing Etsy fee editing and Etsy account controls remain available. Postage and supplier creation will recover cleanly from conflicts with archived records, and setting changes will be recorded in an audit log.
+The redesigned configuration area will use section navigation and make postage tiers, packaging overheads, and supplier names fully editable while preserving the existing Etsy fee workflow. Etsy Access Management remains outside the redesigned area and is not changed. Postage and supplier creation will recover cleanly from conflicts with archived records, and setting changes will be recorded in an audit log.
 
 ## Problem
 
@@ -27,7 +27,6 @@ Packaging overheads can already be updated through the API, but the UI exposes o
 - Make packaging overhead name and per-order cost editable.
 - Make supplier name editable without changing the existing product-assignment modal.
 - Preserve the current versioned Etsy fee workflow.
-- Preserve the current Etsy account connect, set-default, and remove controls.
 - Archive and restore postage tiers, packaging overheads, and suppliers.
 - Create an audit record for creates, updates, archives, restores, and new Etsy fee versions.
 - Show recent setting changes in an Audit History section.
@@ -36,7 +35,7 @@ Packaging overheads can already be updated through the API, but the UI exposes o
 
 - Redesigning or removing the existing **More** navigation cards.
 - Changing Sales, Analytics, Shopping List, Categories, Products, or Expenses pages.
-- Editing Etsy account credentials or changing Etsy authentication.
+- Changing, moving, or redesigning Etsy Access Management, account credentials, or Etsy authentication.
 - Recalculating historical sales when a setting changes.
 - Hard-deleting settings or their audit records.
 - Adding multi-user approval or rollback workflows.
@@ -51,8 +50,7 @@ The configuration area contains these sections:
 2. Packaging
 3. Suppliers
 4. Etsy Fees
-5. Etsy Accounts
-6. Audit History
+5. Audit History
 
 Desktop uses a compact left-hand section list with one panel visible at a time. Mobile uses horizontally scrolling section tabs. The selected section is stored in the URL so refresh and browser navigation preserve it.
 
@@ -74,7 +72,7 @@ The Suppliers section retains its existing **Products** action and product-assig
 
 Etsy fee editing continues to create a new effective configuration and close the previous configuration. It does not mutate rates that may explain historical calculations.
 
-Etsy account controls retain their current connect, set-default, and remove behavior.
+The existing Etsy Access Management panel is rendered outside this section-navigation shell and remains unchanged.
 
 ### Audit History
 
@@ -154,7 +152,7 @@ Validation and conflict handling must distinguish:
 
 ## Client Architecture
 
-`SettingsPage` continues to own the existing More links and composes the editable configuration area. The section-navigation shell owns the selected section only. Each section component owns its row editing, per-row pending state, validation messages, and reload behavior so one save does not block unrelated controls.
+`SettingsPage` continues to own the existing More links, the unchanged Etsy Access Management panel, and the redesigned editable configuration area. The section-navigation shell owns the selected section only. Each redesigned section component owns its row editing, per-row pending state, validation messages, and reload behavior so one save does not block unrelated controls.
 
 Reusable interaction primitives should be limited to behavior genuinely shared by the three list editors, such as section navigation and archived-list presentation. Domain-specific forms and contracts remain separate to preserve type safety and clear boundaries.
 
@@ -191,7 +189,7 @@ Client coverage will prove:
 - Postage, Packaging, and Supplier rows support Edit, Save, Cancel, Archive, and Restore.
 - Per-row pending state does not disable unrelated rows.
 - Create-or-update outcomes and conflicts are communicated clearly.
-- Etsy fee versioning, supplier product management, and Etsy account controls remain available.
+- Etsy fee versioning and supplier product management remain available.
 - Audit history renders and expands before/after values without exposing credentials.
 
 Verification includes focused tests, client and server TypeScript checks, touched-file ESLint, the production build, and the relevant full test suites.

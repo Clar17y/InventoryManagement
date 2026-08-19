@@ -245,30 +245,31 @@ router.put('/packaging-overhead/:id', async (req, res) => {
 // DELETE packaging overhead
 router.delete('/packaging-overhead/:id', async (req, res) => {
   try {
-    const existing = await prisma.packagingOverhead.findUnique({ where: { id: req.params.id } })
-    if (!existing) {
-      notFound(res, 'Packaging overhead not found')
-      return
-    }
-    if (!existing.isActive) {
-      res.status(204).send()
-      return
-    }
+    const result = await prisma.$transaction(async (tx) => {
+      const before = await tx.packagingOverhead.findUnique({ where: { id: req.params.id } })
+      if (!before) return { kind: 'missing' as const }
 
-    await prisma.$transaction(async (tx) => {
-      const updated = await tx.packagingOverhead.update({
-        where: { id: req.params.id },
+      const changed = await tx.packagingOverhead.updateMany({
+        where: { id: req.params.id, isActive: true },
         data: { isActive: false, effectiveTo: new Date() },
       })
+      const current = await tx.packagingOverhead.findUnique({ where: { id: req.params.id } })
+      if (!current) return { kind: 'missing' as const }
+      if (changed.count === 0) return { kind: 'unchanged' as const, item: current }
 
       await writeSettingsAudit(tx, {
         settingType: 'PACKAGING_OVERHEAD',
-        settingId: updated.id,
+        settingId: current.id,
         action: 'ARCHIVE',
-        before: packagingSnapshot(existing),
-        after: packagingSnapshot(updated),
+        before: packagingSnapshot(before),
+        after: packagingSnapshot(current),
       })
+      return { kind: 'changed' as const }
     })
+    if (result.kind === 'missing') {
+      notFound(res, 'Packaging overhead not found')
+      return
+    }
     res.status(204).send()
   } catch (error) {
     if (isPrismaError(error, 'P2025')) {
@@ -282,34 +283,33 @@ router.delete('/packaging-overhead/:id', async (req, res) => {
 
 router.post('/packaging-overhead/:id/restore', async (req, res) => {
   try {
-    const existing = await prisma.packagingOverhead.findUnique({ where: { id: req.params.id } })
-    if (!existing) {
-      notFound(res, 'Packaging overhead not found')
-      return
-    }
-    if (existing.isActive) {
-      res.json(existing)
-      return
-    }
+    const result = await prisma.$transaction(async (tx) => {
+      const before = await tx.packagingOverhead.findUnique({ where: { id: req.params.id } })
+      if (!before) return { kind: 'missing' as const }
 
-    const restored = await prisma.$transaction(async (tx) => {
-      const updated = await tx.packagingOverhead.update({
-        where: { id: req.params.id },
+      const changed = await tx.packagingOverhead.updateMany({
+        where: { id: req.params.id, isActive: false },
         data: { isActive: true, effectiveTo: null },
       })
+      const current = await tx.packagingOverhead.findUnique({ where: { id: req.params.id } })
+      if (!current) return { kind: 'missing' as const }
+      if (changed.count === 0) return { kind: 'unchanged' as const, item: current }
 
       await writeSettingsAudit(tx, {
         settingType: 'PACKAGING_OVERHEAD',
-        settingId: updated.id,
+        settingId: current.id,
         action: 'RESTORE',
-        before: packagingSnapshot(existing),
-        after: packagingSnapshot(updated),
+        before: packagingSnapshot(before),
+        after: packagingSnapshot(current),
       })
 
-      return updated
+      return { kind: 'changed' as const, item: current }
     })
-
-    res.json(restored)
+    if (result.kind === 'missing') {
+      notFound(res, 'Packaging overhead not found')
+      return
+    }
+    res.json(result.item)
   } catch (error) {
     if (isPrismaError(error, 'P2025')) {
       notFound(res, 'Packaging overhead not found')
@@ -491,30 +491,31 @@ router.put('/postage-tiers/:id', async (req, res) => {
 
 router.delete('/postage-tiers/:id', async (req, res) => {
   try {
-    const existing = await prisma.postageTier.findUnique({ where: { id: req.params.id } })
-    if (!existing) {
-      notFound(res, 'Postage tier not found')
-      return
-    }
-    if (!existing.isActive) {
-      res.status(204).send()
-      return
-    }
+    const result = await prisma.$transaction(async (tx) => {
+      const before = await tx.postageTier.findUnique({ where: { id: req.params.id } })
+      if (!before) return { kind: 'missing' as const }
 
-    await prisma.$transaction(async (tx) => {
-      const updated = await tx.postageTier.update({
-        where: { id: req.params.id },
+      const changed = await tx.postageTier.updateMany({
+        where: { id: req.params.id, isActive: true },
         data: { isActive: false },
       })
+      const current = await tx.postageTier.findUnique({ where: { id: req.params.id } })
+      if (!current) return { kind: 'missing' as const }
+      if (changed.count === 0) return { kind: 'unchanged' as const, item: current }
 
       await writeSettingsAudit(tx, {
         settingType: 'POSTAGE_TIER',
-        settingId: updated.id,
+        settingId: current.id,
         action: 'ARCHIVE',
-        before: postageSnapshot(existing),
-        after: postageSnapshot(updated),
+        before: postageSnapshot(before),
+        after: postageSnapshot(current),
       })
+      return { kind: 'changed' as const }
     })
+    if (result.kind === 'missing') {
+      notFound(res, 'Postage tier not found')
+      return
+    }
     res.status(204).send()
   } catch (error) {
     if (isPrismaError(error, 'P2025')) {
@@ -528,34 +529,33 @@ router.delete('/postage-tiers/:id', async (req, res) => {
 
 router.post('/postage-tiers/:id/restore', async (req, res) => {
   try {
-    const existing = await prisma.postageTier.findUnique({ where: { id: req.params.id } })
-    if (!existing) {
-      notFound(res, 'Postage tier not found')
-      return
-    }
-    if (existing.isActive) {
-      res.json(existing)
-      return
-    }
+    const result = await prisma.$transaction(async (tx) => {
+      const before = await tx.postageTier.findUnique({ where: { id: req.params.id } })
+      if (!before) return { kind: 'missing' as const }
 
-    const restored = await prisma.$transaction(async (tx) => {
-      const updated = await tx.postageTier.update({
-        where: { id: req.params.id },
+      const changed = await tx.postageTier.updateMany({
+        where: { id: req.params.id, isActive: false },
         data: { isActive: true },
       })
+      const current = await tx.postageTier.findUnique({ where: { id: req.params.id } })
+      if (!current) return { kind: 'missing' as const }
+      if (changed.count === 0) return { kind: 'unchanged' as const, item: current }
 
       await writeSettingsAudit(tx, {
         settingType: 'POSTAGE_TIER',
-        settingId: updated.id,
+        settingId: current.id,
         action: 'RESTORE',
-        before: postageSnapshot(existing),
-        after: postageSnapshot(updated),
+        before: postageSnapshot(before),
+        after: postageSnapshot(current),
       })
 
-      return updated
+      return { kind: 'changed' as const, item: current }
     })
-
-    res.json(restored)
+    if (result.kind === 'missing') {
+      notFound(res, 'Postage tier not found')
+      return
+    }
+    res.json(result.item)
   } catch (error) {
     if (isPrismaError(error, 'P2025')) {
       notFound(res, 'Postage tier not found')

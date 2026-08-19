@@ -15,12 +15,14 @@ vi.mock('../../lib/prisma', () => ({
       findUnique: vi.fn(),
       create: vi.fn(),
       update: vi.fn(),
+      updateMany: vi.fn(),
     },
     postageTier: {
       findMany: vi.fn(),
       findUnique: vi.fn(),
       create: vi.fn(),
       update: vi.fn(),
+      updateMany: vi.fn(),
     },
     settingsAuditLog: {
       findMany: vi.fn(),
@@ -45,12 +47,14 @@ type ModelMocks = {
     findUnique: MockFn
     create: MockFn
     update: MockFn
+    updateMany: MockFn
   }
   postageTier: {
     findMany: MockFn
     findUnique: MockFn
     create: MockFn
     update: MockFn
+    updateMany: MockFn
   }
   settingsAuditLog: {
     findMany: MockFn
@@ -71,12 +75,14 @@ const transactionMock: Omit<ModelMocks, '$transaction'> = {
     findUnique: vi.fn(),
     create: vi.fn(),
     update: vi.fn(),
+    updateMany: vi.fn(),
   },
   postageTier: {
     findMany: vi.fn(),
     findUnique: vi.fn(),
     create: vi.fn(),
     update: vi.fn(),
+    updateMany: vi.fn(),
   },
   settingsAuditLog: {
     findMany: vi.fn(),
@@ -156,8 +162,10 @@ function resetMockImplementations() {
   transactionMock.etsyFeeConfig.create.mockResolvedValue(activeFeeConfig)
   transactionMock.packagingOverhead.create.mockResolvedValue(activePackaging)
   transactionMock.packagingOverhead.update.mockResolvedValue(activePackaging)
+  transactionMock.packagingOverhead.updateMany.mockResolvedValue({ count: 1 })
   transactionMock.postageTier.create.mockResolvedValue(activeTier)
   transactionMock.postageTier.update.mockResolvedValue(activeTier)
+  transactionMock.postageTier.updateMany.mockResolvedValue({ count: 1 })
   transactionMock.settingsAuditLog.create.mockResolvedValue({ id: 'audit-1' })
 }
 
@@ -413,8 +421,12 @@ describe('settings router', () => {
   })
 
   it('archives postage tiers idempotently and audits only state changes', async () => {
-    prismaMock.postageTier.findUnique.mockResolvedValueOnce(activeTier).mockResolvedValueOnce(archivedTier)
-    transactionMock.postageTier.update.mockResolvedValue({ ...activeTier, isActive: false })
+    transactionMock.postageTier.findUnique
+      .mockResolvedValueOnce(activeTier)
+      .mockResolvedValueOnce({ ...activeTier, isActive: false })
+      .mockResolvedValueOnce({ ...activeTier, isActive: false })
+      .mockResolvedValueOnce({ ...activeTier, isActive: false })
+    transactionMock.postageTier.updateMany.mockResolvedValueOnce({ count: 1 }).mockResolvedValueOnce({ count: 0 })
     await startServer()
 
     const archivedResponse = await request('/api/settings/postage-tiers/tier-5', { method: 'DELETE' })
@@ -422,7 +434,7 @@ describe('settings router', () => {
 
     expect(archivedResponse.status).toBe(204)
     expect(alreadyArchivedResponse.status).toBe(204)
-    expect(transactionMock.postageTier.update).toHaveBeenCalledTimes(1)
+    expect(transactionMock.postageTier.updateMany).toHaveBeenCalledTimes(2)
     expect(transactionMock.settingsAuditLog.create).toHaveBeenCalledTimes(1)
     expect(transactionMock.settingsAuditLog.create).toHaveBeenCalledWith(expect.objectContaining({
       data: expect.objectContaining({ action: 'ARCHIVE', settingId: 'tier-5' }),
@@ -430,8 +442,12 @@ describe('settings router', () => {
   })
 
   it('restores a postage tier and does not audit an already active row', async () => {
-    prismaMock.postageTier.findUnique.mockResolvedValueOnce(archivedTier).mockResolvedValueOnce(activeTier)
-    transactionMock.postageTier.update.mockResolvedValue(activeTier)
+    transactionMock.postageTier.findUnique
+      .mockResolvedValueOnce(archivedTier)
+      .mockResolvedValueOnce(activeTier)
+      .mockResolvedValueOnce(activeTier)
+      .mockResolvedValueOnce(activeTier)
+    transactionMock.postageTier.updateMany.mockResolvedValueOnce({ count: 1 }).mockResolvedValueOnce({ count: 0 })
     await startServer()
 
     const restoredResponse = await request('/api/settings/postage-tiers/tier-5/restore', { method: 'POST' })
@@ -440,7 +456,7 @@ describe('settings router', () => {
     expect(restoredResponse.status).toBe(200)
     expect(await restoredResponse.json()).toMatchObject({ id: 'tier-5', isActive: true })
     expect(activeResponse.status).toBe(200)
-    expect(transactionMock.postageTier.update).toHaveBeenCalledTimes(1)
+    expect(transactionMock.postageTier.updateMany).toHaveBeenCalledTimes(2)
     expect(transactionMock.settingsAuditLog.create).toHaveBeenCalledTimes(1)
   })
 
@@ -497,12 +513,14 @@ describe('settings router', () => {
   })
 
   it('archives and restores packaging overhead while maintaining effectiveTo', async () => {
-    prismaMock.packagingOverhead.findUnique
+    transactionMock.packagingOverhead.findUnique
       .mockResolvedValueOnce(activePackaging)
-      .mockResolvedValueOnce(archivedPackaging)
-    transactionMock.packagingOverhead.update
       .mockResolvedValueOnce({ ...activePackaging, effectiveTo: new Date('2026-08-19T10:00:00.000Z'), isActive: false })
+      .mockResolvedValueOnce(archivedPackaging)
       .mockResolvedValueOnce(activePackaging)
+    transactionMock.packagingOverhead.updateMany
+      .mockResolvedValueOnce({ count: 1 })
+      .mockResolvedValueOnce({ count: 1 })
     await startServer()
 
     const archiveResponse = await request('/api/settings/packaging-overhead/packaging-1', { method: 'DELETE' })
@@ -510,12 +528,12 @@ describe('settings router', () => {
 
     expect(archiveResponse.status).toBe(204)
     expect(restoreResponse.status).toBe(200)
-    expect(transactionMock.packagingOverhead.update).toHaveBeenNthCalledWith(1, {
-      where: { id: 'packaging-1' },
+    expect(transactionMock.packagingOverhead.updateMany).toHaveBeenNthCalledWith(1, {
+      where: { id: 'packaging-1', isActive: true },
       data: { isActive: false, effectiveTo: expect.any(Date) },
     })
-    expect(transactionMock.packagingOverhead.update).toHaveBeenNthCalledWith(2, {
-      where: { id: 'packaging-1' },
+    expect(transactionMock.packagingOverhead.updateMany).toHaveBeenNthCalledWith(2, {
+      where: { id: 'packaging-1', isActive: false },
       data: { isActive: true, effectiveTo: null },
     })
     expect(transactionMock.settingsAuditLog.create).toHaveBeenCalledTimes(2)
@@ -531,7 +549,11 @@ describe('settings router', () => {
     prismaMock.packagingOverhead.findUnique
       .mockResolvedValueOnce(null)
       .mockResolvedValueOnce(null)
+    transactionMock.packagingOverhead.findUnique
+      .mockResolvedValueOnce(null)
       .mockResolvedValueOnce(archivedPackaging)
+      .mockResolvedValueOnce(archivedPackaging)
+    transactionMock.packagingOverhead.updateMany.mockResolvedValue({ count: 0 })
     await startServer()
 
     const updateResponse = await request('/api/settings/packaging-overhead/missing', {
@@ -544,7 +566,7 @@ describe('settings router', () => {
     expect(updateResponse.status).toBe(404)
     expect(restoreResponse.status).toBe(404)
     expect(archiveResponse.status).toBe(204)
-    expect(transactionMock.packagingOverhead.update).not.toHaveBeenCalled()
+    expect(transactionMock.packagingOverhead.updateMany).toHaveBeenCalledTimes(1)
     expect(transactionMock.settingsAuditLog.create).not.toHaveBeenCalled()
   })
 
@@ -610,5 +632,81 @@ describe('settings router', () => {
       orderBy: { createdAt: 'desc' },
       take: 100,
     })
+  })
+
+  it('does not audit a concurrent postage archive that conditionally updates zero rows', async () => {
+    transactionMock.postageTier.updateMany.mockResolvedValue({ count: 0 })
+    transactionMock.postageTier.findUnique.mockResolvedValue({ ...activeTier, isActive: false })
+    await startServer()
+
+    const response = await request('/api/settings/postage-tiers/tier-5', { method: 'DELETE' })
+
+    expect(response.status).toBe(204)
+    expect(transactionMock.postageTier.updateMany).toHaveBeenCalledWith({
+      where: { id: 'tier-5', isActive: true },
+      data: { isActive: false },
+    })
+    expect(transactionMock.settingsAuditLog.create).not.toHaveBeenCalled()
+  })
+
+  it('audits a postage archive only when its conditional update changes one row', async () => {
+    transactionMock.postageTier.updateMany.mockResolvedValue({ count: 1 })
+    transactionMock.postageTier.findUnique.mockResolvedValue({ ...activeTier, isActive: false })
+    await startServer()
+
+    const response = await request('/api/settings/postage-tiers/tier-5', { method: 'DELETE' })
+
+    expect(response.status).toBe(204)
+    expect(transactionMock.settingsAuditLog.create).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not audit a concurrent postage restore that conditionally updates zero rows', async () => {
+    transactionMock.postageTier.updateMany.mockResolvedValue({ count: 0 })
+    transactionMock.postageTier.findUnique.mockResolvedValue(activeTier)
+    await startServer()
+
+    const response = await request('/api/settings/postage-tiers/tier-5/restore', { method: 'POST' })
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toMatchObject({ id: 'tier-5', isActive: true })
+    expect(transactionMock.postageTier.updateMany).toHaveBeenCalledWith({
+      where: { id: 'tier-5', isActive: false },
+      data: { isActive: true },
+    })
+    expect(transactionMock.settingsAuditLog.create).not.toHaveBeenCalled()
+  })
+
+  it('audits a packaging restore only when its conditional update changes one row', async () => {
+    transactionMock.packagingOverhead.updateMany.mockResolvedValue({ count: 1 })
+    transactionMock.packagingOverhead.findUnique.mockResolvedValue(activePackaging)
+    await startServer()
+
+    const response = await request('/api/settings/packaging-overhead/packaging-1/restore', { method: 'POST' })
+
+    expect(response.status).toBe(200)
+    expect(transactionMock.settingsAuditLog.create).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not audit a concurrent packaging archive that conditionally updates zero rows', async () => {
+    transactionMock.packagingOverhead.updateMany.mockResolvedValue({ count: 0 })
+    transactionMock.packagingOverhead.findUnique.mockResolvedValue({ ...activePackaging, isActive: false })
+    await startServer()
+
+    const response = await request('/api/settings/packaging-overhead/packaging-1', { method: 'DELETE' })
+
+    expect(response.status).toBe(204)
+    expect(transactionMock.settingsAuditLog.create).not.toHaveBeenCalled()
+  })
+
+  it('does not audit a concurrent packaging restore that conditionally updates zero rows', async () => {
+    transactionMock.packagingOverhead.updateMany.mockResolvedValue({ count: 0 })
+    transactionMock.packagingOverhead.findUnique.mockResolvedValue(activePackaging)
+    await startServer()
+
+    const response = await request('/api/settings/packaging-overhead/packaging-1/restore', { method: 'POST' })
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toMatchObject({ id: 'packaging-1', isActive: true })
+    expect(transactionMock.settingsAuditLog.create).not.toHaveBeenCalled()
   })
 })

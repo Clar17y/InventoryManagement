@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import { settings, etsy, suppliers, EtsyFeeConfig, PackagingOverhead, PostageTier, EtsyAccount, Supplier } from '../../../lib/api'
+import { settings, etsy, suppliers, EtsyFeeConfig, PackagingOverhead, PostageTier, EtsyAccount, Supplier, SettingsAuditEntry } from '../../../lib/api'
 import type { PackagingOverheadCreateBody, PackagingOverheadUpdateBody, PostageTierCreateBody, PostageTierUpdateBody } from '#contracts/routes/settings'
 import type { SupplierCreateBody, SupplierUpdateBody } from '#contracts/routes/suppliers'
 import EtsyAccessManagementSection from '../components/EtsyAccessManagementSection'
@@ -10,6 +10,7 @@ import PostageTiersSection from '../components/PostageTiersSection'
 import SettingsLinksList from '../components/SettingsLinksList'
 import SettingsSectionNav, { settingsSections, type SettingsSection } from '../components/SettingsSectionNav'
 import SupplierManagementSection from '../components/SupplierManagementSection'
+import AuditHistorySection from '../components/AuditHistorySection'
 
 const settingsLinks = [
   {
@@ -73,6 +74,7 @@ export default function Settings() {
 
   // Suppliers
   const [suppliersList, setSuppliersList] = useState<Supplier[]>([])
+  const [auditEntries, setAuditEntries] = useState<SettingsAuditEntry[]>([])
 
   // Etsy Access Management
   const [etsyAccounts, setEtsyAccounts] = useState<EtsyAccount[]>([])
@@ -108,11 +110,12 @@ export default function Settings() {
   const loadSettings = async () => {
     try {
       setLoading(true)
-      const [feesData, overheadData, tiersData, suppliersData] = await Promise.all([
+      const [feesData, overheadData, tiersData, suppliersData, auditData] = await Promise.all([
         settings.getEtsyFees(),
         settings.getPackagingOverhead({ includeArchived: true }),
         settings.getPostageTiers({ includeArchived: true }),
         suppliers.list({ includeArchived: true }),
+        settings.getAuditHistory(),
       ])
 
       // Get the active config (first one since ordered by effectiveFrom desc)
@@ -135,6 +138,7 @@ export default function Settings() {
       setPackagingTotal(overheadData.totalPerOrder)
       setPostageTiers(tiersData)
       setSuppliersList(suppliersData)
+      setAuditEntries(auditData)
       setError(null)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load settings')
@@ -331,10 +335,7 @@ export default function Settings() {
           )}
 
           {activeSection === 'audit' && (
-            <section className="card space-y-2">
-              <h3 className="font-medium">Audit History</h3>
-              <p className="text-sm text-gray-500">Recent settings changes will appear here.</p>
-            </section>
+            <AuditHistorySection entries={auditEntries} />
           )}
         </section>
       </div>

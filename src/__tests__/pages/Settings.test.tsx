@@ -13,6 +13,7 @@ vi.mock('../../lib/api', () => ({
     createPackagingOverhead: vi.fn(),
     deletePackagingOverhead: vi.fn(),
     getPostageTiers: vi.fn(),
+    getAuditHistory: vi.fn(),
     createPostageTier: vi.fn(),
     updatePostageTier: vi.fn(),
     deletePostageTier: vi.fn(),
@@ -41,6 +42,7 @@ const mockGetPackagingOverhead = vi.mocked(settings.getPackagingOverhead);
 const mockCreatePackagingOverhead = vi.mocked(settings.createPackagingOverhead);
 const mockDeletePackagingOverhead = vi.mocked(settings.deletePackagingOverhead);
 const mockGetPostageTiers = vi.mocked(settings.getPostageTiers);
+const mockGetAuditHistory = vi.mocked(settings.getAuditHistory);
 const mockCreatePostageTier = vi.mocked(settings.createPostageTier);
 const mockUpdatePostageTier = vi.mocked(settings.updatePostageTier);
 const mockDeletePostageTier = vi.mocked(settings.deletePostageTier);
@@ -86,6 +88,7 @@ describe('Settings', () => {
     } as any);
     mockGetAccounts.mockResolvedValue({ accounts: [] } as any);
     mockGetPostageTiers.mockResolvedValue([]);
+    mockGetAuditHistory.mockResolvedValue([]);
     mockUpdatePostageTier.mockResolvedValue({} as any);
     mockDeletePostageTier.mockResolvedValue(undefined);
     mockRestorePostageTier.mockResolvedValue({} as any);
@@ -199,6 +202,29 @@ describe('Settings', () => {
 
         expect(accessHeading.closest('[role="tabpanel"]')).toBeNull();
         expect(tablist.compareDocumentPosition(accessHeading) & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(0);
+      });
+    });
+
+    it('loads audit history and only renders the selected audit panel', async () => {
+      mockGetAuditHistory.mockResolvedValue([{
+        id: 'clw5k3q2m0000abcde1234567',
+        settingType: 'POSTAGE_TIER',
+        settingId: 'clw5k3q2m0001abcde1234567',
+        action: 'RESTORE',
+        before: { label: 'Tracked' },
+        after: { label: 'Tracked' },
+        createdAt: '2026-08-19T12:00:00.000Z',
+      }] as any);
+
+      renderSettings('audit');
+
+      await waitFor(() => {
+        expect(mockGetAuditHistory).toHaveBeenCalledTimes(1);
+        expect(screen.getByText('Postage tier restored')).toBeInTheDocument();
+        expect(screen.queryByText('Postage Tiers')).not.toBeInTheDocument();
+        expect(screen.queryByText('Packaging Overhead')).not.toBeInTheDocument();
+        expect(screen.queryByText('Suppliers / Shops')).not.toBeInTheDocument();
+        expect(screen.getByRole('heading', { name: 'Etsy Access Management' })).toBeInTheDocument();
       });
     });
   });

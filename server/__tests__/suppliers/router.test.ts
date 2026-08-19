@@ -431,6 +431,32 @@ describe('suppliers router', () => {
     }))
   })
 
+  it('retries a supplier rename and audits the fresh transaction snapshot', async () => {
+    const transactionRead = { ...activeSupplier, name: 'Supplier B' }
+    const updated = { ...transactionRead, name: 'Supplier C' }
+    prismaMock.$transaction.mockImplementationOnce(async () => {
+      throw knownRequestError('P2034')
+    })
+    transactionMock.supplier.findUnique
+      .mockResolvedValueOnce(transactionRead)
+      .mockResolvedValueOnce(null)
+    transactionMock.supplier.update.mockResolvedValue(updated)
+    await startServer()
+
+    const response = await request(`/api/suppliers/${supplierId}`, {
+      method: 'PUT', body: JSON.stringify({ name: 'Supplier C' }),
+    })
+
+    expect(response.status).toBe(200)
+    expect(prismaMock.$transaction).toHaveBeenCalledTimes(2)
+    expect(prismaMock.$transaction).toHaveBeenLastCalledWith(expect.any(Function), {
+      isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+    })
+    expect(transactionMock.settingsAuditLog.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ before: { name: 'Supplier B', isActive: true }, after: { name: 'Supplier C', isActive: true } }),
+    }))
+  })
+
   it('rejects invalid supplier IDs before calling Prisma', async () => {
     await startServer()
 

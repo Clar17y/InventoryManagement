@@ -5,6 +5,7 @@ import { prisma } from '../../lib/prisma'
 import { includeArchivedQuerySchema } from '#contracts/routes/settings'
 import { supplierCreateBodySchema, supplierIdParamSchema, supplierUpdateBodySchema } from '#contracts/routes/suppliers'
 import { writeSettingsAudit } from '../../lib/settingsAudit'
+import { serializableTransaction } from '../../lib/serializableTransaction'
 
 const router = Router()
 
@@ -148,7 +149,7 @@ router.put('/:id', async (req, res) => {
   try {
     const id = supplierIdParamSchema.parse(req.params.id)
     const data = supplierUpdateBodySchema.parse(req.body)
-    const supplier = await prisma.$transaction(async (tx) => {
+    const supplier = await serializableTransaction(async (tx) => {
       const existing = await tx.supplier.findUnique({ where: { id } })
       if (!existing) return null
       if (data.name !== undefined) {
@@ -201,7 +202,7 @@ router.put('/:id', async (req, res) => {
 router.delete('/:id', async (req, res) => {
   try {
     const id = supplierIdParamSchema.parse(req.params.id)
-    const result = await prisma.$transaction(async (tx) => {
+    const result = await serializableTransaction(async (tx) => {
       const before = await tx.supplier.findUnique({ where: { id } })
       if (!before) return { kind: 'missing' as const }
 
@@ -245,7 +246,7 @@ router.delete('/:id', async (req, res) => {
 router.post('/:id/restore', async (req, res) => {
   try {
     const id = supplierIdParamSchema.parse(req.params.id)
-    const result = await prisma.$transaction(async (tx) => {
+    const result = await serializableTransaction(async (tx) => {
       const before = await tx.supplier.findUnique({ where: { id } })
       if (!before) return { kind: 'missing' as const }
 

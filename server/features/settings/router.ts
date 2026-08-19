@@ -13,22 +13,12 @@ import {
   postageTierUpdateBodySchema,
 } from '#contracts/routes/settings'
 import { writeSettingsAudit } from '../../lib/settingsAudit'
+import { serializableTransaction } from '../../lib/serializableTransaction'
 
 const router = Router()
 
 function isPrismaError(error: unknown, code: string): error is Prisma.PrismaClientKnownRequestError {
   return error instanceof Prisma.PrismaClientKnownRequestError && error.code === code
-}
-
-async function serializableTransaction<T>(work: (tx: Prisma.TransactionClient) => Promise<T>): Promise<T> {
-  for (let attempt = 0; attempt < 3; attempt += 1) {
-    try {
-      return await prisma.$transaction(work, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable })
-    } catch (error) {
-      if (!isPrismaError(error, 'P2034') || attempt === 2) throw error
-    }
-  }
-  throw new Error('Unreachable transaction retry')
 }
 
 function postageSnapshot(tier: {
@@ -197,7 +187,7 @@ router.post('/packaging-overhead', async (req, res) => {
   try {
     const data = packagingOverheadCreateBodySchema.parse(req.body)
 
-    const overhead = await prisma.$transaction(async (tx) => {
+    const overhead = await serializableTransaction(async (tx) => {
       const created = await tx.packagingOverhead.create({
         data: {
           name: data.name,
@@ -229,13 +219,9 @@ router.put('/packaging-overhead/:id', async (req, res) => {
   try {
     const id = packagingOverheadIdParamSchema.parse(req.params.id)
     const data = packagingOverheadUpdateBodySchema.parse(req.body)
-    const existing = await prisma.packagingOverhead.findUnique({ where: { id } })
-    if (!existing) {
-      notFound(res, 'Packaging overhead not found')
-      return
-    }
-
-    const overhead = await prisma.$transaction(async (tx) => {
+    const overhead = await serializableTransaction(async (tx) => {
+      const existing = await tx.packagingOverhead.findUnique({ where: { id } })
+      if (!existing) return null
       const updated = await tx.packagingOverhead.update({
         where: { id },
         data: {
@@ -255,6 +241,10 @@ router.put('/packaging-overhead/:id', async (req, res) => {
       return updated
     })
 
+    if (!overhead) {
+      notFound(res, 'Packaging overhead not found')
+      return
+    }
     res.json(overhead)
   } catch (error) {
     if (validationFailed(error, res)) return
@@ -271,7 +261,7 @@ router.put('/packaging-overhead/:id', async (req, res) => {
 router.delete('/packaging-overhead/:id', async (req, res) => {
   try {
     const id = packagingOverheadIdParamSchema.parse(req.params.id)
-    const result = await prisma.$transaction(async (tx) => {
+    const result = await serializableTransaction(async (tx) => {
       const before = await tx.packagingOverhead.findUnique({ where: { id } })
       if (!before) return { kind: 'missing' as const }
 
@@ -311,7 +301,7 @@ router.delete('/packaging-overhead/:id', async (req, res) => {
 router.post('/packaging-overhead/:id/restore', async (req, res) => {
   try {
     const id = packagingOverheadIdParamSchema.parse(req.params.id)
-    const result = await prisma.$transaction(async (tx) => {
+    const result = await serializableTransaction(async (tx) => {
       const before = await tx.packagingOverhead.findUnique({ where: { id } })
       if (!before) return { kind: 'missing' as const }
 
@@ -467,23 +457,13 @@ router.put('/postage-tiers/:id', async (req, res) => {
   try {
     const id = postageTierIdParamSchema.parse(req.params.id)
     const data = postageTierUpdateBodySchema.parse(req.body)
-    const existing = await prisma.postageTier.findUnique({ where: { id } })
-    if (!existing) {
-      notFound(res, 'Postage tier not found')
-      return
-    }
-
-    if (data.etsyCharge !== undefined) {
-      const conflicting = await prisma.postageTier.findUnique({ where: { etsyCharge: data.etsyCharge } })
-      if (conflicting && conflicting.id !== existing.id) {
-        return res.status(409).json({
-          error: `Etsy charge £${Number(data.etsyCharge).toFixed(2)} is already used by another tier`,
-          field: 'etsyCharge',
-        })
+    const result = await serializableTransaction(async (tx) => {
+      const existing = await tx.postageTier.findUnique({ where: { id } })
+      if (!existing) return { kind: 'missing' as const }
+      if (data.etsyCharge !== undefined) {
+        const conflicting = await tx.postageTier.findUnique({ where: { etsyCharge: data.etsyCharge } })
+        if (conflicting && conflicting.id !== existing.id) return { kind: 'conflict' as const }
       }
-    }
-
-    const tier = await prisma.$transaction(async (tx) => {
       const updated = await tx.postageTier.update({
         where: { id },
         data: {
@@ -501,9 +481,20 @@ router.put('/postage-tiers/:id', async (req, res) => {
         after: postageSnapshot(updated),
       })
 
-      return updated
+      return { kind: 'updated' as const, item: updated }
     })
-    res.json(tier)
+    if (result.kind === 'missing') {
+      notFound(res, 'Postage tier not found')
+      return
+    }
+    if (result.kind === 'conflict') {
+      res.status(409).json({
+        error: `Etsy charge £${Number(data.etsyCharge).toFixed(2)} is already used by another tier`,
+        field: 'etsyCharge',
+      })
+      return
+    }
+    res.json(result.item)
   } catch (error) {
     if (validationFailed(error, res)) return
     if (isPrismaError(error, 'P2025')) {
@@ -522,7 +513,7 @@ router.put('/postage-tiers/:id', async (req, res) => {
 router.delete('/postage-tiers/:id', async (req, res) => {
   try {
     const id = postageTierIdParamSchema.parse(req.params.id)
-    const result = await prisma.$transaction(async (tx) => {
+    const result = await serializableTransaction(async (tx) => {
       const before = await tx.postageTier.findUnique({ where: { id } })
       if (!before) return { kind: 'missing' as const }
 
@@ -562,7 +553,7 @@ router.delete('/postage-tiers/:id', async (req, res) => {
 router.post('/postage-tiers/:id/restore', async (req, res) => {
   try {
     const id = postageTierIdParamSchema.parse(req.params.id)
-    const result = await prisma.$transaction(async (tx) => {
+    const result = await serializableTransaction(async (tx) => {
       const before = await tx.postageTier.findUnique({ where: { id } })
       if (!before) return { kind: 'missing' as const }
 

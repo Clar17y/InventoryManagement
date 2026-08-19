@@ -514,7 +514,7 @@ describe('settings router', () => {
   })
 
   it('rejects editing a tier to a charge owned by a different tier', async () => {
-    prismaMock.postageTier.findUnique
+    transactionMock.postageTier.findUnique
       .mockResolvedValueOnce(activeTier)
       .mockResolvedValueOnce({ ...activeTier, id: 'tier-3', etsyCharge: new Prisma.Decimal('5.00') })
     await startServer()
@@ -529,11 +529,11 @@ describe('settings router', () => {
       error: 'Etsy charge £5.00 is already used by another tier',
       field: 'etsyCharge',
     })
-    expect(prismaMock.$transaction).not.toHaveBeenCalled()
+    expect(prismaMock.$transaction).toHaveBeenCalledTimes(1)
   })
 
   it('clears an existing postage label when the edit sends null', async () => {
-    prismaMock.postageTier.findUnique.mockResolvedValue(activeTier)
+    transactionMock.postageTier.findUnique.mockResolvedValue(activeTier)
     transactionMock.postageTier.update.mockResolvedValue({ ...activeTier, label: null })
     await startServer()
 
@@ -550,7 +550,7 @@ describe('settings router', () => {
   })
 
   it('maps missing postage IDs and update P2025 errors to 404', async () => {
-    prismaMock.postageTier.findUnique.mockResolvedValueOnce(null).mockResolvedValueOnce(activeTier)
+    transactionMock.postageTier.findUnique.mockResolvedValueOnce(null).mockResolvedValueOnce(activeTier)
     transactionMock.postageTier.update.mockRejectedValueOnce(knownRequestError('P2025'))
     await startServer()
 
@@ -632,7 +632,7 @@ describe('settings router', () => {
       ...archivedPackaging,
       costPerOrder: new Prisma.Decimal('2.50'),
     }
-    prismaMock.packagingOverhead.findUnique.mockResolvedValue(archivedPackaging)
+    transactionMock.packagingOverhead.findUnique.mockResolvedValue(archivedPackaging)
     transactionMock.packagingOverhead.update.mockResolvedValue(archivedUpdate)
     await startServer()
 
@@ -656,6 +656,26 @@ describe('settings router', () => {
         before: expect.objectContaining({ name: 'Old Box', costPerOrder: '9', isActive: false, effectiveTo: '2026-08-18T09:00:00.000Z' }),
         after: expect.objectContaining({ name: 'Old Box', costPerOrder: '2.5', isActive: false, effectiveTo: '2026-08-18T09:00:00.000Z' }),
       }),
+    }))
+  })
+
+  it('audits a packaging update from the serializable transaction snapshot', async () => {
+    const transactionRead = { ...activePackaging, costPerOrder: new Prisma.Decimal('1.50') }
+    const updated = { ...transactionRead, costPerOrder: new Prisma.Decimal('2.00') }
+    transactionMock.packagingOverhead.findUnique
+      .mockResolvedValueOnce(transactionRead)
+      .mockResolvedValueOnce(updated)
+    transactionMock.packagingOverhead.update.mockResolvedValue(updated)
+    await startServer()
+
+    const response = await request('/api/settings/packaging-overhead/packaging-1', {
+      method: 'PUT', body: JSON.stringify({ costPerOrder: 2 }),
+    })
+
+    expect(response.status).toBe(200)
+    expect(prismaMock.packagingOverhead.findUnique).not.toHaveBeenCalled()
+    expect(transactionMock.settingsAuditLog.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ before: expect.objectContaining({ costPerOrder: '1.5' }), after: expect.objectContaining({ costPerOrder: '2' }) }),
     }))
   })
 
@@ -693,10 +713,8 @@ describe('settings router', () => {
   })
 
   it('maps missing packaging IDs to 404 and makes archive idempotent', async () => {
-    prismaMock.packagingOverhead.findUnique
-      .mockResolvedValueOnce(null)
-      .mockResolvedValueOnce(null)
     transactionMock.packagingOverhead.findUnique
+      .mockResolvedValueOnce(null)
       .mockResolvedValueOnce(null)
       .mockResolvedValueOnce(archivedPackaging)
       .mockResolvedValueOnce(archivedPackaging)

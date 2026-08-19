@@ -9,6 +9,7 @@ import {
   suppliersResponseSchema,
   supplierResponseSchema,
   supplierLowStockResponseSchema,
+  supplierMutationResponseSchema,
   productSupplierIdsResponseSchema,
 } from '#contracts/routes/suppliers';
 import { suppliers } from '../../../lib/api/suppliers';
@@ -41,6 +42,18 @@ describe('suppliers API', () => {
         '/suppliers',
         suppliersResponseSchema
       );
+      expect(mockRequestWithSchema.mock.calls[0]?.[0]).not.toContain('?');
+    });
+
+    it('loads active and archived suppliers for Settings', async () => {
+      mockRequestWithSchema.mockResolvedValue([sampleSupplier]);
+
+      await suppliers.list({ includeArchived: true });
+
+      expect(mockRequestWithSchema).toHaveBeenCalledWith(
+        '/suppliers?includeArchived=true',
+        suppliersResponseSchema,
+      );
     });
 
     it('returns array of suppliers', async () => {
@@ -55,18 +68,20 @@ describe('suppliers API', () => {
 
   describe('create', () => {
     it('calls request with POST and supplier data', async () => {
-      mockRequestWithSchema.mockResolvedValue(sampleSupplier);
+      const outcome = { item: sampleSupplier, outcome: 'created' as const };
+      mockRequestWithSchema.mockResolvedValue(outcome);
 
-      await suppliers.create({ name: 'Home Bargains' });
+      const result = await suppliers.create({ name: 'Home Bargains' });
 
       expect(mockRequestWithSchema).toHaveBeenCalledWith(
         '/suppliers',
-        supplierResponseSchema,
+        supplierMutationResponseSchema,
         {
           method: 'POST',
           body: JSON.stringify({ name: 'Home Bargains' }),
         }
       );
+      expect(result).toEqual(outcome);
     });
   });
 
@@ -96,6 +111,20 @@ describe('suppliers API', () => {
       expect(mockRequest).toHaveBeenCalledWith('/suppliers/s1', {
         method: 'DELETE',
       });
+    });
+  });
+
+  describe('restore', () => {
+    it('calls request with POST to the restore endpoint', async () => {
+      mockRequestWithSchema.mockResolvedValue(sampleSupplier);
+
+      await suppliers.restore('s1');
+
+      expect(mockRequestWithSchema).toHaveBeenCalledWith(
+        '/suppliers/s1/restore',
+        supplierResponseSchema,
+        { method: 'POST' },
+      );
     });
   });
 

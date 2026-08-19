@@ -2,21 +2,28 @@ import { request, requestWithSchema } from './request'
 import {
   suppliersResponseSchema,
   supplierResponseSchema,
+  supplierMutationResponseSchema,
   supplierLowStockResponseSchema,
   productSupplierIdsResponseSchema,
   type SupplierCreateBody,
+  type SupplierMutationResponse,
   type SupplierUpdateBody,
   type SupplierResponse,
   type SupplierLowStockProduct,
 } from '#contracts/routes/suppliers'
 
+function withArchived(path: string, options?: { includeArchived?: boolean }) {
+  return options?.includeArchived ? `${path}?includeArchived=true` : path
+}
+
 export type Supplier = SupplierResponse
 export type SupplierLowStockItem = SupplierLowStockProduct
 
 export const suppliers = {
-  list: () => requestWithSchema('/suppliers', suppliersResponseSchema),
+  list: (options?: { includeArchived?: boolean }) =>
+    requestWithSchema(withArchived('/suppliers', options), suppliersResponseSchema),
   create: (data: SupplierCreateBody) =>
-    requestWithSchema('/suppliers', supplierResponseSchema, {
+    requestWithSchema('/suppliers', supplierMutationResponseSchema, {
       method: 'POST',
       body: JSON.stringify(data),
     }),
@@ -26,6 +33,8 @@ export const suppliers = {
       body: JSON.stringify(data),
     }),
   delete: (id: string) => request<void>(`/suppliers/${id}`, { method: 'DELETE' }),
+  restore: (id: string) =>
+    requestWithSchema(`/suppliers/${id}/restore`, supplierResponseSchema, { method: 'POST' }),
   lowStock: (supplierId: string) =>
     requestWithSchema(`/suppliers/${supplierId}/low-stock`, supplierLowStockResponseSchema),
   getProductSuppliers: (productId: string) =>
@@ -43,3 +52,5 @@ export const suppliers = {
       body: JSON.stringify({ productIds }),
     }),
 }
+
+export type { SupplierMutationResponse }

@@ -170,9 +170,10 @@ router.get('/packaging-overhead', async (req, res) => {
       orderBy: { name: 'asc' },
     })
 
-    const total = overheads
-      .filter((overhead) => overhead.isActive)
-      .reduce((sum, overhead) => sum + Number(overhead.costPerOrder), 0)
+    const total = overheads.reduce(
+      (sum, overhead) => overhead.isActive ? sum + Number(overhead.costPerOrder) : sum,
+      0,
+    )
 
     res.json({ overheads, totalPerOrder: total })
   } catch (error) {
@@ -271,7 +272,7 @@ router.delete('/packaging-overhead/:id', async (req, res) => {
       })
       const current = await tx.packagingOverhead.findUnique({ where: { id } })
       if (!current) return { kind: 'missing' as const }
-      if (changed.count === 0) return { kind: 'unchanged' as const, item: current }
+      if (changed.count === 0) return { kind: 'unchanged' as const }
 
       await writeSettingsAudit(tx, {
         settingType: 'PACKAGING_OVERHEAD',
@@ -523,7 +524,7 @@ router.delete('/postage-tiers/:id', async (req, res) => {
       })
       const current = await tx.postageTier.findUnique({ where: { id } })
       if (!current) return { kind: 'missing' as const }
-      if (changed.count === 0) return { kind: 'unchanged' as const, item: current }
+      if (changed.count === 0) return { kind: 'unchanged' as const }
 
       await writeSettingsAudit(tx, {
         settingType: 'POSTAGE_TIER',

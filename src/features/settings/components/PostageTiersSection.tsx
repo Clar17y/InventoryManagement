@@ -229,6 +229,7 @@ export default function PostageTiersSection({
                 step="0.01"
                 value={draft.etsyCharge}
                 onChange={(event) => updateDraft('etsyCharge', event.target.value)}
+                disabled={isPending}
                 aria-invalid={Boolean(fieldError.etsyCharge)}
                 className="input mt-1 w-full"
               />
@@ -243,6 +244,7 @@ export default function PostageTiersSection({
                 step="0.01"
                 value={draft.actualCost}
                 onChange={(event) => updateDraft('actualCost', event.target.value)}
+                disabled={isPending}
                 aria-invalid={Boolean(fieldError.actualCost)}
                 className="input mt-1 w-full"
               />
@@ -256,13 +258,13 @@ export default function PostageTiersSection({
                 type="text"
                 value={draft.label}
                 onChange={(event) => updateDraft('label', event.target.value)}
+                disabled={isPending}
                 aria-invalid={Boolean(fieldError.label)}
                 className="input mt-1 w-full"
               />
               {fieldError.label && <p className="text-xs text-red-600">{fieldError.label}</p>}
             </div>
           </div>
-          {rowError && <p role="alert" className="text-sm text-red-600">{rowError}</p>}
           <div className="flex gap-2">
             <button
               type="button"
@@ -355,6 +357,7 @@ export default function PostageTiersSection({
       )}
 
       {confirmation && <p role="status" className="text-sm text-green-700">{confirmation}</p>}
+      {rowError && <p role="alert" className="text-sm text-red-600">{rowError}</p>}
       {newError && <p role="alert" className="text-sm text-red-600">{newError}</p>}
 
       <div className="space-y-2">
@@ -363,6 +366,8 @@ export default function PostageTiersSection({
             type="number"
             step="0.01"
             value={newEtsyCharge}
+            aria-label="New Etsy charge"
+            disabled={pendingId === 'new'}
             onChange={(event) => {
               setNewEtsyCharge(event.target.value)
               setNewFieldErrors((current) => ({ ...current, etsyCharge: undefined }))
@@ -376,6 +381,8 @@ export default function PostageTiersSection({
             type="number"
             step="0.01"
             value={newActualCost}
+            aria-label="New actual cost"
+            disabled={pendingId === 'new'}
             onChange={(event) => {
               setNewActualCost(event.target.value)
               setNewFieldErrors((current) => ({ ...current, actualCost: undefined }))
@@ -388,6 +395,8 @@ export default function PostageTiersSection({
           <input
             type="text"
             value={newLabel}
+            aria-label="New label"
+            disabled={pendingId === 'new'}
             onChange={(event) => {
               setNewLabel(event.target.value)
               setNewFieldErrors((current) => ({ ...current, label: undefined }))

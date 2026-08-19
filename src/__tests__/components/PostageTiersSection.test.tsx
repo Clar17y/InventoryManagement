@@ -243,4 +243,72 @@ describe('PostageTiersSection', () => {
       expect(screen.getByRole('button', { name: 'Edit £5.00 tier' })).toBeInTheDocument()
     })
   })
+
+  it('shows an archive failure beside the affected row', async () => {
+    const user = userEvent.setup()
+    const onArchive = vi.fn().mockRejectedValue(new Error('Archive failed'))
+    renderSection({ onArchive })
+
+    await user.click(screen.getByRole('button', { name: 'Archive £5.00 tier' }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Archive failed')
+  })
+
+  it('shows a restore failure beside the affected archived row', async () => {
+    const user = userEvent.setup()
+    const onRestore = vi.fn().mockRejectedValue(new Error('Restore failed'))
+    renderSection({ tiers: [activeTier, archivedTier], onRestore })
+
+    await user.click(screen.getByRole('button', { name: /Archived \(1\)/ }))
+    await user.click(screen.getByRole('button', { name: 'Restore £7.00 tier' }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Restore failed')
+  })
+
+  it('disables the selected row inputs while its save is pending', async () => {
+    const user = userEvent.setup()
+    let resolveUpdate: ((tier: typeof activeTier) => void) | undefined
+    const onUpdate = vi.fn().mockImplementation(() => new Promise<typeof activeTier>((resolve) => {
+      resolveUpdate = resolve
+    }))
+    renderSection({ onUpdate })
+
+    await user.click(screen.getByRole('button', { name: 'Edit £5.00 tier' }))
+    await user.click(screen.getByRole('button', { name: 'Save £5.00 tier' }))
+
+    expect(screen.getByLabelText('Etsy charge')).toBeDisabled()
+    expect(screen.getByLabelText('Actual cost')).toBeDisabled()
+    expect(screen.getByLabelText('Label')).toBeDisabled()
+
+    resolveUpdate?.(activeTier)
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Edit £5.00 tier' })).toBeInTheDocument())
+  })
+
+  it('disables all Add inputs while Add is pending', async () => {
+    const user = userEvent.setup()
+    let resolveCreate: ((result: { item: typeof activeTier; outcome: 'created' }) => void) | undefined
+    const onCreate = vi.fn().mockImplementation(() => new Promise<{ item: typeof activeTier; outcome: 'created' }>((resolve) => {
+      resolveCreate = resolve
+    }))
+    renderSection({ tiers: [], onCreate })
+
+    await user.type(screen.getByPlaceholderText('Etsy charge'), '5.00')
+    await user.type(screen.getByPlaceholderText('Actual cost'), '5.05')
+    await user.click(screen.getByRole('button', { name: 'Add' }))
+
+    expect(screen.getByPlaceholderText('Etsy charge')).toBeDisabled()
+    expect(screen.getByPlaceholderText('Actual cost')).toBeDisabled()
+    expect(screen.getByPlaceholderText('Label (optional)')).toBeDisabled()
+
+    resolveCreate?.({ item: activeTier, outcome: 'created' })
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Add' })).toBeInTheDocument())
+  })
+
+  it('gives the Add inputs accessible names', () => {
+    renderSection({ tiers: [] })
+
+    expect(screen.getByRole('spinbutton', { name: 'New Etsy charge' })).toBeInTheDocument()
+    expect(screen.getByRole('spinbutton', { name: 'New actual cost' })).toBeInTheDocument()
+    expect(screen.getByRole('textbox', { name: 'New label' })).toBeInTheDocument()
+  })
 })

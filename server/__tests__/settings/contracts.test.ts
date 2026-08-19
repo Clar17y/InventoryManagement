@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import {
+  etsyFeeCreateBodySchema,
   includeArchivedQuerySchema,
+  packagingOverheadCreateBodySchema,
   postageTierCreateBodySchema,
   postageTierUpdateBodySchema,
   postageTierMutationResponseSchema,
@@ -26,6 +28,27 @@ describe('editable settings contracts', () => {
     expect(postageTierCreateBodySchema.safeParse({ etsyCharge: -1, actualCost: 3.65 }).success).toBe(false)
     expect(postageTierUpdateBodySchema.parse({ label: null })).toEqual({ label: null })
     expect(supplierCreateBodySchema.parse({ name: '  Home Bargains  ' })).toEqual({ name: 'Home Bargains' })
+  })
+
+  it('enforces Decimal(10,2) bounds and scale for postage money', () => {
+    expect(postageTierCreateBodySchema.safeParse({ etsyCharge: 99_999_999.99, actualCost: 0 }).success).toBe(true)
+    expect(postageTierCreateBodySchema.safeParse({ etsyCharge: 100_000_000, actualCost: 0 }).success).toBe(false)
+    expect(postageTierCreateBodySchema.safeParse({ etsyCharge: 1.23, actualCost: 0 }).success).toBe(true)
+    expect(postageTierCreateBodySchema.safeParse({ etsyCharge: 1.234, actualCost: 0 }).success).toBe(false)
+  })
+
+  it('enforces Decimal(10,4) bounds and scale for packaging money', () => {
+    expect(packagingOverheadCreateBodySchema.safeParse({ name: 'Box', costPerOrder: 999_999.9999 }).success).toBe(true)
+    expect(packagingOverheadCreateBodySchema.safeParse({ name: 'Box', costPerOrder: 1_000_000 }).success).toBe(false)
+    expect(packagingOverheadCreateBodySchema.safeParse({ name: 'Box', costPerOrder: 1.1234 }).success).toBe(true)
+    expect(packagingOverheadCreateBodySchema.safeParse({ name: 'Box', costPerOrder: 1.12345 }).success).toBe(false)
+  })
+
+  it('enforces the fee-rate maximum and four decimal places', () => {
+    const fee = { name: 'Fees', transactionFee: 1, regulatoryFee: 0.1234, paymentFeePercent: 0.04, paymentFeeFixed: 0.2, vatRate: 0.2, listingFee: 0.15 }
+    expect(etsyFeeCreateBodySchema.safeParse(fee).success).toBe(true)
+    expect(etsyFeeCreateBodySchema.safeParse({ ...fee, regulatoryFee: 0.12345 }).success).toBe(false)
+    expect(etsyFeeCreateBodySchema.safeParse({ ...fee, transactionFee: 1.0001 }).success).toBe(false)
   })
 
   it('parses mutation outcomes and nullable audit snapshots', () => {

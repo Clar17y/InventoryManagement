@@ -292,6 +292,22 @@ describe('settings router', () => {
     expect(packagingResponse.status).toBe(400)
   })
 
+  it('returns field-associated validation errors for over-scale postage and packaging money', async () => {
+    await startServer()
+
+    const postageResponse = await request('/api/settings/postage-tiers', {
+      method: 'POST', body: JSON.stringify({ etsyCharge: 1.234, actualCost: 2 }),
+    })
+    const packagingResponse = await request('/api/settings/packaging-overhead', {
+      method: 'POST', body: JSON.stringify({ name: 'Box', costPerOrder: 1.12345 }),
+    })
+
+    expect(postageResponse.status).toBe(400)
+    expect(await postageResponse.json()).toMatchObject({ field: 'etsyCharge', error: 'Must have at most 2 decimal places' })
+    expect(packagingResponse.status).toBe(400)
+    expect(await packagingResponse.json()).toMatchObject({ field: 'costPerOrder', error: 'Must have at most 4 decimal places' })
+  })
+
   it('rejects invalid packaging and postage IDs before calling Prisma', async () => {
     await startServer()
 
@@ -312,7 +328,7 @@ describe('settings router', () => {
 
   it('creates a new postage tier and audits the create in the same transaction', async () => {
     const createdTier = { ...activeTier, id: 'tier-new' }
-    prismaMock.postageTier.findUnique.mockResolvedValue(null)
+    transactionMock.postageTier.findUnique.mockResolvedValue(null)
     transactionMock.postageTier.create.mockResolvedValue(createdTier)
     await startServer()
 
@@ -351,6 +367,7 @@ describe('settings router', () => {
       .mockResolvedValueOnce({ count: 1 })
     transactionMock.postageTier.findUnique
       .mockResolvedValueOnce(archivedTier)
+      .mockResolvedValueOnce(archivedTier)
       .mockResolvedValueOnce(restoredTier)
     await startServer()
 
@@ -374,9 +391,10 @@ describe('settings router', () => {
   })
 
   it('updates an active matching tier and reports updated', async () => {
-    prismaMock.postageTier.findUnique.mockResolvedValue(activeTier)
     transactionMock.postageTier.updateMany.mockResolvedValue({ count: 1 })
-    transactionMock.postageTier.findUnique.mockResolvedValue({ ...activeTier, actualCost: new Prisma.Decimal('3.95') })
+    transactionMock.postageTier.findUnique
+      .mockResolvedValueOnce(activeTier)
+      .mockResolvedValueOnce({ ...activeTier, actualCost: new Prisma.Decimal('3.95') })
     await startServer()
 
     const response = await request('/api/settings/postage-tiers', {
@@ -391,13 +409,33 @@ describe('settings router', () => {
     }))
   })
 
+  it('audits an Add update from the transaction-read active snapshot', async () => {
+    const transactionRead = { ...activeTier, actualCost: new Prisma.Decimal('3.75'), label: 'Fresh' }
+    const updated = { ...transactionRead, actualCost: new Prisma.Decimal('3.95') }
+    transactionMock.postageTier.findUnique
+      .mockResolvedValueOnce(transactionRead)
+      .mockResolvedValueOnce(updated)
+    transactionMock.postageTier.updateMany.mockResolvedValue({ count: 1 })
+    await startServer()
+
+    const response = await request('/api/settings/postage-tiers', {
+      method: 'POST', body: JSON.stringify({ etsyCharge: 5, actualCost: 3.95 }),
+    })
+
+    expect(response.status).toBe(200)
+    expect(prismaMock.postageTier.findUnique).not.toHaveBeenCalled()
+    expect(transactionMock.settingsAuditLog.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ action: 'UPDATE', before: expect.objectContaining({ actualCost: '3.75', label: 'Fresh' }) }),
+    }))
+  })
+
   it('restores when an active match is archived before its conditional update', async () => {
     const restoredTier = { ...archivedTier, actualCost: new Prisma.Decimal('3.95'), isActive: true }
-    prismaMock.postageTier.findUnique.mockResolvedValue(activeTier)
     transactionMock.postageTier.updateMany
       .mockResolvedValueOnce({ count: 0 })
       .mockResolvedValueOnce({ count: 1 })
     transactionMock.postageTier.findUnique
+      .mockResolvedValueOnce(activeTier)
       .mockResolvedValueOnce(archivedTier)
       .mockResolvedValueOnce(restoredTier)
     await startServer()
@@ -415,9 +453,9 @@ describe('settings router', () => {
   })
 
   it('recovers a create uniqueness race by updating the winning row', async () => {
-    prismaMock.postageTier.findUnique.mockResolvedValueOnce(null)
     transactionMock.postageTier.create.mockRejectedValueOnce(knownRequestError('P2002'))
     transactionMock.postageTier.findUnique
+      .mockResolvedValueOnce(null)
       .mockResolvedValueOnce(activeTier)
       .mockResolvedValueOnce({ ...activeTier, actualCost: new Prisma.Decimal('3.65') })
     transactionMock.postageTier.updateMany.mockResolvedValue({ count: 1 })
@@ -438,9 +476,10 @@ describe('settings router', () => {
   })
 
   it('returns the authoritative active tier without a duplicate restore audit when a concurrent restore wins', async () => {
-    prismaMock.postageTier.findUnique.mockResolvedValue(archivedTier)
     transactionMock.postageTier.updateMany.mockResolvedValue({ count: 0 })
-    transactionMock.postageTier.findUnique.mockResolvedValue({ ...archivedTier, isActive: true })
+    transactionMock.postageTier.findUnique
+      .mockResolvedValueOnce(archivedTier)
+      .mockResolvedValueOnce({ ...archivedTier, isActive: true })
     await startServer()
 
     const response = await request('/api/settings/postage-tiers', {
@@ -457,9 +496,9 @@ describe('settings router', () => {
   })
 
   it('avoids a duplicate restore audit when the P2002 winner becomes active first', async () => {
-    prismaMock.postageTier.findUnique.mockResolvedValue(null)
     transactionMock.postageTier.create.mockRejectedValueOnce(knownRequestError('P2002'))
     transactionMock.postageTier.findUnique
+      .mockResolvedValueOnce(null)
       .mockResolvedValueOnce(archivedTier)
       .mockResolvedValueOnce({ ...archivedTier, isActive: true })
     transactionMock.postageTier.updateMany.mockResolvedValue({ count: 0 })
@@ -704,6 +743,27 @@ describe('settings router', () => {
     expect(transactionMock.settingsAuditLog.create).toHaveBeenCalledWith(expect.objectContaining({
       data: expect.objectContaining({ action: 'CREATE', settingType: 'ETSY_FEE_CONFIG', settingId: 'fees-2' }),
     }))
+  })
+
+  it('retries a serializable settings transaction after P2034', async () => {
+    prismaMock.$transaction.mockImplementationOnce(async () => {
+      throw knownRequestError('P2034')
+    })
+    await startServer()
+
+    const response = await request('/api/settings/etsy-fees', {
+      method: 'POST',
+      body: JSON.stringify({
+        name: 'Retried fees', transactionFee: 0.07, regulatoryFee: 0.003,
+        paymentFeePercent: 0.04, paymentFeeFixed: 0.2, vatRate: 0.2, listingFee: 0.15,
+      }),
+    })
+
+    expect(response.status).toBe(201)
+    expect(prismaMock.$transaction).toHaveBeenCalledTimes(2)
+    expect(prismaMock.$transaction).toHaveBeenLastCalledWith(expect.any(Function), {
+      isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+    })
   })
 
   it('returns 500 and rejects the transaction when the audit write fails', async () => {

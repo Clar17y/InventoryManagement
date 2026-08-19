@@ -85,7 +85,12 @@ function etsyFeeSnapshot(config: {
 
 function validationFailed(error: unknown, res: Parameters<Parameters<typeof router.post>[1]>[1]): boolean {
   if (!(error instanceof z.ZodError)) return false
-  res.status(400).json({ error: 'Validation failed', details: error.errors })
+  const issue = error.errors[0]
+  res.status(400).json({
+    error: issue?.message ?? 'Validation failed',
+    field: typeof issue?.path[0] === 'string' ? issue.path[0] : undefined,
+    details: error.errors,
+  })
   return true
 }
 
@@ -404,20 +409,13 @@ async function updateOrRestorePostageTier(
 router.post('/postage-tiers', async (req, res) => {
   try {
     const data = postageTierCreateBodySchema.parse(req.body)
-    const existing = await prisma.postageTier.findUnique({ where: { etsyCharge: data.etsyCharge } })
-
-    if (existing) {
-      const result = await serializableTransaction((tx) => updateOrRestorePostageTier(tx, existing, data))
-      if (!result) {
-        notFound(res, 'Postage tier not found')
-        return
-      }
-      res.json(result)
-      return
-    }
-
+    let result: { item: PostageTierRecord; outcome: 'created' | 'updated' | 'restored' } | null
+    let recoveredFromCreateRace = false
     try {
-      const tier = await prisma.$transaction(async (tx) => {
+      result = await serializableTransaction(async (tx) => {
+        const existing = await tx.postageTier.findUnique({ where: { etsyCharge: data.etsyCharge } })
+        if (existing) return updateOrRestorePostageTier(tx, existing, data)
+
         const created = await tx.postageTier.create({
           data: {
             etsyCharge: data.etsyCharge,
@@ -433,25 +431,28 @@ router.post('/postage-tiers', async (req, res) => {
           before: null,
           after: postageSnapshot(created),
         })
-
-        return created
+        return { item: created, outcome: 'created' as const }
       })
-      res.status(201).json({ item: tier, outcome: 'created' })
     } catch (error) {
       if (!isPrismaError(error, 'P2002')) throw error
+      recoveredFromCreateRace = true
 
-      const raced = await serializableTransaction(async (tx) => {
+      result = await serializableTransaction(async (tx) => {
         const winner = await tx.postageTier.findUnique({ where: { etsyCharge: data.etsyCharge } })
         if (!winner) return null
         return updateOrRestorePostageTier(tx, winner, data)
       })
+    }
 
-      if (!raced) {
+    if (!result) {
+      if (recoveredFromCreateRace) {
         res.status(409).json({ error: 'A tier with this Etsy charge already exists' })
         return
       }
-      res.json(raced)
+      notFound(res, 'Postage tier not found')
+      return
     }
+    res.status(result.outcome === 'created' ? 201 : 200).json(result)
   } catch (error) {
     if (validationFailed(error, res)) return
     if (isPrismaError(error, 'P2002')) {

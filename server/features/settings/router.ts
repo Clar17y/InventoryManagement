@@ -3,14 +3,76 @@ import { z } from 'zod'
 import { Prisma } from '@prisma/client'
 import { prisma } from '../../lib/prisma'
 import {
+  includeArchivedQuerySchema,
   etsyFeeCreateBodySchema,
   packagingOverheadCreateBodySchema,
   packagingOverheadUpdateBodySchema,
   postageTierCreateBodySchema,
   postageTierUpdateBodySchema,
 } from '#contracts/routes/settings'
+import { writeSettingsAudit } from '../../lib/settingsAudit'
 
 const router = Router()
+
+function isPrismaError(error: unknown, code: string): error is Prisma.PrismaClientKnownRequestError {
+  return error instanceof Prisma.PrismaClientKnownRequestError && error.code === code
+}
+
+function postageSnapshot(tier: {
+  etsyCharge: { toString(): string }
+  actualCost: { toString(): string }
+  label: string | null
+  isActive: boolean
+}): Prisma.InputJsonObject {
+  return {
+    etsyCharge: tier.etsyCharge.toString(),
+    actualCost: tier.actualCost.toString(),
+    label: tier.label,
+    isActive: tier.isActive,
+  }
+}
+
+function packagingSnapshot(overhead: {
+  name: string
+  costPerOrder: { toString(): string }
+}): Prisma.InputJsonObject {
+  return {
+    name: overhead.name,
+    costPerOrder: overhead.costPerOrder.toString(),
+  }
+}
+
+function etsyFeeSnapshot(config: {
+  name: string
+  transactionFee: { toString(): string }
+  regulatoryFee: { toString(): string }
+  paymentFeePercent: { toString(): string }
+  paymentFeeFixed: { toString(): string }
+  vatRate: { toString(): string }
+  listingFee: { toString(): string }
+  isActive: boolean
+}): Prisma.InputJsonObject {
+  return {
+    name: config.name,
+    transactionFee: config.transactionFee.toString(),
+    regulatoryFee: config.regulatoryFee.toString(),
+    paymentFeePercent: config.paymentFeePercent.toString(),
+    paymentFeeFixed: config.paymentFeeFixed.toString(),
+    vatRate: config.vatRate.toString(),
+    listingFee: config.listingFee.toString(),
+    isActive: config.isActive,
+  }
+}
+
+function validationFailed(error: unknown, res: Parameters<Parameters<typeof router.post>[1]>[1]): boolean {
+  if (!(error instanceof z.ZodError)) return false
+  res.status(400).json({ error: 'Validation failed', details: error.errors })
+  return true
+}
+
+function notFound(res: Parameters<Parameters<typeof router.post>[1]>[1], message: string): void {
+  res.status(404).json({ error: message })
+}
 
 // === Etsy Fees ===
 
@@ -33,48 +95,74 @@ router.post('/etsy-fees', async (req, res) => {
   try {
     const data = etsyFeeCreateBodySchema.parse(req.body)
 
-    // Deactivate previous configs
-    await prisma.etsyFeeConfig.updateMany({
-      where: { isActive: true },
-      data: { isActive: false, effectiveTo: new Date() },
-    })
+    const config = await prisma.$transaction(async (tx) => {
+      await tx.etsyFeeConfig.updateMany({
+        where: { isActive: true },
+        data: { isActive: false, effectiveTo: new Date() },
+      })
 
-    const config = await prisma.etsyFeeConfig.create({
-      data: {
-        name: data.name,
-        transactionFee: data.transactionFee,
-        regulatoryFee: data.regulatoryFee,
-        paymentFeePercent: data.paymentFeePercent,
-        paymentFeeFixed: data.paymentFeeFixed,
-        vatRate: data.vatRate,
-        listingFee: data.listingFee,
-      },
+      const created = await tx.etsyFeeConfig.create({
+        data: {
+          name: data.name,
+          transactionFee: data.transactionFee,
+          regulatoryFee: data.regulatoryFee,
+          paymentFeePercent: data.paymentFeePercent,
+          paymentFeeFixed: data.paymentFeeFixed,
+          vatRate: data.vatRate,
+          listingFee: data.listingFee,
+        },
+      })
+
+      await writeSettingsAudit(tx, {
+        settingType: 'ETSY_FEE_CONFIG',
+        settingId: created.id,
+        action: 'CREATE',
+        before: null,
+        after: etsyFeeSnapshot(created),
+      })
+
+      return created
     })
 
     res.status(201).json(config)
   } catch (error) {
-    if (error instanceof z.ZodError) {
-      return res.status(400).json({ error: 'Validation failed', details: error.errors })
-    }
+    if (validationFailed(error, res)) return
     console.error('Error creating Etsy fee config:', error)
     res.status(500).json({ error: 'Failed to create Etsy fee config' })
+  }
+})
+
+router.get('/audit', async (_, res) => {
+  try {
+    const entries = await prisma.settingsAuditLog.findMany({
+      orderBy: { createdAt: 'desc' },
+      take: 100,
+    })
+    res.json(entries)
+  } catch (error) {
+    console.error('Error fetching settings audit log:', error)
+    res.status(500).json({ error: 'Failed to fetch settings audit log' })
   }
 })
 
 // === Packaging Overhead ===
 
 // GET all packaging overheads
-router.get('/packaging-overhead', async (_, res) => {
+router.get('/packaging-overhead', async (req, res) => {
   try {
+    const { includeArchived } = includeArchivedQuerySchema.parse(req.query)
     const overheads = await prisma.packagingOverhead.findMany({
-      where: { isActive: true },
+      where: includeArchived ? undefined : { isActive: true },
       orderBy: { name: 'asc' },
     })
 
-    const total = overheads.reduce((sum, o) => sum + Number(o.costPerOrder), 0)
+    const total = overheads
+      .filter((overhead) => overhead.isActive)
+      .reduce((sum, overhead) => sum + Number(overhead.costPerOrder), 0)
 
     res.json({ overheads, totalPerOrder: total })
   } catch (error) {
+    if (validationFailed(error, res)) return
     console.error('Error fetching packaging overhead:', error)
     res.status(500).json({ error: 'Failed to fetch packaging overhead' })
   }
@@ -85,18 +173,28 @@ router.post('/packaging-overhead', async (req, res) => {
   try {
     const data = packagingOverheadCreateBodySchema.parse(req.body)
 
-    const overhead = await prisma.packagingOverhead.create({
-      data: {
-        name: data.name,
-        costPerOrder: data.costPerOrder,
-      },
+    const overhead = await prisma.$transaction(async (tx) => {
+      const created = await tx.packagingOverhead.create({
+        data: {
+          name: data.name,
+          costPerOrder: data.costPerOrder,
+        },
+      })
+
+      await writeSettingsAudit(tx, {
+        settingType: 'PACKAGING_OVERHEAD',
+        settingId: created.id,
+        action: 'CREATE',
+        before: null,
+        after: packagingSnapshot(created),
+      })
+
+      return created
     })
 
     res.status(201).json(overhead)
   } catch (error) {
-    if (error instanceof z.ZodError) {
-      return res.status(400).json({ error: 'Validation failed', details: error.errors })
-    }
+    if (validationFailed(error, res)) return
     console.error('Error creating packaging overhead:', error)
     res.status(500).json({ error: 'Failed to create packaging overhead' })
   }
@@ -106,19 +204,38 @@ router.post('/packaging-overhead', async (req, res) => {
 router.put('/packaging-overhead/:id', async (req, res) => {
   try {
     const data = packagingOverheadUpdateBodySchema.parse(req.body)
+    const existing = await prisma.packagingOverhead.findUnique({ where: { id: req.params.id } })
+    if (!existing) {
+      notFound(res, 'Packaging overhead not found')
+      return
+    }
 
-    const overhead = await prisma.packagingOverhead.update({
-      where: { id: req.params.id },
-      data: {
-        ...(data.name && { name: data.name }),
-        ...(data.costPerOrder !== undefined && { costPerOrder: data.costPerOrder }),
-      },
+    const overhead = await prisma.$transaction(async (tx) => {
+      const updated = await tx.packagingOverhead.update({
+        where: { id: req.params.id },
+        data: {
+          ...(data.name !== undefined && { name: data.name }),
+          ...(data.costPerOrder !== undefined && { costPerOrder: data.costPerOrder }),
+        },
+      })
+
+      await writeSettingsAudit(tx, {
+        settingType: 'PACKAGING_OVERHEAD',
+        settingId: updated.id,
+        action: 'UPDATE',
+        before: packagingSnapshot(existing),
+        after: packagingSnapshot(updated),
+      })
+
+      return updated
     })
 
     res.json(overhead)
   } catch (error) {
-    if (error instanceof z.ZodError) {
-      return res.status(400).json({ error: 'Validation failed', details: error.errors })
+    if (validationFailed(error, res)) return
+    if (isPrismaError(error, 'P2025')) {
+      notFound(res, 'Packaging overhead not found')
+      return
     }
     console.error('Error updating packaging overhead:', error)
     res.status(500).json({ error: 'Failed to update packaging overhead' })
@@ -128,27 +245,93 @@ router.put('/packaging-overhead/:id', async (req, res) => {
 // DELETE packaging overhead
 router.delete('/packaging-overhead/:id', async (req, res) => {
   try {
-    await prisma.packagingOverhead.update({
-      where: { id: req.params.id },
-      data: { isActive: false, effectiveTo: new Date() },
+    const existing = await prisma.packagingOverhead.findUnique({ where: { id: req.params.id } })
+    if (!existing) {
+      notFound(res, 'Packaging overhead not found')
+      return
+    }
+    if (!existing.isActive) {
+      res.status(204).send()
+      return
+    }
+
+    await prisma.$transaction(async (tx) => {
+      const updated = await tx.packagingOverhead.update({
+        where: { id: req.params.id },
+        data: { isActive: false, effectiveTo: new Date() },
+      })
+
+      await writeSettingsAudit(tx, {
+        settingType: 'PACKAGING_OVERHEAD',
+        settingId: updated.id,
+        action: 'ARCHIVE',
+        before: packagingSnapshot(existing),
+        after: packagingSnapshot(updated),
+      })
     })
     res.status(204).send()
   } catch (error) {
+    if (isPrismaError(error, 'P2025')) {
+      notFound(res, 'Packaging overhead not found')
+      return
+    }
     console.error('Error deleting packaging overhead:', error)
     res.status(500).json({ error: 'Failed to delete packaging overhead' })
   }
 })
 
+router.post('/packaging-overhead/:id/restore', async (req, res) => {
+  try {
+    const existing = await prisma.packagingOverhead.findUnique({ where: { id: req.params.id } })
+    if (!existing) {
+      notFound(res, 'Packaging overhead not found')
+      return
+    }
+    if (existing.isActive) {
+      res.json(existing)
+      return
+    }
+
+    const restored = await prisma.$transaction(async (tx) => {
+      const updated = await tx.packagingOverhead.update({
+        where: { id: req.params.id },
+        data: { isActive: true, effectiveTo: null },
+      })
+
+      await writeSettingsAudit(tx, {
+        settingType: 'PACKAGING_OVERHEAD',
+        settingId: updated.id,
+        action: 'RESTORE',
+        before: packagingSnapshot(existing),
+        after: packagingSnapshot(updated),
+      })
+
+      return updated
+    })
+
+    res.json(restored)
+  } catch (error) {
+    if (isPrismaError(error, 'P2025')) {
+      notFound(res, 'Packaging overhead not found')
+      return
+    }
+    console.error('Error restoring packaging overhead:', error)
+    res.status(500).json({ error: 'Failed to restore packaging overhead' })
+  }
+})
+
 // === Postage Tiers ===
 
-router.get('/postage-tiers', async (_, res) => {
+router.get('/postage-tiers', async (req, res) => {
   try {
+    const { includeArchived } = includeArchivedQuerySchema.parse(req.query)
     const tiers = await prisma.postageTier.findMany({
-      where: { isActive: true },
+      where: includeArchived ? undefined : { isActive: true },
       orderBy: { etsyCharge: 'asc' },
     })
     res.json(tiers)
   } catch (error) {
+    if (validationFailed(error, res)) return
     console.error('Error fetching postage tiers:', error)
     res.status(500).json({ error: 'Failed to fetch postage tiers' })
   }
@@ -157,19 +340,93 @@ router.get('/postage-tiers', async (_, res) => {
 router.post('/postage-tiers', async (req, res) => {
   try {
     const data = postageTierCreateBodySchema.parse(req.body)
-    const tier = await prisma.postageTier.create({
-      data: {
-        etsyCharge: data.etsyCharge,
-        actualCost: data.actualCost,
-        label: data.label,
-      },
-    })
-    res.status(201).json(tier)
-  } catch (error) {
-    if (error instanceof z.ZodError) {
-      return res.status(400).json({ error: 'Validation failed', details: error.errors })
+    const existing = await prisma.postageTier.findUnique({ where: { etsyCharge: data.etsyCharge } })
+
+    if (existing) {
+      const outcome = existing.isActive ? 'updated' : 'restored'
+      const tier = await prisma.$transaction(async (tx) => {
+        const updated = await tx.postageTier.update({
+          where: { id: existing.id },
+          data: {
+            actualCost: data.actualCost,
+            label: data.label,
+            isActive: true,
+          },
+        })
+
+        await writeSettingsAudit(tx, {
+          settingType: 'POSTAGE_TIER',
+          settingId: updated.id,
+          action: outcome === 'restored' ? 'RESTORE' : 'UPDATE',
+          before: postageSnapshot(existing),
+          after: postageSnapshot(updated),
+        })
+
+        return updated
+      })
+
+      res.json({ item: tier, outcome })
+      return
     }
-    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+
+    try {
+      const tier = await prisma.$transaction(async (tx) => {
+        const created = await tx.postageTier.create({
+          data: {
+            etsyCharge: data.etsyCharge,
+            actualCost: data.actualCost,
+            label: data.label,
+          },
+        })
+
+        await writeSettingsAudit(tx, {
+          settingType: 'POSTAGE_TIER',
+          settingId: created.id,
+          action: 'CREATE',
+          before: null,
+          after: postageSnapshot(created),
+        })
+
+        return created
+      })
+      res.status(201).json({ item: tier, outcome: 'created' })
+    } catch (error) {
+      if (!isPrismaError(error, 'P2002')) throw error
+
+      const raced = await prisma.$transaction(async (tx) => {
+        const winner = await tx.postageTier.findUnique({ where: { etsyCharge: data.etsyCharge } })
+        if (!winner) return null
+
+        const outcome = winner.isActive ? 'updated' : 'restored'
+        const updated = await tx.postageTier.update({
+          where: { id: winner.id },
+          data: {
+            actualCost: data.actualCost,
+            label: data.label,
+            isActive: true,
+          },
+        })
+
+        await writeSettingsAudit(tx, {
+          settingType: 'POSTAGE_TIER',
+          settingId: updated.id,
+          action: outcome === 'restored' ? 'RESTORE' : 'UPDATE',
+          before: postageSnapshot(winner),
+          after: postageSnapshot(updated),
+        })
+
+        return { item: updated, outcome }
+      })
+
+      if (!raced) {
+        res.status(409).json({ error: 'A tier with this Etsy charge already exists' })
+        return
+      }
+      res.json(raced)
+    }
+  } catch (error) {
+    if (validationFailed(error, res)) return
+    if (isPrismaError(error, 'P2002')) {
       return res.status(409).json({ error: 'A tier with this Etsy charge already exists' })
     }
     console.error('Error creating postage tier:', error)
@@ -180,18 +437,52 @@ router.post('/postage-tiers', async (req, res) => {
 router.put('/postage-tiers/:id', async (req, res) => {
   try {
     const data = postageTierUpdateBodySchema.parse(req.body)
-    const tier = await prisma.postageTier.update({
-      where: { id: req.params.id },
-      data: {
-        ...(data.etsyCharge !== undefined && { etsyCharge: data.etsyCharge }),
-        ...(data.actualCost !== undefined && { actualCost: data.actualCost }),
-        ...(data.label !== undefined && { label: data.label }),
-      },
+    const existing = await prisma.postageTier.findUnique({ where: { id: req.params.id } })
+    if (!existing) {
+      notFound(res, 'Postage tier not found')
+      return
+    }
+
+    if (data.etsyCharge !== undefined) {
+      const conflicting = await prisma.postageTier.findUnique({ where: { etsyCharge: data.etsyCharge } })
+      if (conflicting && conflicting.id !== existing.id) {
+        return res.status(409).json({
+          error: `Etsy charge £${Number(data.etsyCharge).toFixed(2)} is already used by another tier`,
+          field: 'etsyCharge',
+        })
+      }
+    }
+
+    const tier = await prisma.$transaction(async (tx) => {
+      const updated = await tx.postageTier.update({
+        where: { id: req.params.id },
+        data: {
+          ...(data.etsyCharge !== undefined && { etsyCharge: data.etsyCharge }),
+          ...(data.actualCost !== undefined && { actualCost: data.actualCost }),
+          ...(data.label !== undefined && { label: data.label }),
+        },
+      })
+
+      await writeSettingsAudit(tx, {
+        settingType: 'POSTAGE_TIER',
+        settingId: updated.id,
+        action: 'UPDATE',
+        before: postageSnapshot(existing),
+        after: postageSnapshot(updated),
+      })
+
+      return updated
     })
     res.json(tier)
   } catch (error) {
-    if (error instanceof z.ZodError) {
-      return res.status(400).json({ error: 'Validation failed', details: error.errors })
+    if (validationFailed(error, res)) return
+    if (isPrismaError(error, 'P2025')) {
+      notFound(res, 'Postage tier not found')
+      return
+    }
+    if (isPrismaError(error, 'P2002')) {
+      res.status(409).json({ error: 'A tier with this Etsy charge already exists', field: 'etsyCharge' })
+      return
     }
     console.error('Error updating postage tier:', error)
     res.status(500).json({ error: 'Failed to update postage tier' })
@@ -200,14 +491,78 @@ router.put('/postage-tiers/:id', async (req, res) => {
 
 router.delete('/postage-tiers/:id', async (req, res) => {
   try {
-    await prisma.postageTier.update({
-      where: { id: req.params.id },
-      data: { isActive: false },
+    const existing = await prisma.postageTier.findUnique({ where: { id: req.params.id } })
+    if (!existing) {
+      notFound(res, 'Postage tier not found')
+      return
+    }
+    if (!existing.isActive) {
+      res.status(204).send()
+      return
+    }
+
+    await prisma.$transaction(async (tx) => {
+      const updated = await tx.postageTier.update({
+        where: { id: req.params.id },
+        data: { isActive: false },
+      })
+
+      await writeSettingsAudit(tx, {
+        settingType: 'POSTAGE_TIER',
+        settingId: updated.id,
+        action: 'ARCHIVE',
+        before: postageSnapshot(existing),
+        after: postageSnapshot(updated),
+      })
     })
     res.status(204).send()
   } catch (error) {
+    if (isPrismaError(error, 'P2025')) {
+      notFound(res, 'Postage tier not found')
+      return
+    }
     console.error('Error deleting postage tier:', error)
     res.status(500).json({ error: 'Failed to delete postage tier' })
+  }
+})
+
+router.post('/postage-tiers/:id/restore', async (req, res) => {
+  try {
+    const existing = await prisma.postageTier.findUnique({ where: { id: req.params.id } })
+    if (!existing) {
+      notFound(res, 'Postage tier not found')
+      return
+    }
+    if (existing.isActive) {
+      res.json(existing)
+      return
+    }
+
+    const restored = await prisma.$transaction(async (tx) => {
+      const updated = await tx.postageTier.update({
+        where: { id: req.params.id },
+        data: { isActive: true },
+      })
+
+      await writeSettingsAudit(tx, {
+        settingType: 'POSTAGE_TIER',
+        settingId: updated.id,
+        action: 'RESTORE',
+        before: postageSnapshot(existing),
+        after: postageSnapshot(updated),
+      })
+
+      return updated
+    })
+
+    res.json(restored)
+  } catch (error) {
+    if (isPrismaError(error, 'P2025')) {
+      notFound(res, 'Postage tier not found')
+      return
+    }
+    console.error('Error restoring postage tier:', error)
+    res.status(500).json({ error: 'Failed to restore postage tier' })
   }
 })
 

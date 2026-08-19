@@ -36,6 +36,20 @@ enum EtsyFeeReconciliationSource {
   ETSY_STATEMENT
 }
 
+enum SettingsAuditType {
+  POSTAGE_TIER
+  PACKAGING_OVERHEAD
+  SUPPLIER
+  ETSY_FEE_CONFIG
+}
+
+enum SettingsAuditAction {
+  CREATE
+  UPDATE
+  ARCHIVE
+  RESTORE
+}
+
 model ComponentCategory {
   id          String   @id @default(cuid())
   name        String   @unique
@@ -350,6 +364,19 @@ model Supplier {
   updatedAt DateTime @updatedAt
 
   products ProductSupplier[]
+}
+
+model SettingsAuditLog {
+  id          String              @id @default(cuid())
+  settingType SettingsAuditType
+  settingId   String
+  action      SettingsAuditAction
+  before      Json?
+  after       Json?
+  createdAt   DateTime            @default(now())
+
+  @@index([createdAt])
+  @@index([settingType, createdAt])
 }
 
 model ProductSupplier {

@@ -264,6 +264,7 @@ npm run test:server:run   # Single run (server only)
 
 | Date | Agent | Task | Status | Branch |
 |------|-------|------|--------|--------|
+| 2026-08-19 | Codex + subagents | Editable settings, archive/restore, and audit history | In Progress | codex/editable-settings |
 | 2026-01-05 | - | Documentation setup | Done | main |
 | 2026-01-05 | Antigravity | Add Stock Form + Barcode Scanner | Done | main |
 | 2026-01-05 | Antigravity | Enhanced Stock Levels Display | Done | main |
@@ -323,9 +324,10 @@ npm run test:server:run   # Single run (server only)
 
 > Leave notes here when ending a session so the next agent knows where you left off
 
-**Last Updated:** 2026-08-12
+**Last Updated:** 2026-08-19
 
 **Current State:**
+- **Editable settings Task 1 complete** (branch: `codex/editable-settings`): added the settings audit model/migration, shared settings and supplier contracts, and transactional audit writer. Focused/full server tests, Prisma validation/generation, and both project TypeScript checks pass with dummy localhost database URLs; no database connection or migration apply was performed. Full evidence: `.superpowers/sdd/2026-08-19-editable-settings/task-1-report.md`.
 - **PR #37 Codex review findings addressed** (branch: `codex/etsy-offsite-fee-reconciliation`): statement money is now parsed into *signed* pence, and an Offsite Ads fee or VAT row carrying a positive value (a credit or reversal) is rejected with a clear error naming the order instead of being absorbed as another charge — previously a `-4.80` charge plus a `+4.80` reversal both parsed to `480`, matched the duplicate-row equality check, and persisted a £4.80 fee that should have netted to zero. Payment normalization additionally requires gross less fees to equal net within one penny before evidence can reach a canonical write. The Codex suggestion to list changed receipts in the statement preview was not implemented: `ReceiptReviewList` is deliberately a review queue, and the runbook's approval step is the aggregate summary plus copied review IDs, with full per-receipt detail captured from the preview JSON.
 - **PR #37 code review fixes applied** (branch: `codex/etsy-offsite-fee-reconciliation`): `unchangedProposal` now preserves `offsiteAdsAttributed` instead of nulling it, so a statement/Payment contradiction no longer wipes a previously verified attribution when the statement apply loop writes every sale plan; the statement apply hook refreshes the status summary even when the selection changed while the request was in flight (the write has already committed server-side); `compareIds` is shared from `calculations.ts` rather than duplicated in `grouping.ts`; and six unreferenced alias exports were removed. Full suite passes: 771 tests across 56 files.
 - **Etsy Offsite Ads implementation complete** (branch: `codex/etsy-offsite-fee-reconciliation`): Tasks 1–10 are complete. The isolated migration-preservation verification passed in a uniquely named, RAM-backed local PostgreSQL container; money totals were unchanged and reconciliation statuses were backfilled correctly. No production database or Etsy account was accessed, and no production migration, backfill, Payment apply, or statement apply was run.

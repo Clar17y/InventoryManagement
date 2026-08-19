@@ -69,9 +69,10 @@ interface EtsyOrdersSyncPanelProps {
   isOpen: boolean
   onClose: () => void
   onImportComplete: () => void
+  registerFeeSummaryRefresh?: (refresh: (() => Promise<void>) | null) => void
 }
 
-export default function EtsyOrdersSyncPanel({ isOpen, onClose, onImportComplete }: EtsyOrdersSyncPanelProps) {
+export default function EtsyOrdersSyncPanel({ isOpen, onClose, onImportComplete, registerFeeSummaryRefresh }: EtsyOrdersSyncPanelProps) {
   const [status, setStatus] = useState<EtsyStatus | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -653,7 +654,10 @@ export default function EtsyOrdersSyncPanel({ isOpen, onClose, onImportComplete 
                 </div>
               </div>
 
-              <EtsyFeeReconciliationPanel onImportComplete={onImportComplete} />
+              <EtsyFeeReconciliationPanel
+                onImportComplete={onImportComplete}
+                registerSummaryRefresh={registerFeeSummaryRefresh}
+              />
 
               {/* Historical Mode Toggle */}
               <div className="bg-gray-50 p-3 rounded-lg">

@@ -5,9 +5,10 @@ import {
   ChevronUpIcon,
   PlusIcon,
 } from '@heroicons/react/24/outline'
+import { needsVerification } from '#contracts/domain/etsyFees'
 import EtsyOrdersSyncPanel from '../../../components/EtsyOrdersSyncPanel'
 import DateSearchFilter from '../../../components/filters/DateSearchFilter'
-import type { Sale, SaleChannel, SalesSummary } from '../../../lib/api'
+import type { Sale, SaleChannel, SalesSummary, SalesVerificationFilter } from '../../../lib/api'
 import { formatCurrency } from '../../../lib/formatting'
 import MarginBadge from './MarginBadge'
 import EtsyFeeDetails from './EtsyFeeDetails'
@@ -31,9 +32,13 @@ export default function SalesListView({
   setStartDate,
   setEndDate,
   setSearchQuery,
+  verificationStatus,
+  setVerificationStatus,
   expandedId,
   handleExpand,
   setViewMode,
+  onResolveSale,
+  registerFeeSummaryRefresh,
   loadData,
   loadMore,
 }: {
@@ -53,9 +58,13 @@ export default function SalesListView({
   setStartDate: (value: string) => void
   setEndDate: (value: string) => void
   setSearchQuery: (value: string) => void
+  verificationStatus: SalesVerificationFilter | ''
+  setVerificationStatus: (value: SalesVerificationFilter | '') => void
   expandedId: string | null
   handleExpand: (id: string) => void
   setViewMode: (mode: 'list' | 'record') => void
+  onResolveSale: (sale: Sale) => void
+  registerFeeSummaryRefresh: (refresh: (() => Promise<void>) | null) => void
   loadData: (isInitialLoad?: boolean) => void
   loadMore: () => void
 }) {
@@ -96,6 +105,7 @@ export default function SalesListView({
         isOpen={showEtsyOrdersPanel}
         onClose={() => setShowEtsyOrdersPanel(false)}
         onImportComplete={loadData}
+        registerFeeSummaryRefresh={registerFeeSummaryRefresh}
       />
 
       {error && <div className="alert-danger">{error}</div>}
@@ -155,16 +165,40 @@ export default function SalesListView({
       )}
 
       {/* Filters */}
-      <DateSearchFilter
-        startDate={startDate}
-        endDate={endDate}
-        searchQuery={searchQuery}
-        onStartDateChange={setStartDate}
-        onEndDateChange={setEndDate}
-        onSearchChange={setSearchQuery}
-        searchPlaceholder="Search sales..."
-        showQuickSelectors={true}
-      />
+      <div className="flex flex-col gap-3 md:flex-row md:items-end">
+        <div className="flex-1">
+          <DateSearchFilter
+            startDate={startDate}
+            endDate={endDate}
+            searchQuery={searchQuery}
+            onStartDateChange={setStartDate}
+            onEndDateChange={setEndDate}
+            onSearchChange={setSearchQuery}
+            searchPlaceholder="Search sales..."
+            showQuickSelectors={true}
+          />
+        </div>
+        <div className="card space-y-2 md:min-w-56">
+          <label htmlFor="sales-verification-status" className="block text-sm font-medium text-gray-700">
+            Verification status
+          </label>
+          <select
+            id="sales-verification-status"
+            value={verificationStatus}
+            onChange={(event) => setVerificationStatus(event.target.value as SalesVerificationFilter | '')}
+            className="w-full text-sm border rounded-lg px-2 py-1.5"
+          >
+            <option value="">All statuses</option>
+            <option value="NOT_APPLICABLE">Not applicable</option>
+            <option value="PENDING">Pending</option>
+            <option value="PAYMENT_SYNCED">Payment synced</option>
+            <option value="STATEMENT_VERIFIED">Statement verified</option>
+            <option value="MANUALLY_VERIFIED">Manually verified</option>
+            <option value="MANUAL_REVIEW">Manual review</option>
+            <option value="needs_verification">Needs verification</option>
+          </select>
+        </div>
+      </div>
 
       {loading ? (
         <div className="text-center py-8 text-gray-500">Loading...</div>
@@ -242,7 +276,20 @@ export default function SalesListView({
                     )}
                   </div>
 
-                  {sale.saleChannel === 'etsy' && <EtsyFeeDetails sale={sale} />}
+                  {sale.saleChannel === 'etsy' && (
+                    <>
+                      <EtsyFeeDetails sale={sale} />
+                      {needsVerification(sale.etsyFeeReconciliationStatus) && (
+                        <button
+                          type="button"
+                          className="btn-secondary"
+                          onClick={() => onResolveSale(sale)}
+                        >
+                          Resolve Etsy sale
+                        </button>
+                      )}
+                    </>
+                  )}
 
                   {/* Postage breakdown */}
                   {(Number(sale.postageCharged) > 0 || Number(sale.postageCost) > 0) && (

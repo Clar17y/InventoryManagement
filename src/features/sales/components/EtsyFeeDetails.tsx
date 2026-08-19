@@ -7,12 +7,14 @@ const statusLabels: Record<Sale['etsyFeeReconciliationStatus'], string> = {
   PENDING: 'Pending',
   PAYMENT_SYNCED: 'Payment synced',
   STATEMENT_VERIFIED: 'Statement verified',
+  MANUALLY_VERIFIED: 'Manually verified',
   MANUAL_REVIEW: 'Manual review',
 }
 
 const sourceLabels: Record<NonNullable<Sale['etsyFeeReconciliationSource']>, string> = {
   ETSY_PAYMENT_API: 'Etsy Payment API',
   ETSY_STATEMENT: 'Etsy statement',
+  MANUAL: 'Manual',
 }
 
 function formatAttribution(value: Sale['offsiteAdsAttributed']) {
@@ -39,6 +41,9 @@ export default function EtsyFeeDetails({ sale }: { sale: Sale }) {
         <div>Status: {statusLabels[status]}</div>
         {source && <div>Source: {sourceLabels[source]}</div>}
         {sale.etsyFeeReconciledAt && <div>Reconciled: {formatDate(sale.etsyFeeReconciledAt)}</div>}
+        {sale.etsyManualResolutionNote && (
+          <div className="sm:col-span-2">Manual note: {sale.etsyManualResolutionNote}</div>
+        )}
       </div>
     </div>
   )

@@ -3,6 +3,7 @@ import { z } from 'zod'
 import { prisma } from '../../lib/prisma'
 import { ExpenseCategory } from '@prisma/client'
 import { analyticsPeriodQuerySchema } from '#contracts/routes/analytics'
+import { NEEDS_VERIFICATION_STATUSES } from '../../lib/sales/filters'
 
 const router = Router()
 
@@ -403,7 +404,7 @@ router.get('/sales', async (req, res) => {
         where: {
           saleChannel: 'etsy',
           saleDate: { gte: period.start, lte: period.end },
-          etsyFeeReconciliationStatus: { not: 'STATEMENT_VERIFIED' },
+          etsyFeeReconciliationStatus: { in: NEEDS_VERIFICATION_STATUSES },
         },
       }),
     ])

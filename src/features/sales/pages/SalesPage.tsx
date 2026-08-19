@@ -1,4 +1,5 @@
-import { useState, useEffect, useRef } from 'react'
+import { useCallback, useState, useEffect, useRef } from 'react'
+import { needsVerification } from '#contracts/domain/etsyFees'
 import { useDateSearchFilter } from '../../../components/filters/DateSearchFilter'
 import {
   sales,
@@ -6,19 +7,64 @@ import {
   inventory,
   settings,
   Sale,
+  type EtsySaleResolutionApplyResult,
   SalePreview,
   Hamper,
   CategoryLot,
   SaleChannel,
   SalesSummary,
+  type SalesVerificationFilter,
   type PostageTier,
 } from '../../../lib/api'
 import SalesListView from '../components/SalesListView'
 import SalesRecordView from '../components/SalesRecordView'
+import EtsySaleResolutionModal from '../components/EtsySaleResolutionModal'
 import { getOverrideKey } from '../utils'
 import type { LotOverride, SaleLineInput } from '../types'
 
 type ViewMode = 'list' | 'record'
+
+
+function saleMatchesFilters(
+  sale: Sale,
+  filters: {
+    startDate: string
+    endDate: string
+    search: string
+    verificationStatus: SalesVerificationFilter | ''
+  },
+) {
+  if (filters.startDate) {
+    const start = new Date(`${filters.startDate}T00:00:00`).getTime()
+    if (new Date(sale.saleDate).getTime() < start) return false
+  }
+  if (filters.endDate) {
+    const end = new Date(`${filters.endDate}T23:59:59.999`).getTime()
+    if (new Date(sale.saleDate).getTime() > end) return false
+  }
+
+  if (filters.search.trim()) {
+    const searchTerm = filters.search.trim().toLowerCase()
+    const searchableText = [
+      sale.notes,
+      sale.etsyOrderId,
+      ...sale.lines.flatMap((line) => [line.description, line.hamper?.name]),
+    ]
+      .filter((value): value is string => typeof value === 'string')
+      .join(' ')
+      .toLowerCase()
+    if (!searchableText.includes(searchTerm)) return false
+  }
+
+  if (filters.verificationStatus) {
+    const statusMatches = filters.verificationStatus === 'needs_verification'
+      ? needsVerification(sale.etsyFeeReconciliationStatus)
+      : sale.etsyFeeReconciliationStatus === filters.verificationStatus
+    if (!statusMatches) return false
+  }
+
+  return true
+}
 
 export default function Sales() {
   const [saleList, setSaleList] = useState<Sale[]>([])
@@ -29,6 +75,7 @@ export default function Sales() {
   const [viewMode, setViewMode] = useState<ViewMode>('list')
   const [expandedId, setExpandedId] = useState<string | null>(null)
   const [showEtsyOrdersPanel, setShowEtsyOrdersPanel] = useState(false)
+  const [resolutionSale, setResolutionSale] = useState<Sale | null>(null)
 
   // Summary and filter state
   const [showSummary, setShowSummary] = useState(false)
@@ -44,9 +91,12 @@ export default function Sales() {
     setEndDate,
     setSearchQuery,
   } = useDateSearchFilter()
+  const [verificationStatus, setVerificationStatus] = useState<SalesVerificationFilter | ''>('')
 
   const [totalSales, setTotalSales] = useState(0)
   const PAGE_SIZE = 20
+  const dataRequestGeneration = useRef(0)
+  const feeSummaryRefresh = useRef<(() => Promise<void>) | null>(null)
 
   // Record sale state
   const [lines, setLines] = useState<SaleLineInput[]>([{ quantity: 1 }])
@@ -70,54 +120,100 @@ export default function Sales() {
   const [lotsLoading, setLotsLoading] = useState(false)
   const [overrides, setOverrides] = useState<Record<string, LotOverride[]>>({})
 
-  const loadData = async (isInitialLoad = false) => {
+  const loadData = async (isInitialLoad = false, preserveLoadedPages = false): Promise<boolean> => {
+    const requestGeneration = ++dataRequestGeneration.current
+    setLoadingMore(false)
+
     try {
       // Only show full loading state on initial page load, not on filter changes
       if (isInitialLoad) {
         setLoading(true)
       }
-      const params: { limit?: number; offset?: number; startDate?: string; endDate?: string; search?: string } = {
+      const params: {
+        limit?: number
+        offset?: number
+        startDate?: string
+        endDate?: string
+        search?: string
+        verificationStatus?: SalesVerificationFilter
+      } = {
         limit: PAGE_SIZE,
         offset: 0,
       }
       if (startDate) params.startDate = startDate
       if (endDate) params.endDate = endDate
       if (debouncedSearchQuery) params.search = debouncedSearchQuery
+      if (verificationStatus) params.verificationStatus = verificationStatus
 
       const [salesData, hampersData, summaryData] = await Promise.all([
         sales.list(params),
         hampers.list(),
-        sales.summary({ startDate: startDate || undefined, endDate: endDate || undefined, search: debouncedSearchQuery || undefined }),
+        sales.summary({
+          startDate: startDate || undefined,
+          endDate: endDate || undefined,
+          search: debouncedSearchQuery || undefined,
+          verificationStatus: verificationStatus || undefined,
+        }),
       ])
-      setSaleList(salesData.sales)
+      if (requestGeneration !== dataRequestGeneration.current) return false
+
+      setSaleList((currentSales) => {
+        if (!preserveLoadedPages) return salesData.sales
+
+        const refreshedIds = new Set(salesData.sales.map((sale) => sale.id))
+        const retainedPages = currentSales.filter((sale) => !refreshedIds.has(sale.id))
+        return [...salesData.sales, ...retainedPages]
+      })
       setTotalSales(salesData.total)
       setHamperList(hampersData)
       setSummary(summaryData)
       setError(null)
+      return true
     } catch (err) {
+      if (requestGeneration !== dataRequestGeneration.current) return false
+
       setError(err instanceof Error ? err.message : 'Failed to load data')
+      return false
     } finally {
-      setLoading(false)
+      if (requestGeneration === dataRequestGeneration.current) {
+        setLoading(false)
+      }
     }
   }
 
   const loadMore = async () => {
+    const requestGeneration = dataRequestGeneration.current
+
     try {
       setLoadingMore(true)
-      const params: { limit?: number; offset?: number; startDate?: string; endDate?: string; search?: string } = {
+      const params: {
+        limit?: number
+        offset?: number
+        startDate?: string
+        endDate?: string
+        search?: string
+        verificationStatus?: SalesVerificationFilter
+      } = {
         limit: PAGE_SIZE,
         offset: saleList.length,
       }
       if (startDate) params.startDate = startDate
       if (endDate) params.endDate = endDate
       if (debouncedSearchQuery) params.search = debouncedSearchQuery
+      if (verificationStatus) params.verificationStatus = verificationStatus
 
       const result = await sales.list(params)
-      setSaleList([...saleList, ...result.sales])
+      if (requestGeneration !== dataRequestGeneration.current) return
+
+      setSaleList((currentSales) => [...currentSales, ...result.sales])
     } catch (err) {
+      if (requestGeneration !== dataRequestGeneration.current) return
+
       setError(err instanceof Error ? err.message : 'Failed to load more sales')
     } finally {
-      setLoadingMore(false)
+      if (requestGeneration === dataRequestGeneration.current) {
+        setLoadingMore(false)
+      }
     }
   }
 
@@ -145,7 +241,7 @@ export default function Sales() {
     if (!isFirstRender.current) {
       loadData(false)
     }
-  }, [startDate, endDate, debouncedSearchQuery])
+  }, [startDate, endDate, debouncedSearchQuery, verificationStatus])
 
   // Load preview when lines change
   useEffect(() => {
@@ -363,6 +459,62 @@ export default function Sales() {
     setExpandedId(expandedId === id ? null : id)
   }
 
+  const registerFeeSummaryRefresh = useCallback((refresh: (() => Promise<void>) | null) => {
+    feeSummaryRefresh.current = refresh
+  }, [])
+
+  const handleResolutionResolved = async (result: EtsySaleResolutionApplyResult) => {
+    const affectedSaleIds = [...new Set(result.rows.map((row) => row.saleId))]
+    const retainedPageTwoIds = new Set(saleList.slice(PAGE_SIZE).map((sale) => sale.id))
+    const targetSaleId = resolutionSale?.id
+    const refreshSaleIds = affectedSaleIds.filter((saleId) => saleId === targetSaleId || retainedPageTwoIds.has(saleId))
+    const refreshFeeSummary = feeSummaryRefresh.current
+    const [dataRefreshed] = await Promise.all([
+      loadData(false, true),
+      refreshFeeSummary?.(),
+    ])
+    if (!dataRefreshed) return
+
+    const refreshGeneration = dataRequestGeneration.current
+    let refreshedSales: Sale[]
+    try {
+      refreshedSales = await Promise.all(refreshSaleIds.map((saleId) => sales.get(saleId)))
+    } catch (refreshError) {
+      setError(refreshError instanceof Error
+        ? `Resolution applied, but Sale details could not be refreshed: ${refreshError.message}`
+        : 'Resolution applied, but Sale details could not be refreshed')
+      return
+    }
+    if (refreshGeneration !== dataRequestGeneration.current) return
+
+    const matchesById = new Map(refreshedSales.map((sale) => [sale.id, saleMatchesFilters(sale, {
+      startDate,
+      endDate,
+      search: debouncedSearchQuery,
+      verificationStatus,
+    })]))
+    const refreshedById = new Map(refreshedSales.map((sale) => [sale.id, sale]))
+    const shouldClearExpanded = expandedId !== null
+      && refreshedById.has(expandedId)
+      && !matchesById.get(expandedId)
+    setSaleList((currentSales) => {
+      const refreshed = currentSales.flatMap((currentSale) => {
+        const nextSale = refreshedById.get(currentSale.id)
+        if (!nextSale) return [currentSale]
+        return matchesById.get(currentSale.id) ? [nextSale] : []
+      })
+      if (targetSaleId !== null && targetSaleId !== undefined
+        && !currentSales.some((currentSale) => currentSale.id === targetSaleId)
+        && refreshedById.has(targetSaleId)
+        && matchesById.get(targetSaleId)) {
+        const targetSale = refreshedById.get(targetSaleId)
+        if (targetSale) refreshed.push(targetSale)
+      }
+      return refreshed
+    })
+    if (shouldClearExpanded) setExpandedId(null)
+  }
+
   if (loading && saleList.length === 0) {
     return <div className="text-center py-8 text-gray-500">Loading...</div>
   }
@@ -410,6 +562,7 @@ export default function Sales() {
   }
 
   return (
+    <>
     <SalesListView
       saleList={saleList}
       totalSales={totalSales}
@@ -427,11 +580,23 @@ export default function Sales() {
       setStartDate={setStartDate}
       setEndDate={setEndDate}
       setSearchQuery={setSearchQuery}
+      verificationStatus={verificationStatus}
+      setVerificationStatus={setVerificationStatus}
       expandedId={expandedId}
       handleExpand={handleExpand}
       setViewMode={setViewMode}
+      onResolveSale={setResolutionSale}
+      registerFeeSummaryRefresh={registerFeeSummaryRefresh}
       loadData={loadData}
       loadMore={loadMore}
     />
+    {resolutionSale && (
+      <EtsySaleResolutionModal
+        sale={resolutionSale}
+        onClose={() => setResolutionSale(null)}
+        onResolved={handleResolutionResolved}
+      />
+    )}
+    </>
   )
 }

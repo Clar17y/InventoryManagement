@@ -21,6 +21,9 @@ export function sale(
     previousOffsiteAdsFeePence: null,
     previousVatOnOffsiteAdsFeePence: null,
     etsyFeeReconciliationSource: null,
+    etsyStatementImportId: null,
+    etsyStatementMonth: null,
+    etsyManualResolutionNote: null,
     status: 'PENDING',
     updatedAt: '2025-07-31T12:00:00.000Z',
     ...overrides,
@@ -35,6 +38,7 @@ export interface FeeReconciliationDbFixture extends FeeReconciliationRepository 
   sales: SaleFeeSnapshot[]
   readonly imports: SavedStatementImport[]
   readonly writeCount: number
+  readonly saleWriteCount: number
 }
 
 /**
@@ -46,6 +50,7 @@ export function createFeeDbFixture(initial: { sales: SaleFeeSnapshot[] }): FeeRe
   let sales = initial.sales.map(cloneSale)
   let imports: SavedStatementImport[] = []
   let writeCount = 0
+  let saleWriteCount = 0
   let nextImportId = 1
 
   const fixture: FeeReconciliationDbFixture = {
@@ -64,6 +69,9 @@ export function createFeeDbFixture(initial: { sales: SaleFeeSnapshot[] }): FeeRe
     get writeCount() {
       return writeCount
     },
+    get saleWriteCount() {
+      return saleWriteCount
+    },
     async listEtsySaleSnapshots() {
       return sales.map(cloneSale)
     },
@@ -80,12 +88,14 @@ export function createFeeDbFixture(initial: { sales: SaleFeeSnapshot[] }): FeeRe
         summary: { ...statementImport.summary },
       }))
       let pendingWrites = 0
+      let pendingSaleWrites = 0
 
       const tx: FeeReconciliationTransaction = {
         async createStatementImport(input) {
           const created = {
             id: `statement-import-${nextImportId}`,
             checksum: input.checksum,
+            statementMonth: input.statementMonth,
             summary: {
               matched: 0,
               changed: 0,
@@ -104,7 +114,7 @@ export function createFeeDbFixture(initial: { sales: SaleFeeSnapshot[] }): FeeRe
           pendingWrites += 1
           return { id: created.id }
         },
-        async updateSale(id, proposal, _statementImportId, expectedUpdatedAt) {
+        async updateSale(id, proposal, statementImportId, expectedUpdatedAt) {
           const index = workingSales.findIndex((snapshot) => snapshot.id === id)
           if (index < 0) throw new Error(`Unknown fixture sale ${id}`)
           const current = workingSales[index]!
@@ -112,6 +122,14 @@ export function createFeeDbFixture(initial: { sales: SaleFeeSnapshot[] }): FeeRe
             throw new StatementReconciliationConflictError(
               `Sale ${id} changed while applying Etsy fee evidence`,
             )
+          }
+          const retainsCurrentStatement = statementImportId !== null
+            && statementImportId === current.etsyStatementImportId
+          const statementImport = statementImportId === null || retainsCurrentStatement
+            ? null
+            : workingImports.find((candidate) => candidate.id === statementImportId)
+          if (statementImportId !== null && !retainsCurrentStatement && !statementImport) {
+            throw new Error(`Unknown fixture statement import ${statementImportId}`)
           }
           workingSales[index] = {
             ...current,
@@ -122,11 +140,17 @@ export function createFeeDbFixture(initial: { sales: SaleFeeSnapshot[] }): FeeRe
             previousVatOnOffsiteAdsFeePence: proposal.vatOnOffsiteAdsFeePence,
             offsiteAdsAttributed: proposal.offsiteAdsAttributed,
             etsyFeeReconciliationSource: proposal.source,
+            etsyStatementImportId: statementImportId,
+            etsyStatementMonth: retainsCurrentStatement
+              ? (current.etsyStatementMonth ?? null)
+              : (statementImport?.statementMonth ?? null),
             etsyPaymentGrossPence: proposal.etsyPaymentGrossPence,
             etsyPaymentFeesPence: proposal.etsyPaymentFeesPence,
             etsyPaymentNetPence: proposal.etsyPaymentNetPence,
+            etsyManualResolutionNote: proposal.etsyManualResolutionNote,
             status: proposal.status,
           }
+          pendingSaleWrites += 1
           pendingWrites += 1
         },
         async finishStatementImport(id, summary) {
@@ -144,6 +168,7 @@ export function createFeeDbFixture(initial: { sales: SaleFeeSnapshot[] }): FeeRe
         summary: { ...statementImport.summary },
       }))
       writeCount += pendingWrites
+      saleWriteCount += pendingSaleWrites
       return result
     },
   }

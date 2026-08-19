@@ -41,6 +41,7 @@ describe('Etsy fee reconciliation contracts', () => {
       etsyPaymentNet: null,
       etsyFeeReconciliationStatus: 'PENDING',
       etsyFeeReconciliationSource: null,
+      etsyManualResolutionNote: null,
       etsyFeeReconciledAt: null,
       etsyStatementImportId: null,
     })

@@ -48,6 +48,11 @@ type PrismaMocks = {
   $transaction: MockFn
 }
 
+const supplierId = 'clx0q2p1w0000s1l1n4m9n9n9'
+const otherSupplierId = 'clx0q2p1w0000s1l1n4m9n9na'
+const newSupplierId = 'clx0q2p1w0000s1l1n4m9n9nb'
+const missingSupplierId = 'clx0q2p1w0000s1l1n4m9n9nc'
+
 const prismaMock = prisma as unknown as PrismaMocks
 const transactionMock: Omit<PrismaMocks, '$transaction'> = {
   supplier: {
@@ -68,7 +73,7 @@ const transactionMock: Omit<PrismaMocks, '$transaction'> = {
 }
 
 const activeSupplier = {
-  id: 'supplier-1',
+  id: supplierId,
   name: 'Home Bargains',
   isActive: true,
   createdAt: new Date('2026-08-19T09:00:00.000Z'),
@@ -83,7 +88,7 @@ const archivedSupplier = {
 
 const otherSupplier = {
   ...activeSupplier,
-  id: 'supplier-2',
+  id: otherSupplierId,
   name: 'B&M',
 }
 
@@ -106,7 +111,7 @@ function resetMockImplementations() {
     },
   )
 
-  transactionMock.supplier.create.mockResolvedValue({ ...activeSupplier, id: 'supplier-new' })
+  transactionMock.supplier.create.mockResolvedValue({ ...activeSupplier, id: newSupplierId })
   transactionMock.supplier.update.mockResolvedValue(activeSupplier)
   transactionMock.supplier.updateMany.mockResolvedValue({ count: 1 })
   transactionMock.settingsAuditLog.create.mockResolvedValue({ id: 'audit-1' })
@@ -159,7 +164,8 @@ describe('suppliers router', () => {
   it('restores an archived supplier and preserves its ID', async () => {
     prismaMock.supplier.findUnique.mockResolvedValue(archivedSupplier)
     const restoredSupplier = { ...archivedSupplier, isActive: true }
-    transactionMock.supplier.update.mockResolvedValue(restoredSupplier)
+    transactionMock.supplier.updateMany.mockResolvedValue({ count: 1 })
+    transactionMock.supplier.findUnique.mockResolvedValue(restoredSupplier)
     await startServer()
 
     const response = await request('/api/suppliers', {
@@ -170,16 +176,17 @@ describe('suppliers router', () => {
     expect(response.status).toBe(200)
     expect(await response.json()).toMatchObject({
       outcome: 'restored',
-      item: { id: 'supplier-1', name: 'Home Bargains', isActive: true },
+      item: { id: supplierId, name: 'Home Bargains', isActive: true },
     })
-    expect(transactionMock.supplier.update).toHaveBeenCalledWith({
-      where: { id: 'supplier-1' },
+    expect(transactionMock.supplier.updateMany).toHaveBeenCalledWith({
+      where: { id: supplierId, isActive: false },
       data: { isActive: true },
     })
+    expect(transactionMock.supplier.findUnique).toHaveBeenCalledWith({ where: { id: supplierId } })
     expect(transactionMock.settingsAuditLog.create).toHaveBeenCalledWith(expect.objectContaining({
       data: expect.objectContaining({
         settingType: 'SUPPLIER',
-        settingId: 'supplier-1',
+        settingId: supplierId,
         action: 'RESTORE',
       }),
     }))
@@ -187,6 +194,52 @@ describe('suppliers router', () => {
     expect(prismaMock.productSupplier.createMany).not.toHaveBeenCalled()
     expect(transactionMock.productSupplier.deleteMany).not.toHaveBeenCalled()
     expect(transactionMock.productSupplier.createMany).not.toHaveBeenCalled()
+  })
+
+  it('uses the authoritative winner after a P2002 archived restore race', async () => {
+    prismaMock.supplier.findUnique.mockResolvedValue(null)
+    transactionMock.supplier.create.mockRejectedValueOnce(knownRequestError('P2002'))
+    transactionMock.supplier.findUnique
+      .mockResolvedValueOnce(archivedSupplier)
+      .mockResolvedValueOnce({ ...archivedSupplier, isActive: true })
+    transactionMock.supplier.updateMany.mockResolvedValue({ count: 0 })
+    await startServer()
+
+    const response = await request('/api/suppliers', {
+      method: 'POST',
+      body: JSON.stringify({ name: 'Home Bargains' }),
+    })
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toMatchObject({ outcome: 'existing', item: { id: supplierId, isActive: true } })
+    expect(transactionMock.supplier.updateMany).toHaveBeenCalledWith({
+      where: { id: supplierId, isActive: false },
+      data: { isActive: true },
+    })
+    expect(transactionMock.settingsAuditLog.create).not.toHaveBeenCalled()
+  })
+
+  it('does not duplicate or audit when a concurrent restore wins the archived create race', async () => {
+    prismaMock.supplier.findUnique.mockResolvedValue(archivedSupplier)
+    transactionMock.supplier.updateMany.mockResolvedValue({ count: 0 })
+    transactionMock.supplier.findUnique.mockResolvedValue({ ...archivedSupplier, isActive: true })
+    await startServer()
+
+    const response = await request('/api/suppliers', {
+      method: 'POST',
+      body: JSON.stringify({ name: 'Home Bargains' }),
+    })
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toMatchObject({
+      outcome: 'existing',
+      item: { id: supplierId, isActive: true },
+    })
+    expect(transactionMock.supplier.updateMany).toHaveBeenCalledWith({
+      where: { id: supplierId, isActive: false },
+      data: { isActive: true },
+    })
+    expect(transactionMock.settingsAuditLog.create).not.toHaveBeenCalled()
   })
 
   it('returns the existing active supplier without duplicating or auditing it', async () => {
@@ -200,7 +253,7 @@ describe('suppliers router', () => {
 
     expect(response.status).toBe(200)
     expect(await response.json()).toMatchObject({
-      item: { id: 'supplier-1', name: 'Home Bargains', isActive: true },
+      item: { id: supplierId, name: 'Home Bargains', isActive: true },
       outcome: 'existing',
     })
     expect(prismaMock.$transaction).not.toHaveBeenCalled()
@@ -218,11 +271,11 @@ describe('suppliers router', () => {
     const archivedResponse = await request('/api/suppliers?includeArchived=true')
 
     expect(activeResponse.status).toBe(200)
-    expect(await activeResponse.json()).toMatchObject([{ id: 'supplier-1', name: 'Home Bargains', isActive: true }])
+    expect(await activeResponse.json()).toMatchObject([{ id: supplierId, name: 'Home Bargains', isActive: true }])
     expect(archivedResponse.status).toBe(200)
     expect(await archivedResponse.json()).toMatchObject([
-      { id: 'supplier-1', name: 'Home Bargains', isActive: true },
-      { id: 'supplier-1', name: 'Home Bargains', isActive: false },
+      { id: supplierId, name: 'Home Bargains', isActive: true },
+      { id: supplierId, name: 'Home Bargains', isActive: false },
     ])
     expect(prismaMock.supplier.findMany).toHaveBeenNthCalledWith(1, {
       where: { isActive: true },
@@ -235,7 +288,7 @@ describe('suppliers router', () => {
   })
 
   it('creates and audits a new supplier in one transaction', async () => {
-    const createdSupplier = { ...activeSupplier, id: 'supplier-new', name: 'New Supplier' }
+    const createdSupplier = { ...activeSupplier, id: newSupplierId, name: 'New Supplier' }
     prismaMock.supplier.findUnique.mockResolvedValue(null)
     transactionMock.supplier.create.mockResolvedValue(createdSupplier)
     await startServer()
@@ -247,7 +300,7 @@ describe('suppliers router', () => {
 
     expect(response.status).toBe(201)
     expect(await response.json()).toMatchObject({
-      item: { id: 'supplier-new', name: 'New Supplier', isActive: true },
+      item: { id: newSupplierId, name: 'New Supplier', isActive: true },
       outcome: 'created',
     })
     expect(prismaMock.$transaction).toHaveBeenCalledTimes(1)
@@ -257,7 +310,7 @@ describe('suppliers router', () => {
     expect(transactionMock.settingsAuditLog.create).toHaveBeenCalledWith(expect.objectContaining({
       data: expect.objectContaining({
         settingType: 'SUPPLIER',
-        settingId: 'supplier-new',
+        settingId: newSupplierId,
         action: 'CREATE',
         before: Prisma.DbNull,
         after: { name: 'New Supplier', isActive: true },
@@ -278,7 +331,7 @@ describe('suppliers router', () => {
 
     expect(response.status).toBe(200)
     expect(await response.json()).toMatchObject({
-      item: { id: 'supplier-1', name: 'Home Bargains', isActive: true },
+      item: { id: supplierId, name: 'Home Bargains', isActive: true },
       outcome: 'existing',
     })
     expect(prismaMock.$transaction).toHaveBeenCalledTimes(2)
@@ -290,7 +343,8 @@ describe('suppliers router', () => {
     prismaMock.supplier.findUnique.mockResolvedValue(null)
     transactionMock.supplier.create.mockRejectedValueOnce(knownRequestError('P2002'))
     transactionMock.supplier.findUnique.mockResolvedValue(archivedSupplier)
-    transactionMock.supplier.update.mockResolvedValue({ ...archivedSupplier, isActive: true })
+    transactionMock.supplier.updateMany.mockResolvedValue({ count: 1 })
+    transactionMock.supplier.findUnique.mockResolvedValueOnce(archivedSupplier).mockResolvedValueOnce({ ...archivedSupplier, isActive: true })
     await startServer()
 
     const response = await request('/api/suppliers', {
@@ -299,60 +353,92 @@ describe('suppliers router', () => {
     })
 
     expect(response.status).toBe(200)
-    expect(await response.json()).toMatchObject({ outcome: 'restored', item: { id: 'supplier-1', isActive: true } })
-    expect(transactionMock.supplier.update).toHaveBeenCalledWith({
-      where: { id: 'supplier-1' },
+    expect(await response.json()).toMatchObject({ outcome: 'restored', item: { id: supplierId, isActive: true } })
+    expect(transactionMock.supplier.updateMany).toHaveBeenCalledWith({
+      where: { id: supplierId, isActive: false },
       data: { isActive: true },
     })
     expect(transactionMock.settingsAuditLog.create).toHaveBeenCalledTimes(1)
     expect(transactionMock.settingsAuditLog.create).toHaveBeenCalledWith(expect.objectContaining({
-      data: expect.objectContaining({ action: 'RESTORE', settingId: 'supplier-1' }),
+      data: expect.objectContaining({ action: 'RESTORE', settingId: supplierId }),
     }))
   })
 
-  it('rejects a rename owned by another supplier and does not start a transaction', async () => {
-    prismaMock.supplier.findUnique
+  it('rejects a rename owned by another supplier inside the transaction', async () => {
+    transactionMock.supplier.findUnique
       .mockResolvedValueOnce(activeSupplier)
       .mockResolvedValueOnce(otherSupplier)
     await startServer()
 
-    const response = await request('/api/suppliers/supplier-1', {
+    const response = await request(`/api/suppliers/${supplierId}`, {
       method: 'PUT',
       body: JSON.stringify({ name: 'B&M' }),
     })
 
     expect(response.status).toBe(409)
     expect(await response.json()).toEqual({ error: 'Supplier name is already in use', field: 'name' })
-    expect(prismaMock.$transaction).not.toHaveBeenCalled()
+    expect(prismaMock.$transaction).toHaveBeenCalledTimes(1)
     expect(transactionMock.settingsAuditLog.create).not.toHaveBeenCalled()
   })
 
   it('renames a supplier and audits the before and after name snapshots atomically', async () => {
-    prismaMock.supplier.findUnique.mockResolvedValueOnce(activeSupplier).mockResolvedValueOnce(null)
+    transactionMock.supplier.findUnique.mockResolvedValueOnce(activeSupplier).mockResolvedValueOnce(null)
     const renamedSupplier = { ...activeSupplier, name: 'New Name' }
     transactionMock.supplier.update.mockResolvedValue(renamedSupplier)
     await startServer()
 
-    const response = await request('/api/suppliers/supplier-1', {
+    const response = await request(`/api/suppliers/${supplierId}`, {
       method: 'PUT',
       body: JSON.stringify({ name: '  New Name  ' }),
     })
 
     expect(response.status).toBe(200)
-    expect(await response.json()).toMatchObject({ id: 'supplier-1', name: 'New Name', isActive: true })
+    expect(await response.json()).toMatchObject({ id: supplierId, name: 'New Name', isActive: true })
     expect(transactionMock.supplier.update).toHaveBeenCalledWith({
-      where: { id: 'supplier-1' },
+      where: { id: supplierId },
       data: { name: 'New Name' },
     })
     expect(transactionMock.settingsAuditLog.create).toHaveBeenCalledWith(expect.objectContaining({
       data: expect.objectContaining({
         action: 'UPDATE',
         settingType: 'SUPPLIER',
-        settingId: 'supplier-1',
+        settingId: supplierId,
         before: { name: 'Home Bargains', isActive: true },
         after: { name: 'New Name', isActive: true },
       }),
     }))
+  })
+
+  it('reads the rename target and conflict inside the transaction before auditing', async () => {
+    transactionMock.supplier.findUnique.mockResolvedValueOnce(activeSupplier).mockResolvedValueOnce(null)
+    const renamedSupplier = { ...activeSupplier, name: 'New Name' }
+    transactionMock.supplier.update.mockImplementation(async () => {
+      transactionMock.supplier.findUnique.mockResolvedValueOnce({ ...activeSupplier, isActive: false })
+      return renamedSupplier
+    })
+    await startServer()
+
+    const response = await request(`/api/suppliers/${supplierId}`, {
+      method: 'PUT',
+      body: JSON.stringify({ name: 'New Name' }),
+    })
+
+    expect(response.status).toBe(200)
+    expect(transactionMock.supplier.findUnique).toHaveBeenNthCalledWith(1, { where: { id: supplierId } })
+    expect(transactionMock.supplier.findUnique).toHaveBeenNthCalledWith(2, { where: { name: 'New Name' } })
+    expect(transactionMock.settingsAuditLog.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ before: { name: 'Home Bargains', isActive: true } }),
+    }))
+  })
+
+  it('rejects invalid supplier IDs before calling Prisma', async () => {
+    await startServer()
+
+    const response = await request('/api/suppliers/not-a-cuid/restore', { method: 'POST' })
+
+    expect(response.status).toBe(400)
+    expect(prismaMock.$transaction).not.toHaveBeenCalled()
+    expect(prismaMock.supplier.findUnique).not.toHaveBeenCalled()
   })
 
   it('maps invalid bodies, missing IDs, update races, and database not-found errors', async () => {
@@ -366,11 +452,11 @@ describe('suppliers router', () => {
       method: 'POST',
       body: JSON.stringify({ name: '   ' }),
     })
-    const missingResponse = await request('/api/suppliers/missing', {
+    const missingResponse = await request(`/api/suppliers/${missingSupplierId}`, {
       method: 'PUT',
       body: JSON.stringify({ name: 'New Name' }),
     })
-    const notFoundResponse = await request('/api/suppliers/supplier-1', {
+    const notFoundResponse = await request(`/api/suppliers/${supplierId}`, {
       method: 'PUT',
       body: JSON.stringify({ name: 'New Name' }),
     })
@@ -391,22 +477,22 @@ describe('suppliers router', () => {
       .mockResolvedValueOnce({ count: 0 })
     await startServer()
 
-    const archivedResponse = await request('/api/suppliers/supplier-1', { method: 'DELETE' })
-    const alreadyArchivedResponse = await request('/api/suppliers/supplier-1', { method: 'DELETE' })
+    const archivedResponse = await request(`/api/suppliers/${supplierId}`, { method: 'DELETE' })
+    const alreadyArchivedResponse = await request(`/api/suppliers/${supplierId}`, { method: 'DELETE' })
 
     expect(archivedResponse.status).toBe(204)
     expect(alreadyArchivedResponse.status).toBe(204)
     expect(transactionMock.supplier.updateMany).toHaveBeenNthCalledWith(1, {
-      where: { id: 'supplier-1', isActive: true },
+      where: { id: supplierId, isActive: true },
       data: { isActive: false },
     })
     expect(transactionMock.supplier.updateMany).toHaveBeenNthCalledWith(2, {
-      where: { id: 'supplier-1', isActive: true },
+      where: { id: supplierId, isActive: true },
       data: { isActive: false },
     })
     expect(transactionMock.settingsAuditLog.create).toHaveBeenCalledTimes(1)
     expect(transactionMock.settingsAuditLog.create).toHaveBeenCalledWith(expect.objectContaining({
-      data: expect.objectContaining({ action: 'ARCHIVE', settingId: 'supplier-1' }),
+      data: expect.objectContaining({ action: 'ARCHIVE', settingId: supplierId }),
     }))
   })
 
@@ -421,23 +507,23 @@ describe('suppliers router', () => {
       .mockResolvedValueOnce({ count: 0 })
     await startServer()
 
-    const restoredResponse = await request('/api/suppliers/supplier-1/restore', { method: 'POST' })
-    const alreadyRestoredResponse = await request('/api/suppliers/supplier-1/restore', { method: 'POST' })
+    const restoredResponse = await request(`/api/suppliers/${supplierId}/restore`, { method: 'POST' })
+    const alreadyRestoredResponse = await request(`/api/suppliers/${supplierId}/restore`, { method: 'POST' })
 
     expect(restoredResponse.status).toBe(200)
-    expect(await restoredResponse.json()).toMatchObject({ id: 'supplier-1', isActive: true })
+    expect(await restoredResponse.json()).toMatchObject({ id: supplierId, isActive: true })
     expect(alreadyRestoredResponse.status).toBe(200)
     expect(transactionMock.supplier.updateMany).toHaveBeenNthCalledWith(1, {
-      where: { id: 'supplier-1', isActive: false },
+      where: { id: supplierId, isActive: false },
       data: { isActive: true },
     })
     expect(transactionMock.supplier.updateMany).toHaveBeenNthCalledWith(2, {
-      where: { id: 'supplier-1', isActive: false },
+      where: { id: supplierId, isActive: false },
       data: { isActive: true },
     })
     expect(transactionMock.settingsAuditLog.create).toHaveBeenCalledTimes(1)
     expect(transactionMock.settingsAuditLog.create).toHaveBeenCalledWith(expect.objectContaining({
-      data: expect.objectContaining({ action: 'RESTORE', settingId: 'supplier-1' }),
+      data: expect.objectContaining({ action: 'RESTORE', settingId: supplierId }),
     }))
   })
 
@@ -450,12 +536,12 @@ describe('suppliers router', () => {
     transactionMock.supplier.updateMany.mockResolvedValue({ count: 0 })
     await startServer()
 
-    const archiveResponse = await request('/api/suppliers/supplier-1', { method: 'DELETE' })
-    const restoreResponse = await request('/api/suppliers/supplier-1/restore', { method: 'POST' })
+    const archiveResponse = await request(`/api/suppliers/${supplierId}`, { method: 'DELETE' })
+    const restoreResponse = await request(`/api/suppliers/${supplierId}/restore`, { method: 'POST' })
 
     expect(archiveResponse.status).toBe(204)
     expect(restoreResponse.status).toBe(200)
-    expect(await restoreResponse.json()).toMatchObject({ id: 'supplier-1', isActive: true })
+    expect(await restoreResponse.json()).toMatchObject({ id: supplierId, isActive: true })
     expect(transactionMock.settingsAuditLog.create).not.toHaveBeenCalled()
   })
 
@@ -468,7 +554,7 @@ describe('suppliers router', () => {
     const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined)
     await startServer()
 
-    const response = await request('/api/suppliers/supplier-1', { method: 'DELETE' })
+    const response = await request(`/api/suppliers/${supplierId}`, { method: 'DELETE' })
 
     expect(response.status).toBe(500)
     expect(transactionError).toBe(auditError)

@@ -3,7 +3,7 @@ import { z } from 'zod'
 import { Prisma } from '@prisma/client'
 import { prisma } from '../../lib/prisma'
 import { includeArchivedQuerySchema } from '#contracts/routes/settings'
-import { supplierCreateBodySchema, supplierUpdateBodySchema } from '#contracts/routes/suppliers'
+import { supplierCreateBodySchema, supplierIdParamSchema, supplierUpdateBodySchema } from '#contracts/routes/suppliers'
 import { writeSettingsAudit } from '../../lib/settingsAudit'
 
 const router = Router()
@@ -54,23 +54,26 @@ router.post('/', async (req, res) => {
 
     if (existing) {
       const restored = await prisma.$transaction(async (tx) => {
-        const updated = await tx.supplier.update({
-          where: { id: existing.id },
+        const changed = await tx.supplier.updateMany({
+          where: { id: existing.id, isActive: false },
           data: { isActive: true },
         })
+        const current = await tx.supplier.findUnique({ where: { id: existing.id } })
+        if (!current) return { item: existing, outcome: 'existing' as const }
+        if (changed.count === 0) return { item: current, outcome: 'existing' as const }
 
         await writeSettingsAudit(tx, {
           settingType: 'SUPPLIER',
-          settingId: updated.id,
+          settingId: current.id,
           action: 'RESTORE',
           before: supplierSnapshot(existing),
-          after: supplierSnapshot(updated),
+          after: supplierSnapshot(current),
         })
 
-        return updated
+        return { item: current, outcome: 'restored' as const }
       })
 
-      res.json({ item: restored, outcome: 'restored' })
+      res.json(restored)
       return
     }
 
@@ -100,20 +103,23 @@ router.post('/', async (req, res) => {
         if (!winner) return null
         if (winner.isActive) return { item: winner, outcome: 'existing' as const }
 
-        const restored = await tx.supplier.update({
-          where: { id: winner.id },
+        const changed = await tx.supplier.updateMany({
+          where: { id: winner.id, isActive: false },
           data: { isActive: true },
         })
+        const current = await tx.supplier.findUnique({ where: { id: winner.id } })
+        if (!current) return null
+        if (changed.count === 0) return { item: current, outcome: 'existing' as const }
 
         await writeSettingsAudit(tx, {
           settingType: 'SUPPLIER',
-          settingId: restored.id,
+          settingId: current.id,
           action: 'RESTORE',
           before: supplierSnapshot(winner),
-          after: supplierSnapshot(restored),
+          after: supplierSnapshot(current),
         })
 
-        return { item: restored, outcome: 'restored' as const }
+        return { item: current, outcome: 'restored' as const }
       })
 
       if (!raced) {
@@ -140,24 +146,19 @@ router.post('/', async (req, res) => {
 // PUT update supplier
 router.put('/:id', async (req, res) => {
   try {
+    const id = supplierIdParamSchema.parse(req.params.id)
     const data = supplierUpdateBodySchema.parse(req.body)
-    const existing = await prisma.supplier.findUnique({ where: { id: req.params.id } })
-    if (!existing) {
-      notFound(res)
-      return
-    }
-
-    if (data.name !== undefined) {
-      const conflicting = await prisma.supplier.findUnique({ where: { name: data.name } })
-      if (conflicting && conflicting.id !== existing.id) {
-        res.status(409).json({ error: 'Supplier name is already in use', field: 'name' })
-        return
-      }
-    }
-
     const supplier = await prisma.$transaction(async (tx) => {
+      const existing = await tx.supplier.findUnique({ where: { id } })
+      if (!existing) return null
+      if (data.name !== undefined) {
+        const conflicting = await tx.supplier.findUnique({ where: { name: data.name } })
+        if (conflicting && conflicting.id !== existing.id) {
+          throw new Error('SUPPLIER_NAME_CONFLICT')
+        }
+      }
       const updated = await tx.supplier.update({
-        where: { id: req.params.id },
+        where: { id },
         data: { ...(data.name !== undefined && { name: data.name }) },
       })
 
@@ -171,6 +172,10 @@ router.put('/:id', async (req, res) => {
 
       return updated
     })
+    if (!supplier) {
+      notFound(res)
+      return
+    }
     res.json(supplier)
   } catch (error) {
     if (error instanceof z.ZodError) {
@@ -178,6 +183,10 @@ router.put('/:id', async (req, res) => {
     }
     if (isPrismaError(error, 'P2025')) {
       return notFound(res)
+    }
+    if (error instanceof Error && error.message === 'SUPPLIER_NAME_CONFLICT') {
+      res.status(409).json({ error: 'Supplier name is already in use', field: 'name' })
+      return
     }
     if (isPrismaError(error, 'P2002')) {
       res.status(409).json({ error: 'Supplier name is already in use', field: 'name' })
@@ -191,15 +200,16 @@ router.put('/:id', async (req, res) => {
 // DELETE (soft) supplier
 router.delete('/:id', async (req, res) => {
   try {
+    const id = supplierIdParamSchema.parse(req.params.id)
     const result = await prisma.$transaction(async (tx) => {
-      const before = await tx.supplier.findUnique({ where: { id: req.params.id } })
+      const before = await tx.supplier.findUnique({ where: { id } })
       if (!before) return { kind: 'missing' as const }
 
       const changed = await tx.supplier.updateMany({
-        where: { id: req.params.id, isActive: true },
+        where: { id, isActive: true },
         data: { isActive: false },
       })
-      const current = await tx.supplier.findUnique({ where: { id: req.params.id } })
+      const current = await tx.supplier.findUnique({ where: { id } })
       if (!current) return { kind: 'missing' as const }
       if (changed.count === 0) return { kind: 'unchanged' as const }
 
@@ -220,6 +230,9 @@ router.delete('/:id', async (req, res) => {
     }
     res.status(204).send()
   } catch (error) {
+    if (error instanceof z.ZodError) {
+      return res.status(400).json({ error: 'Validation failed', details: error.errors })
+    }
     if (isPrismaError(error, 'P2025')) {
       return notFound(res)
     }
@@ -231,15 +244,16 @@ router.delete('/:id', async (req, res) => {
 // POST restore supplier
 router.post('/:id/restore', async (req, res) => {
   try {
+    const id = supplierIdParamSchema.parse(req.params.id)
     const result = await prisma.$transaction(async (tx) => {
-      const before = await tx.supplier.findUnique({ where: { id: req.params.id } })
+      const before = await tx.supplier.findUnique({ where: { id } })
       if (!before) return { kind: 'missing' as const }
 
       const changed = await tx.supplier.updateMany({
-        where: { id: req.params.id, isActive: false },
+        where: { id, isActive: false },
         data: { isActive: true },
       })
-      const current = await tx.supplier.findUnique({ where: { id: req.params.id } })
+      const current = await tx.supplier.findUnique({ where: { id } })
       if (!current) return { kind: 'missing' as const }
       if (changed.count === 0) return { kind: 'unchanged' as const, item: current }
 
@@ -260,6 +274,9 @@ router.post('/:id/restore', async (req, res) => {
     }
     res.json(result.item)
   } catch (error) {
+    if (error instanceof z.ZodError) {
+      return res.status(400).json({ error: 'Validation failed', details: error.errors })
+    }
     if (isPrismaError(error, 'P2025')) {
       return notFound(res)
     }

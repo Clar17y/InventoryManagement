@@ -107,6 +107,10 @@ export default function Settings() {
     setSuppliersList(await suppliers.list({ includeArchived: true }))
   }
 
+  const reloadAuditHistory = async () => {
+    setAuditEntries(await settings.getAuditHistory())
+  }
+
   const loadSettings = async () => {
     try {
       setLoading(true)
@@ -181,43 +185,77 @@ export default function Settings() {
   const handleCreateOverhead = async (data: PackagingOverheadCreateBody) => {
     const result = await settings.createPackagingOverhead(data)
     await reloadPackagingOverheads()
+    await reloadAuditHistory()
     return result
   }
   const handleUpdateOverhead = async (id: string, data: PackagingOverheadUpdateBody) => {
     const result = await settings.updatePackagingOverhead(id, data)
     await reloadPackagingOverheads()
+    await reloadAuditHistory()
     return result
   }
-  const handleArchiveOverhead = async (id: string) => { await settings.deletePackagingOverhead(id); await reloadPackagingOverheads() }
-  const handleRestoreOverhead = async (id: string) => { const result = await settings.restorePackagingOverhead(id); await reloadPackagingOverheads(); return result }
+  const handleArchiveOverhead = async (id: string) => {
+    await settings.deletePackagingOverhead(id)
+    await reloadPackagingOverheads()
+    await reloadAuditHistory()
+  }
+  const handleRestoreOverhead = async (id: string) => {
+    const result = await settings.restorePackagingOverhead(id)
+    await reloadPackagingOverheads()
+    await reloadAuditHistory()
+    return result
+  }
 
   const handleCreatePostageTier = async (data: PostageTierCreateBody) => {
     const result = await settings.createPostageTier(data)
     await reloadPostageTiers()
+    await reloadAuditHistory()
     return result
   }
 
   const handleUpdatePostageTier = async (id: string, data: PostageTierUpdateBody) => {
     const result = await settings.updatePostageTier(id, data)
     await reloadPostageTiers()
+    await reloadAuditHistory()
     return result
   }
 
   const handleArchivePostageTier = async (id: string) => {
     await settings.deletePostageTier(id)
     await reloadPostageTiers()
+    await reloadAuditHistory()
   }
 
   const handleRestorePostageTier = async (id: string) => {
     const result = await settings.restorePostageTier(id)
     await reloadPostageTiers()
+    await reloadAuditHistory()
     return result
   }
 
-  const handleCreateSupplier = async (data: SupplierCreateBody) => { const result = await suppliers.create(data); await reloadSuppliers(); return result }
-  const handleUpdateSupplier = async (id: string, data: SupplierUpdateBody) => { const result = await suppliers.update(id, data); await reloadSuppliers(); return result }
-  const handleArchiveSupplier = async (id: string) => { await suppliers.delete(id); await reloadSuppliers() }
-  const handleRestoreSupplier = async (id: string) => { const result = await suppliers.restore(id); await reloadSuppliers(); return result }
+  const handleCreateSupplier = async (data: SupplierCreateBody) => {
+    const result = await suppliers.create(data)
+    await reloadSuppliers()
+    await reloadAuditHistory()
+    return result
+  }
+  const handleUpdateSupplier = async (id: string, data: SupplierUpdateBody) => {
+    const result = await suppliers.update(id, data)
+    await reloadSuppliers()
+    await reloadAuditHistory()
+    return result
+  }
+  const handleArchiveSupplier = async (id: string) => {
+    await suppliers.delete(id)
+    await reloadSuppliers()
+    await reloadAuditHistory()
+  }
+  const handleRestoreSupplier = async (id: string) => {
+    const result = await suppliers.restore(id)
+    await reloadSuppliers()
+    await reloadAuditHistory()
+    return result
+  }
 
   // Etsy Access Management handlers
   const loadEtsyAccounts = async () => {

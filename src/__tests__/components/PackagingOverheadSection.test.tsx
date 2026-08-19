@@ -113,6 +113,7 @@ describe('PackagingOverheadSection', () => {
     await user.click(screen.getByRole('button', { name: 'Add' }))
 
     expect(screen.getByText('Cost must be a finite, non-negative number')).toBeInTheDocument()
+    expect(screen.getByPlaceholderText('Cost')).toHaveAttribute('aria-describedby', 'packaging-new-cost-error')
     expect(onCreate).not.toHaveBeenCalled()
   })
 
@@ -131,7 +132,25 @@ describe('PackagingOverheadSection', () => {
 
     expect(await screen.findByText('Overhead could not be saved')).toBeInTheDocument()
     expect(screen.getByLabelText('Name')).toHaveValue('Changed')
+    expect(screen.getByLabelText('Name')).toHaveAttribute('aria-describedby', 'packaging-name-error-pkg1')
     expect(screen.getByRole('button', { name: 'Save Tape overhead' })).toBeInTheDocument()
+  })
+
+  it('retains a new draft and shows a field conflict beside the name', async () => {
+    const user = userEvent.setup()
+    const error = Object.assign(new Error('An overhead with this name already exists'), {
+      body: { error: 'An overhead with this name already exists', field: 'name' },
+    })
+    const onCreate = vi.fn().mockRejectedValue(error)
+    renderSection({ packagingOverheads: [], packagingTotal: 0, onCreate })
+
+    await user.type(screen.getByPlaceholderText('Item name (e.g., Tape)'), 'Tape')
+    await user.type(screen.getByPlaceholderText('Cost'), '0.15')
+    await user.click(screen.getByRole('button', { name: 'Add' }))
+
+    expect(await screen.findByText('An overhead with this name already exists')).toBeInTheDocument()
+    expect(screen.getByPlaceholderText('Item name (e.g., Tape)')).toHaveValue('Tape')
+    expect(screen.getByPlaceholderText('Item name (e.g., Tape)')).toHaveAttribute('aria-describedby', 'packaging-new-name-error')
   })
 
   it('requires confirmation before archiving and shows archive failures', async () => {

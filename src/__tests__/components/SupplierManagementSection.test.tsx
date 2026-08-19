@@ -100,6 +100,7 @@ describe('SupplierManagementSection', () => {
 
     expect(await screen.findByText('Supplier name is already in use')).toBeInTheDocument()
     expect(screen.getByLabelText('Supplier name')).toHaveValue('Amazon')
+    expect(screen.getByLabelText('Supplier name')).toHaveAttribute('aria-describedby', 'supplier-name-error-s1')
     expect(screen.getByRole('button', { name: 'Save Home Bargains supplier' })).toBeInTheDocument()
   })
 
@@ -132,6 +133,22 @@ describe('SupplierManagementSection', () => {
       expect(await screen.findByText(new RegExp(`Supplier ${outcome}`, 'i'))).toBeInTheDocument()
     },
   )
+
+  it('retains a new draft and shows a create conflict beside the name', async () => {
+    const user = userEvent.setup()
+    const error = Object.assign(new Error('Supplier name is already in use'), {
+      body: { error: 'Supplier name is already in use', field: 'name' },
+    })
+    const onCreate = vi.fn().mockRejectedValue(error)
+    renderSection({ suppliersList: [], onCreate })
+
+    await user.type(screen.getByPlaceholderText('Shop name (e.g., Home Bargains)'), 'Amazon')
+    await user.click(screen.getByRole('button', { name: 'Add' }))
+
+    expect(await screen.findByText('Supplier name is already in use')).toBeInTheDocument()
+    expect(screen.getByPlaceholderText('Shop name (e.g., Home Bargains)')).toHaveValue('Amazon')
+    expect(screen.getByPlaceholderText('Shop name (e.g., Home Bargains)')).toHaveAttribute('aria-describedby', 'supplier-new-name-error')
+  })
 
   it('requires confirmation before archiving and shows archive failures', async () => {
     const user = userEvent.setup()

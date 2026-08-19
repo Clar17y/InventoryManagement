@@ -444,6 +444,33 @@ describe('Settings', () => {
       });
       expect(screen.queryByText('Loading...')).not.toBeInTheDocument();
     });
+
+    it('refreshes audit history after a postage mutation without page-wide loading', async () => {
+      const user = userEvent.setup();
+      const auditEntry = {
+        id: 'clw5k3q2m0000abcde1234567',
+        settingType: 'POSTAGE_TIER',
+        settingId: 'pt1',
+        action: 'UPDATE',
+        before: { label: 'Standard' },
+        after: { label: 'Express' },
+        createdAt: '2026-08-19T12:00:00.000Z',
+      };
+      mockGetPostageTiers.mockResolvedValue([samplePostageTier] as any);
+      mockUpdatePostageTier.mockResolvedValue(samplePostageTier as any);
+      mockGetAuditHistory.mockResolvedValueOnce([]).mockResolvedValueOnce([auditEntry] as any);
+
+      renderSettings('postage');
+
+      await waitFor(() => expect(screen.getByRole('button', { name: 'Edit £5.00 tier' })).toBeInTheDocument());
+      await user.click(screen.getByRole('button', { name: 'Edit £5.00 tier' }));
+      await user.click(screen.getByRole('button', { name: 'Save £5.00 tier' }));
+
+      await waitFor(() => expect(mockGetAuditHistory).toHaveBeenCalledTimes(2));
+      expect(screen.queryByText('Loading...')).not.toBeInTheDocument();
+      await user.click(screen.getByRole('tab', { name: 'Audit History' }));
+      expect(await screen.findByText('Postage tier updated')).toBeInTheDocument();
+    });
   });
 
   describe('suppliers section', () => {

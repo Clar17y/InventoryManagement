@@ -15,13 +15,16 @@ interface Props {
   onRestore: (id: string) => Promise<Supplier>
 }
 
-function message(error: unknown) {
+function getErrorDetails(error: unknown): { message: string; field?: 'name' } {
   const candidate = error as { message?: unknown; body?: { error?: unknown } } | null
-  return typeof candidate?.body?.error === 'string'
+  const body = error && typeof error === 'object' && 'body' in error && candidate?.body
+  const field = body && (body as { field?: unknown }).field === 'name' ? 'name' : undefined
+  const message = typeof candidate?.body?.error === 'string'
     ? candidate.body.error
     : typeof candidate?.message === 'string'
       ? candidate.message
       : 'Request failed'
+  return { message, field }
 }
 
 export default function SupplierManagementSection({
@@ -34,6 +37,8 @@ export default function SupplierManagementSection({
   const [newName, setNewName] = useState('')
   const [editingId, setEditingId] = useState<string | null>(null)
   const [draft, setDraft] = useState('')
+  const [fieldError, setFieldError] = useState<string | null>(null)
+  const [newFieldError, setNewFieldError] = useState<string | null>(null)
   const [pendingId, setPendingId] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [confirmation, setConfirmation] = useState<string | null>(null)
@@ -44,15 +49,22 @@ export default function SupplierManagementSection({
   const archived = suppliersList.filter((supplier) => !supplier.isActive)
 
   const add = async () => {
-    if (!newName.trim()) return
+    if (!newName.trim()) {
+      setNewFieldError('Supplier name is required')
+      setError(null)
+      return
+    }
     setPendingId('new')
     setError(null)
+    setNewFieldError(null)
     try {
       const result = await onCreate({ name: newName.trim() })
       setNewName('')
       setConfirmation(`Supplier ${result.outcome}.`)
     } catch (err) {
-      setError(message(err))
+      const details = getErrorDetails(err)
+      if (details.field) setNewFieldError(details.message)
+      else setError(details.message)
     } finally {
       setPendingId(null)
     }
@@ -60,17 +72,21 @@ export default function SupplierManagementSection({
 
   const save = async (supplier: Supplier) => {
     if (!draft.trim()) {
-      setError('Supplier name is required')
+      setFieldError('Supplier name is required')
+      setError(null)
       return
     }
     setPendingId(supplier.id)
     setError(null)
+    setFieldError(null)
     try {
       await onUpdate(supplier.id, { name: draft.trim() })
       setEditingId(null)
       setConfirmation('Supplier updated.')
     } catch (err) {
-      setError(message(err))
+      const details = getErrorDetails(err)
+      if (details.field) setFieldError(details.message)
+      else setError(details.message)
     } finally {
       setPendingId(null)
     }
@@ -80,11 +96,12 @@ export default function SupplierManagementSection({
     if (!confirm('Archive this supplier?')) return
     setPendingId(supplier.id)
     setError(null)
+    setFieldError(null)
     try {
       await onArchive(supplier.id)
       setConfirmation('Supplier archived.')
     } catch (err) {
-      setError(message(err))
+      setError(getErrorDetails(err).message)
     } finally {
       setPendingId(null)
     }
@@ -93,11 +110,12 @@ export default function SupplierManagementSection({
   const restore = async (supplier: Supplier) => {
     setPendingId(supplier.id)
     setError(null)
+    setFieldError(null)
     try {
       await onRestore(supplier.id)
       setConfirmation('Supplier restored.')
     } catch (err) {
-      setError(message(err))
+      setError(getErrorDetails(err).message)
     } finally {
       setPendingId(null)
     }
@@ -108,20 +126,26 @@ export default function SupplierManagementSection({
     const pending = pendingId === supplier.id
 
     if (editingId === supplier.id) {
+      const errorId = `supplier-name-error-${supplier.id}`
       return (
         <div key={supplier.id} className="space-y-2 rounded-lg bg-gray-50 p-3">
           <label>
             Supplier name
             <input
+              id={`supplier-name-${supplier.id}`}
               aria-label="Supplier name"
+              aria-describedby={fieldError ? errorId : undefined}
+              aria-invalid={Boolean(fieldError)}
               className="input"
               value={draft}
               disabled={pending}
               onChange={(event) => {
                 setDraft(event.target.value)
+                setFieldError(null)
                 setError(null)
               }}
             />
+            {fieldError && <p id={errorId} role="alert" className="text-xs text-red-600">{fieldError}</p>}
           </label>
           <button type="button" aria-label={`Save ${name}`} disabled={pending} onClick={() => void save(supplier)}>
             Save {name}
@@ -132,6 +156,7 @@ export default function SupplierManagementSection({
             disabled={pending}
             onClick={() => {
               setEditingId(null)
+              setFieldError(null)
               setError(null)
             }}
           >
@@ -166,6 +191,7 @@ export default function SupplierManagementSection({
                 onClick={() => {
                   setEditingId(supplier.id)
                   setDraft(supplier.name)
+                  setFieldError(null)
                   setError(null)
                 }}
               >
@@ -199,16 +225,23 @@ export default function SupplierManagementSection({
       {confirmation && <p role="status">{confirmation}</p>}
       {error && <p role="alert">{error}</p>}
       <div className="flex gap-2">
-        <input
-          placeholder="Shop name (e.g., Home Bargains)"
-          aria-label="New supplier name"
-          value={newName}
-          disabled={pendingId === 'new'}
-          onChange={(event) => {
-            setNewName(event.target.value)
-            setError(null)
-          }}
-        />
+        <div>
+          <input
+            id="supplier-new-name"
+            placeholder="Shop name (e.g., Home Bargains)"
+            aria-label="New supplier name"
+            aria-describedby={newFieldError ? 'supplier-new-name-error' : undefined}
+            aria-invalid={Boolean(newFieldError)}
+            value={newName}
+            disabled={pendingId === 'new'}
+            onChange={(event) => {
+              setNewName(event.target.value)
+              setNewFieldError(null)
+              setError(null)
+            }}
+          />
+          {newFieldError && <p id="supplier-new-name-error" role="alert" className="text-xs text-red-600">{newFieldError}</p>}
+        </div>
         <button
           type="button"
           className="btn-primary"

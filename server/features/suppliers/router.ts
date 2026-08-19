@@ -6,12 +6,9 @@ import { includeArchivedQuerySchema } from '#contracts/routes/settings'
 import { supplierCreateBodySchema, supplierIdParamSchema, supplierUpdateBodySchema } from '#contracts/routes/suppliers'
 import { writeSettingsAudit } from '../../lib/settingsAudit'
 import { serializableTransaction } from '../../lib/serializableTransaction'
+import { isPrismaError } from '../../lib/prismaError'
 
 const router = Router()
-
-function isPrismaError(error: unknown, code: string): error is Prisma.PrismaClientKnownRequestError {
-  return error instanceof Prisma.PrismaClientKnownRequestError && error.code === code
-}
 
 function supplierSnapshot(supplier: { name: string; isActive: boolean }): Prisma.InputJsonObject {
   return {
@@ -78,7 +75,13 @@ router.post('/', async (req, res) => {
     try {
       result = await serializableTransaction(async (tx) => {
         const existing = await tx.supplier.findUnique({ where: { name: data.name } })
-        if (existing) return restoreOrReturnSupplier(tx, existing)
+        // The row can only vanish mid-transaction under a concurrent hard delete; fall
+        // back to the snapshot already read rather than reporting a spurious 404 for a
+        // supplier the caller just asked us to add.
+        if (existing) {
+          return (await restoreOrReturnSupplier(tx, existing))
+            ?? { item: existing, outcome: 'existing' as const }
+        }
 
         const supplier = await tx.supplier.create({
           data: { name: data.name },

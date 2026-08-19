@@ -409,6 +409,48 @@ describe('settings router', () => {
     }))
   })
 
+  it('clears the stored label when Add updates an active tier without one', async () => {
+    transactionMock.postageTier.updateMany.mockResolvedValue({ count: 1 })
+    transactionMock.postageTier.findUnique
+      .mockResolvedValueOnce(activeTier)
+      .mockResolvedValueOnce({ ...activeTier, actualCost: new Prisma.Decimal('3.95'), label: null })
+    await startServer()
+
+    const response = await request('/api/settings/postage-tiers', {
+      method: 'POST',
+      body: JSON.stringify({ etsyCharge: 5, actualCost: 3.95, label: '   ' }),
+    })
+
+    expect(response.status).toBe(200)
+    expect(transactionMock.postageTier.updateMany).toHaveBeenCalledWith({
+      where: { id: 'tier-5', isActive: true },
+      data: { actualCost: 3.95, label: null },
+    })
+  })
+
+  it('clears the stored label when Add restores an archived tier without one', async () => {
+    transactionMock.postageTier.updateMany
+      .mockResolvedValueOnce({ count: 0 })
+      .mockResolvedValueOnce({ count: 1 })
+    transactionMock.postageTier.findUnique
+      .mockResolvedValueOnce(archivedTier)
+      .mockResolvedValueOnce(archivedTier)
+      .mockResolvedValueOnce({ ...archivedTier, actualCost: new Prisma.Decimal('3.95'), label: null, isActive: true })
+    await startServer()
+
+    const response = await request('/api/settings/postage-tiers', {
+      method: 'POST',
+      body: JSON.stringify({ etsyCharge: 5, actualCost: 3.95 }),
+    })
+
+    expect(response.status).toBe(200)
+    expect((await response.json()).outcome).toBe('restored')
+    expect(transactionMock.postageTier.updateMany).toHaveBeenLastCalledWith({
+      where: { id: 'tier-5', isActive: false },
+      data: { actualCost: 3.95, label: null, isActive: true },
+    })
+  })
+
   it('audits an Add update from the transaction-read active snapshot', async () => {
     const transactionRead = { ...activeTier, actualCost: new Prisma.Decimal('3.75'), label: 'Fresh' }
     const updated = { ...transactionRead, actualCost: new Prisma.Decimal('3.95') }
@@ -490,7 +532,7 @@ describe('settings router', () => {
     expect(await response.json()).toMatchObject({ outcome: 'updated', item: { id: 'tier-5', isActive: true } })
     expect(transactionMock.postageTier.updateMany).toHaveBeenCalledWith({
       where: { id: 'tier-5', isActive: true },
-      data: { actualCost: 3.65, label: undefined },
+      data: { actualCost: 3.65, label: null },
     })
     expect(transactionMock.settingsAuditLog.create).not.toHaveBeenCalled()
   })

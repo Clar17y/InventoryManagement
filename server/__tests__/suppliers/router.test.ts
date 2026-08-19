@@ -287,6 +287,26 @@ describe('suppliers router', () => {
     expect(transactionMock.settingsAuditLog.create).not.toHaveBeenCalled()
   })
 
+  it('falls back to the read snapshot when the archived supplier vanishes mid-restore', async () => {
+    transactionMock.supplier.updateMany.mockResolvedValue({ count: 1 })
+    transactionMock.supplier.findUnique
+      .mockResolvedValueOnce(archivedSupplier)
+      .mockResolvedValueOnce(null)
+    await startServer()
+
+    const response = await request('/api/suppliers', {
+      method: 'POST',
+      body: JSON.stringify({ name: 'Home Bargains' }),
+    })
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toMatchObject({
+      outcome: 'existing',
+      item: { id: supplierId, name: 'Home Bargains' },
+    })
+    expect(transactionMock.settingsAuditLog.create).not.toHaveBeenCalled()
+  })
+
   it('returns the existing active supplier without duplicating or auditing it', async () => {
     transactionMock.supplier.findUnique.mockResolvedValue(activeSupplier)
     await startServer()

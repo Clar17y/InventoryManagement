@@ -111,6 +111,18 @@ export default function Settings() {
     setAuditEntries(await settings.getAuditHistory())
   }
 
+  // The mutation has already committed by the time we refresh. Letting a failed
+  // refresh reject would make the caller report the whole operation as failed and
+  // invite a resubmit, which duplicates rows for records without a unique key.
+  const refreshAfterMutation = async (reload: () => Promise<void>) => {
+    try {
+      await reload()
+      await reloadAuditHistory()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Saved, but failed to refresh settings')
+    }
+  }
+
   const loadSettings = async () => {
     try {
       setLoading(true)
@@ -184,76 +196,64 @@ export default function Settings() {
 
   const handleCreateOverhead = async (data: PackagingOverheadCreateBody) => {
     const result = await settings.createPackagingOverhead(data)
-    await reloadPackagingOverheads()
-    await reloadAuditHistory()
+    await refreshAfterMutation(reloadPackagingOverheads)
     return result
   }
   const handleUpdateOverhead = async (id: string, data: PackagingOverheadUpdateBody) => {
     const result = await settings.updatePackagingOverhead(id, data)
-    await reloadPackagingOverheads()
-    await reloadAuditHistory()
+    await refreshAfterMutation(reloadPackagingOverheads)
     return result
   }
   const handleArchiveOverhead = async (id: string) => {
     await settings.deletePackagingOverhead(id)
-    await reloadPackagingOverheads()
-    await reloadAuditHistory()
+    await refreshAfterMutation(reloadPackagingOverheads)
   }
   const handleRestoreOverhead = async (id: string) => {
     const result = await settings.restorePackagingOverhead(id)
-    await reloadPackagingOverheads()
-    await reloadAuditHistory()
+    await refreshAfterMutation(reloadPackagingOverheads)
     return result
   }
 
   const handleCreatePostageTier = async (data: PostageTierCreateBody) => {
     const result = await settings.createPostageTier(data)
-    await reloadPostageTiers()
-    await reloadAuditHistory()
+    await refreshAfterMutation(reloadPostageTiers)
     return result
   }
 
   const handleUpdatePostageTier = async (id: string, data: PostageTierUpdateBody) => {
     const result = await settings.updatePostageTier(id, data)
-    await reloadPostageTiers()
-    await reloadAuditHistory()
+    await refreshAfterMutation(reloadPostageTiers)
     return result
   }
 
   const handleArchivePostageTier = async (id: string) => {
     await settings.deletePostageTier(id)
-    await reloadPostageTiers()
-    await reloadAuditHistory()
+    await refreshAfterMutation(reloadPostageTiers)
   }
 
   const handleRestorePostageTier = async (id: string) => {
     const result = await settings.restorePostageTier(id)
-    await reloadPostageTiers()
-    await reloadAuditHistory()
+    await refreshAfterMutation(reloadPostageTiers)
     return result
   }
 
   const handleCreateSupplier = async (data: SupplierCreateBody) => {
     const result = await suppliers.create(data)
-    await reloadSuppliers()
-    await reloadAuditHistory()
+    await refreshAfterMutation(reloadSuppliers)
     return result
   }
   const handleUpdateSupplier = async (id: string, data: SupplierUpdateBody) => {
     const result = await suppliers.update(id, data)
-    await reloadSuppliers()
-    await reloadAuditHistory()
+    await refreshAfterMutation(reloadSuppliers)
     return result
   }
   const handleArchiveSupplier = async (id: string) => {
     await suppliers.delete(id)
-    await reloadSuppliers()
-    await reloadAuditHistory()
+    await refreshAfterMutation(reloadSuppliers)
   }
   const handleRestoreSupplier = async (id: string) => {
     const result = await suppliers.restore(id)
-    await reloadSuppliers()
-    await reloadAuditHistory()
+    await refreshAfterMutation(reloadSuppliers)
     return result
   }
 

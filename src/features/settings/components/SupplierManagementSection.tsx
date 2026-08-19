@@ -6,6 +6,7 @@ import type {
   SupplierUpdateBody,
 } from '#contracts/routes/suppliers'
 import SupplierProductsModal from './SupplierProductsModal'
+import { getApiErrorDetails } from '../../../lib/apiError'
 
 interface Props {
   suppliersList: Supplier[]
@@ -15,16 +16,10 @@ interface Props {
   onRestore: (id: string) => Promise<Supplier>
 }
 
-function getErrorDetails(error: unknown): { message: string; field?: 'name' } {
-  const candidate = error as { message?: unknown; body?: { error?: unknown } } | null
-  const body = error && typeof error === 'object' && 'body' in error && candidate?.body
-  const field = body && (body as { field?: unknown }).field === 'name' ? 'name' : undefined
-  const message = typeof candidate?.body?.error === 'string'
-    ? candidate.body.error
-    : typeof candidate?.message === 'string'
-      ? candidate.message
-      : 'Request failed'
-  return { message, field }
+const errorFields = ['name'] as const
+
+function getErrorDetails(error: unknown) {
+  return getApiErrorDetails(error, errorFields)
 }
 
 export default function SupplierManagementSection({

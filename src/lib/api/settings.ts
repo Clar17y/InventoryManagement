@@ -1,4 +1,5 @@
 import { request, requestWithSchema } from './request'
+import { withArchived } from './query'
 import {
   dashboardStatsResponseSchema,
   etsyFeeConfigResponseSchema,
@@ -22,10 +23,6 @@ import {
   type PostageTierUpdateBody,
 } from '#contracts/routes/settings'
 import type { SettingsAuditEntry } from '#contracts/domain/settings'
-
-function withArchived(path: string, options?: { includeArchived?: boolean }) {
-  return options?.includeArchived ? `${path}?includeArchived=true` : path
-}
 
 // Dashboard
 export type DashboardStats = DashboardStatsResponse

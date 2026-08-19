@@ -1,4 +1,5 @@
 import { request, requestWithSchema } from './request'
+import { withArchived } from './query'
 import {
   suppliersResponseSchema,
   supplierResponseSchema,
@@ -11,10 +12,6 @@ import {
   type SupplierResponse,
   type SupplierLowStockProduct,
 } from '#contracts/routes/suppliers'
-
-function withArchived(path: string, options?: { includeArchived?: boolean }) {
-  return options?.includeArchived ? `${path}?includeArchived=true` : path
-}
 
 export type Supplier = SupplierResponse
 export type SupplierLowStockItem = SupplierLowStockProduct

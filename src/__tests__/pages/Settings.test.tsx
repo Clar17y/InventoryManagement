@@ -343,6 +343,33 @@ describe('Settings', () => {
       });
     });
 
+    it('clears the add form when the post-create refresh fails', async () => {
+      const user = userEvent.setup();
+      mockCreatePackagingOverhead.mockResolvedValue(sampleOverhead as any);
+
+      renderSettings('packaging');
+
+      await waitFor(() => {
+        expect(screen.getByPlaceholderText('Item name (e.g., Tape)')).toBeInTheDocument();
+      });
+
+      // The create has already committed; a failed refresh must not be reported as a
+      // failed create, or the user retries and duplicates the row.
+      mockGetAuditHistory.mockRejectedValueOnce(new Error('Network error'));
+
+      await user.type(screen.getByPlaceholderText('Item name (e.g., Tape)'), 'Bubble Wrap');
+      await user.type(screen.getByPlaceholderText('Cost'), '0.50');
+      await user.click(screen.getAllByRole('button', { name: 'Add' })[0]!);
+
+      await waitFor(() => {
+        expect(mockCreatePackagingOverhead).toHaveBeenCalledTimes(1);
+      });
+      await waitFor(() => {
+        expect(screen.getByPlaceholderText('Item name (e.g., Tape)')).toHaveValue('');
+      });
+      expect(screen.getByPlaceholderText('Cost')).toHaveValue(null);
+    });
+
     it('calls deletePackagingOverhead when Archive clicked', async () => {
       const user = userEvent.setup();
       mockDeletePackagingOverhead.mockResolvedValue(undefined);

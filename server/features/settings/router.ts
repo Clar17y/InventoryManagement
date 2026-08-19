@@ -14,12 +14,9 @@ import {
 } from '#contracts/routes/settings'
 import { writeSettingsAudit } from '../../lib/settingsAudit'
 import { serializableTransaction } from '../../lib/serializableTransaction'
+import { isPrismaError } from '../../lib/prismaError'
 
 const router = Router()
-
-function isPrismaError(error: unknown, code: string): error is Prisma.PrismaClientKnownRequestError {
-  return error instanceof Prisma.PrismaClientKnownRequestError && error.code === code
-}
 
 function postageSnapshot(tier: {
   etsyCharge: { toString(): string }
@@ -365,9 +362,12 @@ async function updateOrRestorePostageTier(
   existing: PostageTierRecord,
   data: PostageTierMutation,
 ): Promise<{ item: PostageTierRecord; outcome: 'updated' | 'restored' } | null> {
+  // Add replaces the target tier outright, so an omitted or blank label must clear
+  // the stored one. Prisma skips `undefined`, which would leave the old label behind.
+  const label = data.label ?? null
   const activeUpdate = await tx.postageTier.updateMany({
     where: { id: existing.id, isActive: true },
-    data: { actualCost: data.actualCost, label: data.label },
+    data: { actualCost: data.actualCost, label },
   })
   const current = await tx.postageTier.findUnique({ where: { id: existing.id } })
   if (!current) return null
@@ -384,7 +384,7 @@ async function updateOrRestorePostageTier(
 
   const restored = await tx.postageTier.updateMany({
     where: { id: current.id, isActive: false },
-    data: { actualCost: data.actualCost, label: data.label, isActive: true },
+    data: { actualCost: data.actualCost, label, isActive: true },
   })
   const afterRestore = await tx.postageTier.findUnique({ where: { id: current.id } })
   if (!afterRestore) return null

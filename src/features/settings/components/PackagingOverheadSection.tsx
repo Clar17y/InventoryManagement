@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import type { PackagingOverhead } from '../../../lib/api'
 import { formatCurrency } from '../../../lib/formatting'
+import { getApiErrorDetails } from '../../../lib/apiError'
 import type { PackagingOverheadCreateBody, PackagingOverheadUpdateBody } from '#contracts/routes/settings'
 
 interface Props {
@@ -16,18 +17,10 @@ type Draft = { name: string; costPerOrder: string }
 type FieldName = keyof Draft
 type FieldErrors = Partial<Record<FieldName, string>>
 
-function getErrorDetails(error: unknown): { message: string; field?: FieldName } {
-  const candidate = error as { message?: unknown; body?: unknown } | null
-  const body = candidate && typeof candidate.body === 'object' && candidate.body !== null
-    ? candidate.body as { error?: unknown; field?: unknown }
-    : null
-  const field = body?.field === 'name' || body?.field === 'costPerOrder' ? body.field : undefined
-  const message = typeof body?.error === 'string'
-    ? body.error
-    : typeof candidate?.message === 'string'
-      ? candidate.message
-      : 'Request failed'
-  return { message, field }
+const errorFields: readonly FieldName[] = ['name', 'costPerOrder']
+
+function getErrorDetails(error: unknown) {
+  return getApiErrorDetails(error, errorFields)
 }
 
 function parseCost(value: string): { value?: number; error?: string } {

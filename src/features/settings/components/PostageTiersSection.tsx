@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import type { PostageTier } from '../../../lib/api'
 import { formatCurrency } from '../../../lib/formatting'
+import { getApiErrorDetails } from '../../../lib/apiError'
 import type {
   PostageTierCreateBody,
   PostageTierMutationResponse,
@@ -36,20 +37,10 @@ function parseNonNegative(value: string, label: string): { value?: number; error
   return { value: parsed }
 }
 
-function getErrorDetails(error: unknown): { message: string; field?: FieldName } {
-  const candidate = error as { message?: unknown; body?: unknown } | null
-  const body = candidate && typeof candidate.body === 'object' && candidate.body !== null
-    ? candidate.body as { error?: unknown; field?: unknown }
-    : null
-  const message = typeof body?.error === 'string'
-    ? body.error
-    : typeof candidate?.message === 'string'
-      ? candidate.message
-      : 'Request failed'
-  const field = body?.field === 'etsyCharge' || body?.field === 'actualCost' || body?.field === 'label'
-    ? body.field
-    : undefined
-  return { message, field }
+const errorFields: readonly FieldName[] = ['etsyCharge', 'actualCost', 'label']
+
+function getErrorDetails(error: unknown) {
+  return getApiErrorDetails(error, errorFields)
 }
 
 function draftForTier(tier: PostageTier): Draft {

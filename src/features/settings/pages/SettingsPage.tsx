@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { settings, etsy, suppliers, EtsyFeeConfig, PackagingOverhead, PostageTier, EtsyAccount, Supplier } from '../../../lib/api'
+import type { PostageTierCreateBody, PostageTierUpdateBody } from '#contracts/routes/settings'
 import EtsyAccessManagementSection from '../components/EtsyAccessManagementSection'
 import EtsyFeesSection from '../components/EtsyFeesSection'
 import PackagingOverheadSection from '../components/PackagingOverheadSection'
@@ -72,8 +73,6 @@ export default function Settings() {
 
   // Postage tiers
   const [postageTiers, setPostageTiers] = useState<PostageTier[]>([])
-  const [newEtsyCharge, setNewEtsyCharge] = useState('')
-  const [newActualCost, setNewActualCost] = useState('')
 
   // Suppliers
   const [suppliersList, setSuppliersList] = useState<Supplier[]>([])
@@ -95,13 +94,18 @@ export default function Settings() {
     setSearchParams(nextSearchParams)
   }
 
+  const reloadPostageTiers = async () => {
+    const tiers = await settings.getPostageTiers({ includeArchived: true })
+    setPostageTiers(tiers)
+  }
+
   const loadSettings = async () => {
     try {
       setLoading(true)
       const [feesData, overheadData, tiersData, suppliersData] = await Promise.all([
         settings.getEtsyFees(),
         settings.getPackagingOverhead(),
-        settings.getPostageTiers(),
+        settings.getPostageTiers({ includeArchived: true }),
         suppliers.list(),
       ])
 
@@ -195,33 +199,27 @@ export default function Settings() {
     }
   }
 
-  const handleAddPostageTier = async () => {
-    if (!newEtsyCharge || !newActualCost) return
-    setSaving(true)
-    setError(null)
-    try {
-      await settings.createPostageTier({
-        etsyCharge: parseFloat(newEtsyCharge),
-        actualCost: parseFloat(newActualCost),
-      })
-      setNewEtsyCharge('')
-      setNewActualCost('')
-      await loadSettings()
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to add postage tier')
-    } finally {
-      setSaving(false)
-    }
+  const handleCreatePostageTier = async (data: PostageTierCreateBody) => {
+    const result = await settings.createPostageTier(data)
+    await reloadPostageTiers()
+    return result
   }
 
-  const handleDeletePostageTier = async (id: string) => {
-    if (!confirm('Delete this postage tier?')) return
-    try {
-      await settings.deletePostageTier(id)
-      await loadSettings()
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to delete postage tier')
-    }
+  const handleUpdatePostageTier = async (id: string, data: PostageTierUpdateBody) => {
+    const result = await settings.updatePostageTier(id, data)
+    await reloadPostageTiers()
+    return result
+  }
+
+  const handleArchivePostageTier = async (id: string) => {
+    await settings.deletePostageTier(id)
+    await reloadPostageTiers()
+  }
+
+  const handleRestorePostageTier = async (id: string) => {
+    const result = await settings.restorePostageTier(id)
+    await reloadPostageTiers()
+    return result
   }
 
   const handleAddSupplier = async () => {
@@ -350,13 +348,10 @@ export default function Settings() {
           {activeSection === 'postage' && (
             <PostageTiersSection
               tiers={postageTiers}
-              newEtsyCharge={newEtsyCharge}
-              newActualCost={newActualCost}
-              onNewEtsyChargeChange={setNewEtsyCharge}
-              onNewActualCostChange={setNewActualCost}
-              saving={saving}
-              onAddTier={handleAddPostageTier}
-              onDeleteTier={handleDeletePostageTier}
+              onCreate={handleCreatePostageTier}
+              onUpdate={handleUpdatePostageTier}
+              onArchive={handleArchivePostageTier}
+              onRestore={handleRestorePostageTier}
             />
           )}
 

@@ -14,7 +14,9 @@ vi.mock('../../lib/api', () => ({
     deletePackagingOverhead: vi.fn(),
     getPostageTiers: vi.fn(),
     createPostageTier: vi.fn(),
+    updatePostageTier: vi.fn(),
     deletePostageTier: vi.fn(),
+    restorePostageTier: vi.fn(),
   },
   etsy: {
     getAccounts: vi.fn(),
@@ -40,6 +42,9 @@ const mockCreatePackagingOverhead = vi.mocked(settings.createPackagingOverhead);
 const mockDeletePackagingOverhead = vi.mocked(settings.deletePackagingOverhead);
 const mockGetPostageTiers = vi.mocked(settings.getPostageTiers);
 const mockCreatePostageTier = vi.mocked(settings.createPostageTier);
+const mockUpdatePostageTier = vi.mocked(settings.updatePostageTier);
+const mockDeletePostageTier = vi.mocked(settings.deletePostageTier);
+const mockRestorePostageTier = vi.mocked(settings.restorePostageTier);
 const mockGetAccounts = vi.mocked(etsy.getAccounts);
 const mockSuppliersList = vi.mocked(suppliers.list);
 const mockSuppliersCreate = vi.mocked(suppliers.create);
@@ -81,6 +86,9 @@ describe('Settings', () => {
     } as any);
     mockGetAccounts.mockResolvedValue({ accounts: [] } as any);
     mockGetPostageTiers.mockResolvedValue([]);
+    mockUpdatePostageTier.mockResolvedValue({} as any);
+    mockDeletePostageTier.mockResolvedValue(undefined);
+    mockRestorePostageTier.mockResolvedValue({} as any);
     mockSuppliersList.mockResolvedValue([]);
   });
 
@@ -344,6 +352,14 @@ describe('Settings', () => {
       });
     });
 
+    it('loads active and archived postage tiers for the editor', async () => {
+      renderSettings('postage');
+
+      await waitFor(() => {
+        expect(mockGetPostageTiers).toHaveBeenCalledWith({ includeArchived: true });
+      });
+    });
+
     it('displays existing tiers', async () => {
       mockGetPostageTiers.mockResolvedValue([samplePostageTier] as any);
 
@@ -357,7 +373,7 @@ describe('Settings', () => {
 
     it('can add a new postage tier', async () => {
       const user = userEvent.setup();
-      mockCreatePostageTier.mockResolvedValue(samplePostageTier as any);
+      mockCreatePostageTier.mockResolvedValue({ item: samplePostageTier, outcome: 'created' } as any);
 
       renderSettings('postage');
 
@@ -374,8 +390,33 @@ describe('Settings', () => {
         expect(mockCreatePostageTier).toHaveBeenCalledWith({
           etsyCharge: 5,
           actualCost: 5.05,
+          label: undefined,
         });
       });
+    });
+
+    it('reloads after postage save without showing the page-wide loading state', async () => {
+      const user = userEvent.setup();
+      mockGetPostageTiers.mockResolvedValue([samplePostageTier] as any);
+      mockUpdatePostageTier.mockResolvedValue(samplePostageTier as any);
+
+      renderSettings('postage');
+
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: 'Edit £5.00 tier' })).toBeInTheDocument();
+      });
+      await user.click(screen.getByRole('button', { name: 'Edit £5.00 tier' }));
+      await user.click(screen.getByRole('button', { name: 'Save £5.00 tier' }));
+
+      await waitFor(() => {
+        expect(mockUpdatePostageTier).toHaveBeenCalledWith('pt1', {
+          etsyCharge: 5,
+          actualCost: 5.05,
+          label: 'Standard',
+        });
+        expect(mockGetPostageTiers).toHaveBeenCalledTimes(2);
+      });
+      expect(screen.queryByText('Loading...')).not.toBeInTheDocument();
     });
   });
 

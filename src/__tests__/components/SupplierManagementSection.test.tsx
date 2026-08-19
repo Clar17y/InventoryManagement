@@ -1,104 +1,188 @@
-import { describe, it, expect, vi } from 'vitest';
-import { screen } from '@testing-library/react';
-import userEvent from '@testing-library/user-event';
-import { render } from '../utils/test-utils';
-import SupplierManagementSection from '../../features/settings/components/SupplierManagementSection';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { screen, waitFor } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
+import { render } from '../utils/test-utils'
 
-const sampleSuppliers = [
-  { id: 's1', name: 'Home Bargains', isActive: true, createdAt: '2024-01-01T00:00:00Z', updatedAt: '2024-01-01T00:00:00Z' },
-  { id: 's2', name: 'Amazon', isActive: true, createdAt: '2024-01-01T00:00:00Z', updatedAt: '2024-01-01T00:00:00Z' },
-];
+vi.mock('../../features/settings/components/SupplierProductsModal', () => ({
+  default: ({ supplier, onClose }: { supplier: { id: string }; onClose: () => void }) => (
+    <div role="dialog">
+      <span>Supplier products for {supplier.id}</span>
+      <button type="button" onClick={onClose}>Close modal</button>
+    </div>
+  ),
+}))
 
-const defaultProps = {
-  suppliersList: sampleSuppliers as any,
-  newSupplierName: '',
-  onNewSupplierNameChange: vi.fn(),
-  saving: false,
-  onAddSupplier: vi.fn(),
-  onDeleteSupplier: vi.fn(),
-};
+import SupplierManagementSection from '../../features/settings/components/SupplierManagementSection'
+
+const activeSupplier = {
+  id: 's1',
+  name: 'Home Bargains',
+  isActive: true,
+  createdAt: '2024-01-01T00:00:00Z',
+  updatedAt: '2024-01-01T00:00:00Z',
+}
+
+const secondSupplier = {
+  id: 's2',
+  name: 'Amazon',
+  isActive: true,
+  createdAt: '2024-01-01T00:00:00Z',
+  updatedAt: '2024-01-01T00:00:00Z',
+}
+
+const archivedSupplier = {
+  id: 's3',
+  name: 'Old supplier',
+  isActive: false,
+  createdAt: '2024-01-01T00:00:00Z',
+  updatedAt: '2024-01-01T00:00:00Z',
+}
+
+const renderSection = (overrides: Record<string, unknown> = {}) => {
+  const props = {
+    suppliersList: [activeSupplier],
+    onCreate: vi.fn().mockResolvedValue({ item: activeSupplier, outcome: 'created' }),
+    onUpdate: vi.fn().mockResolvedValue(activeSupplier),
+    onArchive: vi.fn().mockResolvedValue(undefined),
+    onRestore: vi.fn().mockResolvedValue(activeSupplier),
+    ...overrides,
+  }
+
+  return {
+    ...props,
+    ...render(<SupplierManagementSection {...(props as any)} />),
+  }
+}
 
 describe('SupplierManagementSection', () => {
-  it('renders section title', () => {
-    render(<SupplierManagementSection {...defaultProps} />);
+  beforeEach(() => {
+    vi.stubGlobal('confirm', vi.fn(() => true))
+  })
 
-    expect(screen.getByText('Suppliers / Shops')).toBeInTheDocument();
-  });
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
 
-  it('renders description text', () => {
-    render(<SupplierManagementSection {...defaultProps} />);
+  it('renders the section description and active supplier names', () => {
+    renderSection({ suppliersList: [activeSupplier, secondSupplier] })
 
-    expect(screen.getByText(/Manage shops where products can be purchased/)).toBeInTheDocument();
-  });
+    expect(screen.getByText('Suppliers / Shops')).toBeInTheDocument()
+    expect(screen.getByText(/Manage shops where products can be purchased/)).toBeInTheDocument()
+    expect(screen.getByText('Home Bargains')).toBeInTheDocument()
+    expect(screen.getByText('Amazon')).toBeInTheDocument()
+  })
 
-  it('renders existing supplier names in the list', () => {
-    render(<SupplierManagementSection {...defaultProps} />);
+  it('renames a supplier and saves the trimmed draft', async () => {
+    const user = userEvent.setup()
+    const onUpdate = vi.fn().mockResolvedValue({ ...activeSupplier, name: 'Corner Shop' })
+    renderSection({ onUpdate })
 
-    expect(screen.getByText('Home Bargains')).toBeInTheDocument();
-    expect(screen.getByText('Amazon')).toBeInTheDocument();
-  });
+    await user.click(screen.getByRole('button', { name: 'Edit Home Bargains supplier' }))
+    await user.clear(screen.getByLabelText('Supplier name'))
+    await user.type(screen.getByLabelText('Supplier name'), '  Corner Shop  ')
+    await user.click(screen.getByRole('button', { name: 'Save Home Bargains supplier' }))
 
-  it('shows Remove button for each supplier', () => {
-    render(<SupplierManagementSection {...defaultProps} />);
+    expect(onUpdate).toHaveBeenCalledWith('s1', { name: 'Corner Shop' })
+  })
 
-    const removeButtons = screen.getAllByText('Remove');
-    expect(removeButtons).toHaveLength(2);
-  });
+  it('retains a rename draft and shows a field conflict', async () => {
+    const user = userEvent.setup()
+    const error = Object.assign(new Error('Supplier name is already in use'), {
+      body: { error: 'Supplier name is already in use', field: 'name' },
+    })
+    const onUpdate = vi.fn().mockRejectedValue(error)
+    renderSection({ onUpdate })
 
-  it('has input with correct placeholder and Add button', () => {
-    render(<SupplierManagementSection {...defaultProps} />);
+    await user.click(screen.getByRole('button', { name: 'Edit Home Bargains supplier' }))
+    await user.clear(screen.getByLabelText('Supplier name'))
+    await user.type(screen.getByLabelText('Supplier name'), 'Amazon')
+    await user.click(screen.getByRole('button', { name: 'Save Home Bargains supplier' }))
 
-    expect(screen.getByPlaceholderText('Shop name (e.g., Home Bargains)')).toBeInTheDocument();
-    expect(screen.getByText('Add')).toBeInTheDocument();
-  });
+    expect(await screen.findByText('Supplier name is already in use')).toBeInTheDocument()
+    expect(screen.getByLabelText('Supplier name')).toHaveValue('Amazon')
+    expect(screen.getByRole('button', { name: 'Save Home Bargains supplier' })).toBeInTheDocument()
+  })
 
-  it('Add button is disabled when input is empty', () => {
-    render(<SupplierManagementSection {...defaultProps} />);
+  it('cancels a rename and restores the view row', async () => {
+    const user = userEvent.setup()
+    const onUpdate = vi.fn().mockResolvedValue(activeSupplier)
+    renderSection({ onUpdate })
 
-    expect(screen.getByText('Add')).toBeDisabled();
-  });
+    await user.click(screen.getByRole('button', { name: 'Edit Home Bargains supplier' }))
+    await user.clear(screen.getByLabelText('Supplier name'))
+    await user.type(screen.getByLabelText('Supplier name'), 'Changed')
+    await user.click(screen.getByRole('button', { name: 'Cancel Home Bargains supplier' }))
 
-  it('Add button is enabled when input has value', () => {
-    render(<SupplierManagementSection {...defaultProps} newSupplierName="Tesco" />);
+    expect(screen.queryByRole('button', { name: 'Save Home Bargains supplier' })).not.toBeInTheDocument()
+    expect(screen.getByText('Home Bargains')).toBeInTheDocument()
+    expect(onUpdate).not.toHaveBeenCalled()
+  })
 
-    expect(screen.getByText('Add')).toBeEnabled();
-  });
+  it.each(['created', 'existing', 'restored'] as const)(
+    'shows the %s confirmation returned by Add',
+    async (outcome) => {
+      const user = userEvent.setup()
+      const onCreate = vi.fn().mockResolvedValue({ item: activeSupplier, outcome })
+      renderSection({ suppliersList: [], onCreate })
 
-  it('calls onAddSupplier when Add is clicked', async () => {
-    const user = userEvent.setup();
-    const onAddSupplier = vi.fn();
+      await user.type(screen.getByPlaceholderText('Shop name (e.g., Home Bargains)'), 'New shop')
+      await user.click(screen.getByRole('button', { name: 'Add' }))
 
-    render(<SupplierManagementSection {...defaultProps} newSupplierName="Tesco" onAddSupplier={onAddSupplier} />);
+      expect(onCreate).toHaveBeenCalledWith({ name: 'New shop' })
+      expect(await screen.findByText(new RegExp(`Supplier ${outcome}`, 'i'))).toBeInTheDocument()
+    },
+  )
 
-    await user.click(screen.getByText('Add'));
+  it('requires confirmation before archiving and shows archive failures', async () => {
+    const user = userEvent.setup()
+    const onArchive = vi.fn().mockRejectedValue(new Error('Archive failed'))
+    const confirmMock = vi.fn(() => true)
+    vi.stubGlobal('confirm', confirmMock)
+    renderSection({ onArchive })
 
-    expect(onAddSupplier).toHaveBeenCalledTimes(1);
-  });
+    await user.click(screen.getByRole('button', { name: 'Archive Home Bargains supplier' }))
 
-  it('calls onDeleteSupplier with correct ID when Remove is clicked', async () => {
-    const user = userEvent.setup();
-    const onDeleteSupplier = vi.fn();
+    expect(confirmMock).toHaveBeenCalledWith('Archive this supplier?')
+    expect(await screen.findByRole('alert')).toHaveTextContent('Archive failed')
+  })
 
-    render(<SupplierManagementSection {...defaultProps} onDeleteSupplier={onDeleteSupplier} />);
+  it('keeps archived suppliers collapsed and restores by ID', async () => {
+    const user = userEvent.setup()
+    const onRestore = vi.fn().mockResolvedValue(activeSupplier)
+    renderSection({ suppliersList: [activeSupplier, archivedSupplier], onRestore })
 
-    const removeButtons = screen.getAllByText('Remove');
-    await user.click(removeButtons[0]!);
+    expect(screen.queryByText('Old supplier')).not.toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: /Archived \(1\)/ }))
+    expect(screen.getByText('Old supplier')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Restore Old supplier supplier' }))
 
-    expect(onDeleteSupplier).toHaveBeenCalledWith('s1');
-  });
+    expect(onRestore).toHaveBeenCalledWith('s3')
+  })
 
-  it('shows nothing in list when suppliers array is empty', () => {
-    render(<SupplierManagementSection {...defaultProps} suppliersList={[]} />);
+  it('preserves the Products action and passes the exact supplier ID to the modal', async () => {
+    const user = userEvent.setup()
+    renderSection({ suppliersList: [activeSupplier] })
 
-    expect(screen.queryByText('Remove')).not.toBeInTheDocument();
-    expect(screen.queryByText('Home Bargains')).not.toBeInTheDocument();
-    expect(screen.queryByText('Amazon')).not.toBeInTheDocument();
-  });
+    await user.click(screen.getByRole('button', { name: 'Products for Home Bargains' }))
 
-  it('shows Products button for each supplier', () => {
-    render(<SupplierManagementSection {...defaultProps} />);
+    expect(screen.getByRole('dialog')).toHaveTextContent('Supplier products for s1')
+  })
 
-    const productsButtons = screen.getAllByText('Products');
-    expect(productsButtons).toHaveLength(2);
-  });
-});
+  it('disables the selected rename input while saving and keeps other rows usable', async () => {
+    const user = userEvent.setup()
+    let resolveUpdate: ((item: typeof activeSupplier) => void) | undefined
+    const onUpdate = vi.fn().mockImplementation(() => new Promise<typeof activeSupplier>((resolve) => {
+      resolveUpdate = resolve
+    }))
+    renderSection({ suppliersList: [activeSupplier, secondSupplier], onUpdate })
+
+    await user.click(screen.getByRole('button', { name: 'Edit Home Bargains supplier' }))
+    await user.click(screen.getByRole('button', { name: 'Save Home Bargains supplier' }))
+
+    expect(screen.getByLabelText('Supplier name')).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Edit Amazon supplier' })).toBeEnabled()
+
+    resolveUpdate?.(activeSupplier)
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Edit Home Bargains supplier' })).toBeInTheDocument())
+  })
+})

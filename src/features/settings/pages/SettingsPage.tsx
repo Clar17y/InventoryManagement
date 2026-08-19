@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { settings, etsy, suppliers, EtsyFeeConfig, PackagingOverhead, PostageTier, EtsyAccount, Supplier } from '../../../lib/api'
-import type { PostageTierCreateBody, PostageTierUpdateBody } from '#contracts/routes/settings'
+import type { PackagingOverheadCreateBody, PackagingOverheadUpdateBody, PostageTierCreateBody, PostageTierUpdateBody } from '#contracts/routes/settings'
+import type { SupplierCreateBody, SupplierUpdateBody } from '#contracts/routes/suppliers'
 import EtsyAccessManagementSection from '../components/EtsyAccessManagementSection'
 import EtsyFeesSection from '../components/EtsyFeesSection'
 import PackagingOverheadSection from '../components/PackagingOverheadSection'
@@ -67,16 +68,11 @@ export default function Settings() {
   const [editingEtsy, setEditingEtsy] = useState(false)
   const [etsyForm, setEtsyForm] = useState(DEFAULT_ETSY_FEES)
 
-  // Packaging overhead editing
-  const [newOverheadName, setNewOverheadName] = useState('')
-  const [newOverheadCost, setNewOverheadCost] = useState('')
-
   // Postage tiers
   const [postageTiers, setPostageTiers] = useState<PostageTier[]>([])
 
   // Suppliers
   const [suppliersList, setSuppliersList] = useState<Supplier[]>([])
-  const [newSupplierName, setNewSupplierName] = useState('')
 
   // Etsy Access Management
   const [etsyAccounts, setEtsyAccounts] = useState<EtsyAccount[]>([])
@@ -99,14 +95,24 @@ export default function Settings() {
     setPostageTiers(tiers)
   }
 
+  const reloadPackagingOverheads = async () => {
+    const overheads = await settings.getPackagingOverhead({ includeArchived: true })
+    setPackagingOverheads(overheads.overheads)
+    setPackagingTotal(overheads.totalPerOrder)
+  }
+
+  const reloadSuppliers = async () => {
+    setSuppliersList(await suppliers.list({ includeArchived: true }))
+  }
+
   const loadSettings = async () => {
     try {
       setLoading(true)
       const [feesData, overheadData, tiersData, suppliersData] = await Promise.all([
         settings.getEtsyFees(),
-        settings.getPackagingOverhead(),
+        settings.getPackagingOverhead({ includeArchived: true }),
         settings.getPostageTiers({ includeArchived: true }),
-        suppliers.list(),
+        suppliers.list({ includeArchived: true }),
       ])
 
       // Get the active config (first one since ordered by effectiveFrom desc)
@@ -168,36 +174,18 @@ export default function Settings() {
     }
   }
 
-  const handleAddOverhead = async () => {
-    if (!newOverheadName.trim() || !newOverheadCost) return
-
-    setSaving(true)
-    setError(null)
-    try {
-      await settings.createPackagingOverhead({
-        name: newOverheadName.trim(),
-        costPerOrder: parseFloat(newOverheadCost),
-      })
-      setNewOverheadName('')
-      setNewOverheadCost('')
-      await loadSettings()
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to add overhead')
-    } finally {
-      setSaving(false)
-    }
+  const handleCreateOverhead = async (data: PackagingOverheadCreateBody) => {
+    const result = await settings.createPackagingOverhead(data)
+    await reloadPackagingOverheads()
+    return result
   }
-
-  const handleDeleteOverhead = async (id: string) => {
-    if (!confirm('Delete this packaging overhead?')) return
-
-    try {
-      await settings.deletePackagingOverhead(id)
-      await loadSettings()
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to delete overhead')
-    }
+  const handleUpdateOverhead = async (id: string, data: PackagingOverheadUpdateBody) => {
+    const result = await settings.updatePackagingOverhead(id, data)
+    await reloadPackagingOverheads()
+    return result
   }
+  const handleArchiveOverhead = async (id: string) => { await settings.deletePackagingOverhead(id); await reloadPackagingOverheads() }
+  const handleRestoreOverhead = async (id: string) => { const result = await settings.restorePackagingOverhead(id); await reloadPackagingOverheads(); return result }
 
   const handleCreatePostageTier = async (data: PostageTierCreateBody) => {
     const result = await settings.createPostageTier(data)
@@ -222,30 +210,10 @@ export default function Settings() {
     return result
   }
 
-  const handleAddSupplier = async () => {
-    if (!newSupplierName.trim()) return
-    setSaving(true)
-    setError(null)
-    try {
-      await suppliers.create({ name: newSupplierName.trim() })
-      setNewSupplierName('')
-      await loadSettings()
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to add supplier')
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  const handleDeleteSupplier = async (id: string) => {
-    if (!confirm('Delete this supplier?')) return
-    try {
-      await suppliers.delete(id)
-      await loadSettings()
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to delete supplier')
-    }
-  }
+  const handleCreateSupplier = async (data: SupplierCreateBody) => { const result = await suppliers.create(data); await reloadSuppliers(); return result }
+  const handleUpdateSupplier = async (id: string, data: SupplierUpdateBody) => { const result = await suppliers.update(id, data); await reloadSuppliers(); return result }
+  const handleArchiveSupplier = async (id: string) => { await suppliers.delete(id); await reloadSuppliers() }
+  const handleRestoreSupplier = async (id: string) => { const result = await suppliers.restore(id); await reloadSuppliers(); return result }
 
   // Etsy Access Management handlers
   const loadEtsyAccounts = async () => {
@@ -335,13 +303,10 @@ export default function Settings() {
             <PackagingOverheadSection
               packagingOverheads={packagingOverheads}
               packagingTotal={packagingTotal}
-              newOverheadName={newOverheadName}
-              newOverheadCost={newOverheadCost}
-              onNewOverheadNameChange={setNewOverheadName}
-              onNewOverheadCostChange={setNewOverheadCost}
-              saving={saving}
-              onAddOverhead={handleAddOverhead}
-              onDeleteOverhead={handleDeleteOverhead}
+              onCreate={handleCreateOverhead}
+              onUpdate={handleUpdateOverhead}
+              onArchive={handleArchiveOverhead}
+              onRestore={handleRestoreOverhead}
             />
           )}
 
@@ -358,11 +323,10 @@ export default function Settings() {
           {activeSection === 'suppliers' && (
             <SupplierManagementSection
               suppliersList={suppliersList}
-              newSupplierName={newSupplierName}
-              onNewSupplierNameChange={setNewSupplierName}
-              saving={saving}
-              onAddSupplier={handleAddSupplier}
-              onDeleteSupplier={handleDeleteSupplier}
+              onCreate={handleCreateSupplier}
+              onUpdate={handleUpdateSupplier}
+              onArchive={handleArchiveSupplier}
+              onRestore={handleRestoreSupplier}
             />
           )}
 

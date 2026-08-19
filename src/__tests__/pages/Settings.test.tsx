@@ -327,7 +327,7 @@ describe('Settings', () => {
         expect(screen.getByText('Gift Box')).toBeInTheDocument();
       });
 
-      await user.click(screen.getByRole('button', { name: 'Remove' }));
+      await user.click(screen.getByRole('button', { name: 'Archive Gift Box overhead' }));
 
       await waitFor(() => {
         expect(mockDeletePackagingOverhead).toHaveBeenCalledWith('pkg-1');

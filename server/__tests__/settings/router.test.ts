@@ -64,6 +64,10 @@ type ModelMocks = {
 }
 
 const prismaMock = prisma as unknown as ModelMocks
+const postageTierRouteId = 'clx0q2p1w0000s1l1n4m9n9n'
+const otherPostageTierRouteId = 'clx0q2p1w0000s1l1n4m9n9o'
+const packagingRouteId = 'clx0q2p1w0000s1l1n4m9n9p'
+const missingRouteId = 'clx0q2p1w0000s1l1n4m9n9q'
 const transactionMock: Omit<ModelMocks, '$transaction'> = {
   etsyFeeConfig: {
     findMany: vi.fn(),
@@ -183,7 +187,12 @@ async function startServer(): Promise<void> {
 }
 
 async function request(path: string, init: RequestInit = {}): Promise<Response> {
-  return fetch(`${baseUrl}${path}`, {
+  const validPath = path
+    .replaceAll('packaging-1', packagingRouteId)
+    .replaceAll('tier-5', postageTierRouteId)
+    .replaceAll('tier-3', otherPostageTierRouteId)
+    .replaceAll('/missing', `/${missingRouteId}`)
+  return fetch(`${baseUrl}${validPath}`, {
     ...init,
     headers: {
       'content-type': 'application/json',
@@ -239,6 +248,19 @@ describe('settings router', () => {
     })
   })
 
+  it('keeps the active-only packaging filter when includeArchived is omitted', async () => {
+    prismaMock.packagingOverhead.findMany.mockResolvedValue([activePackaging])
+    await startServer()
+
+    const response = await request('/api/settings/packaging-overhead')
+
+    expect(response.status).toBe(200)
+    expect(prismaMock.packagingOverhead.findMany).toHaveBeenCalledWith({
+      where: { isActive: true },
+      orderBy: { name: 'asc' },
+    })
+  })
+
   it('calculates packaging total from active rows when archived rows are included', async () => {
     prismaMock.packagingOverhead.findMany.mockResolvedValue([activePackaging, archivedPackaging])
     await startServer()
@@ -268,6 +290,24 @@ describe('settings router', () => {
 
     expect(postageResponse.status).toBe(400)
     expect(packagingResponse.status).toBe(400)
+  })
+
+  it('rejects invalid packaging and postage IDs before calling Prisma', async () => {
+    await startServer()
+
+    const responses = await Promise.all([
+      request('/api/settings/packaging-overhead/not-a-cuid', { method: 'PUT', body: JSON.stringify({ name: 'Box' }) }),
+      request('/api/settings/packaging-overhead/not-a-cuid', { method: 'DELETE' }),
+      request('/api/settings/packaging-overhead/not-a-cuid/restore', { method: 'POST' }),
+      request('/api/settings/postage-tiers/not-a-cuid', { method: 'PUT', body: JSON.stringify({ actualCost: 2 }) }),
+      request('/api/settings/postage-tiers/not-a-cuid', { method: 'DELETE' }),
+      request('/api/settings/postage-tiers/not-a-cuid/restore', { method: 'POST' }),
+    ])
+
+    for (const response of responses) expect(response.status).toBe(400)
+    expect(prismaMock.packagingOverhead.findUnique).not.toHaveBeenCalled()
+    expect(prismaMock.postageTier.findUnique).not.toHaveBeenCalled()
+    expect(prismaMock.$transaction).not.toHaveBeenCalled()
   })
 
   it('creates a new postage tier and audits the create in the same transaction', async () => {
@@ -306,8 +346,12 @@ describe('settings router', () => {
       label: 'Tracked',
       isActive: true,
     }
-    transactionMock.postageTier.updateMany.mockResolvedValue({ count: 1 })
-    transactionMock.postageTier.findUnique.mockResolvedValue(restoredTier)
+    transactionMock.postageTier.updateMany
+      .mockResolvedValueOnce({ count: 0 })
+      .mockResolvedValueOnce({ count: 1 })
+    transactionMock.postageTier.findUnique
+      .mockResolvedValueOnce(archivedTier)
+      .mockResolvedValueOnce(restoredTier)
     await startServer()
 
     const response = await request('/api/settings/postage-tiers', {
@@ -331,7 +375,8 @@ describe('settings router', () => {
 
   it('updates an active matching tier and reports updated', async () => {
     prismaMock.postageTier.findUnique.mockResolvedValue(activeTier)
-    transactionMock.postageTier.update.mockResolvedValue(activeTier)
+    transactionMock.postageTier.updateMany.mockResolvedValue({ count: 1 })
+    transactionMock.postageTier.findUnique.mockResolvedValue({ ...activeTier, actualCost: new Prisma.Decimal('3.95') })
     await startServer()
 
     const response = await request('/api/settings/postage-tiers', {
@@ -346,11 +391,36 @@ describe('settings router', () => {
     }))
   })
 
+  it('restores when an active match is archived before its conditional update', async () => {
+    const restoredTier = { ...archivedTier, actualCost: new Prisma.Decimal('3.95'), isActive: true }
+    prismaMock.postageTier.findUnique.mockResolvedValue(activeTier)
+    transactionMock.postageTier.updateMany
+      .mockResolvedValueOnce({ count: 0 })
+      .mockResolvedValueOnce({ count: 1 })
+    transactionMock.postageTier.findUnique
+      .mockResolvedValueOnce(archivedTier)
+      .mockResolvedValueOnce(restoredTier)
+    await startServer()
+
+    const response = await request('/api/settings/postage-tiers', {
+      method: 'POST', body: JSON.stringify({ etsyCharge: 5, actualCost: 3.95 }),
+    })
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toMatchObject({ outcome: 'restored', item: { id: 'tier-5', isActive: true } })
+    expect(transactionMock.settingsAuditLog.create).toHaveBeenCalledTimes(1)
+    expect(transactionMock.settingsAuditLog.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ action: 'RESTORE', before: expect.objectContaining({ isActive: false }), after: expect.objectContaining({ isActive: true }) }),
+    }))
+  })
+
   it('recovers a create uniqueness race by updating the winning row', async () => {
     prismaMock.postageTier.findUnique.mockResolvedValueOnce(null)
     transactionMock.postageTier.create.mockRejectedValueOnce(knownRequestError('P2002'))
-    transactionMock.postageTier.findUnique.mockResolvedValueOnce(activeTier)
-    transactionMock.postageTier.update.mockResolvedValue(activeTier)
+    transactionMock.postageTier.findUnique
+      .mockResolvedValueOnce(activeTier)
+      .mockResolvedValueOnce({ ...activeTier, actualCost: new Prisma.Decimal('3.65') })
+    transactionMock.postageTier.updateMany.mockResolvedValue({ count: 1 })
     await startServer()
 
     const response = await request('/api/settings/postage-tiers', {
@@ -380,8 +450,8 @@ describe('settings router', () => {
     expect(response.status).toBe(200)
     expect(await response.json()).toMatchObject({ outcome: 'updated', item: { id: 'tier-5', isActive: true } })
     expect(transactionMock.postageTier.updateMany).toHaveBeenCalledWith({
-      where: { id: 'tier-5', isActive: false },
-      data: { actualCost: 3.65, label: undefined, isActive: true },
+      where: { id: 'tier-5', isActive: true },
+      data: { actualCost: 3.65, label: undefined },
     })
     expect(transactionMock.settingsAuditLog.create).not.toHaveBeenCalled()
   })
@@ -435,7 +505,7 @@ describe('settings router', () => {
 
     expect(response.status).toBe(200)
     expect(transactionMock.postageTier.update).toHaveBeenCalledWith({
-      where: { id: 'tier-5' },
+      where: { id: postageTierRouteId },
       data: { label: null },
     })
   })
@@ -538,7 +608,7 @@ describe('settings router', () => {
       effectiveTo: '2026-08-18T09:00:00.000Z',
     })
     expect(transactionMock.packagingOverhead.update).toHaveBeenCalledWith({
-      where: { id: 'packaging-1' },
+      where: { id: packagingRouteId },
       data: { costPerOrder: 2.5 },
     })
     expect(transactionMock.settingsAuditLog.create).toHaveBeenCalledWith(expect.objectContaining({
@@ -567,11 +637,11 @@ describe('settings router', () => {
     expect(archiveResponse.status).toBe(204)
     expect(restoreResponse.status).toBe(200)
     expect(transactionMock.packagingOverhead.updateMany).toHaveBeenNthCalledWith(1, {
-      where: { id: 'packaging-1', isActive: true },
+      where: { id: packagingRouteId, isActive: true },
       data: { isActive: false, effectiveTo: expect.any(Date) },
     })
     expect(transactionMock.packagingOverhead.updateMany).toHaveBeenNthCalledWith(2, {
-      where: { id: 'packaging-1', isActive: false },
+      where: { id: packagingRouteId, isActive: false },
       data: { isActive: true, effectiveTo: null },
     })
     expect(transactionMock.settingsAuditLog.create).toHaveBeenCalledTimes(2)
@@ -681,7 +751,7 @@ describe('settings router', () => {
 
     expect(response.status).toBe(204)
     expect(transactionMock.postageTier.updateMany).toHaveBeenCalledWith({
-      where: { id: 'tier-5', isActive: true },
+      where: { id: postageTierRouteId, isActive: true },
       data: { isActive: false },
     })
     expect(transactionMock.settingsAuditLog.create).not.toHaveBeenCalled()
@@ -708,7 +778,7 @@ describe('settings router', () => {
     expect(response.status).toBe(200)
     expect(await response.json()).toMatchObject({ id: 'tier-5', isActive: true })
     expect(transactionMock.postageTier.updateMany).toHaveBeenCalledWith({
-      where: { id: 'tier-5', isActive: false },
+      where: { id: postageTierRouteId, isActive: false },
       data: { isActive: true },
     })
     expect(transactionMock.settingsAuditLog.create).not.toHaveBeenCalled()

@@ -1,11 +1,16 @@
 import { useState, useEffect } from 'react'
-import { settings, etsy, suppliers, EtsyFeeConfig, PackagingOverhead, PostageTier, EtsyAccount, Supplier } from '../../../lib/api'
+import { useSearchParams } from 'react-router-dom'
+import { settings, etsy, suppliers, EtsyFeeConfig, PackagingOverhead, PostageTier, EtsyAccount, Supplier, SettingsAuditEntry } from '../../../lib/api'
+import type { PackagingOverheadCreateBody, PackagingOverheadUpdateBody, PostageTierCreateBody, PostageTierUpdateBody } from '#contracts/routes/settings'
+import type { SupplierCreateBody, SupplierUpdateBody } from '#contracts/routes/suppliers'
 import EtsyAccessManagementSection from '../components/EtsyAccessManagementSection'
 import EtsyFeesSection from '../components/EtsyFeesSection'
 import PackagingOverheadSection from '../components/PackagingOverheadSection'
 import PostageTiersSection from '../components/PostageTiersSection'
 import SettingsLinksList from '../components/SettingsLinksList'
+import SettingsSectionNav, { settingsSections, type SettingsSection } from '../components/SettingsSectionNav'
 import SupplierManagementSection from '../components/SupplierManagementSection'
+import AuditHistorySection from '../components/AuditHistorySection'
 
 const settingsLinks = [
   {
@@ -52,6 +57,7 @@ const DEFAULT_ETSY_FEES = {
 }
 
 export default function Settings() {
+  const [searchParams, setSearchParams] = useSearchParams()
   const [etsyFees, setEtsyFees] = useState<EtsyFeeConfig | null>(null)
   const [packagingOverheads, setPackagingOverheads] = useState<PackagingOverhead[]>([])
   const [packagingTotal, setPackagingTotal] = useState(0)
@@ -63,32 +69,69 @@ export default function Settings() {
   const [editingEtsy, setEditingEtsy] = useState(false)
   const [etsyForm, setEtsyForm] = useState(DEFAULT_ETSY_FEES)
 
-  // Packaging overhead editing
-  const [newOverheadName, setNewOverheadName] = useState('')
-  const [newOverheadCost, setNewOverheadCost] = useState('')
-
   // Postage tiers
   const [postageTiers, setPostageTiers] = useState<PostageTier[]>([])
-  const [newEtsyCharge, setNewEtsyCharge] = useState('')
-  const [newActualCost, setNewActualCost] = useState('')
 
   // Suppliers
   const [suppliersList, setSuppliersList] = useState<Supplier[]>([])
-  const [newSupplierName, setNewSupplierName] = useState('')
+  const [auditEntries, setAuditEntries] = useState<SettingsAuditEntry[]>([])
 
   // Etsy Access Management
   const [etsyAccounts, setEtsyAccounts] = useState<EtsyAccount[]>([])
   const [loadingAccounts, setLoadingAccounts] = useState(false)
   const [accountsError, setAccountsError] = useState<string | null>(null)
 
+  const requestedSection = searchParams.get('section')
+  const activeSection: SettingsSection = settingsSections.some(({ id }) => id === requestedSection)
+    ? requestedSection as SettingsSection
+    : 'postage'
+
+  const handleSectionChange = (section: SettingsSection) => {
+    const nextSearchParams = new URLSearchParams(searchParams)
+    nextSearchParams.set('section', section)
+    setSearchParams(nextSearchParams)
+  }
+
+  const reloadPostageTiers = async () => {
+    const tiers = await settings.getPostageTiers({ includeArchived: true })
+    setPostageTiers(tiers)
+  }
+
+  const reloadPackagingOverheads = async () => {
+    const overheads = await settings.getPackagingOverhead({ includeArchived: true })
+    setPackagingOverheads(overheads.overheads)
+    setPackagingTotal(overheads.totalPerOrder)
+  }
+
+  const reloadSuppliers = async () => {
+    setSuppliersList(await suppliers.list({ includeArchived: true }))
+  }
+
+  const reloadAuditHistory = async () => {
+    setAuditEntries(await settings.getAuditHistory())
+  }
+
+  // The mutation has already committed by the time we refresh. Letting a failed
+  // refresh reject would make the caller report the whole operation as failed and
+  // invite a resubmit, which duplicates rows for records without a unique key.
+  const refreshAfterMutation = async (reload: () => Promise<void>) => {
+    try {
+      await reload()
+      await reloadAuditHistory()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Saved, but failed to refresh settings')
+    }
+  }
+
   const loadSettings = async () => {
     try {
       setLoading(true)
-      const [feesData, overheadData, tiersData, suppliersData] = await Promise.all([
+      const [feesData, overheadData, tiersData, suppliersData, auditData] = await Promise.all([
         settings.getEtsyFees(),
-        settings.getPackagingOverhead(),
-        settings.getPostageTiers(),
-        suppliers.list(),
+        settings.getPackagingOverhead({ includeArchived: true }),
+        settings.getPostageTiers({ includeArchived: true }),
+        suppliers.list({ includeArchived: true }),
+        settings.getAuditHistory(),
       ])
 
       // Get the active config (first one since ordered by effectiveFrom desc)
@@ -111,6 +154,7 @@ export default function Settings() {
       setPackagingTotal(overheadData.totalPerOrder)
       setPostageTiers(tiersData)
       setSuppliersList(suppliersData)
+      setAuditEntries(auditData)
       setError(null)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load settings')
@@ -150,89 +194,67 @@ export default function Settings() {
     }
   }
 
-  const handleAddOverhead = async () => {
-    if (!newOverheadName.trim() || !newOverheadCost) return
-
-    setSaving(true)
-    setError(null)
-    try {
-      await settings.createPackagingOverhead({
-        name: newOverheadName.trim(),
-        costPerOrder: parseFloat(newOverheadCost),
-      })
-      setNewOverheadName('')
-      setNewOverheadCost('')
-      await loadSettings()
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to add overhead')
-    } finally {
-      setSaving(false)
-    }
+  const handleCreateOverhead = async (data: PackagingOverheadCreateBody) => {
+    const result = await settings.createPackagingOverhead(data)
+    await refreshAfterMutation(reloadPackagingOverheads)
+    return result
+  }
+  const handleUpdateOverhead = async (id: string, data: PackagingOverheadUpdateBody) => {
+    const result = await settings.updatePackagingOverhead(id, data)
+    await refreshAfterMutation(reloadPackagingOverheads)
+    return result
+  }
+  const handleArchiveOverhead = async (id: string) => {
+    await settings.deletePackagingOverhead(id)
+    await refreshAfterMutation(reloadPackagingOverheads)
+  }
+  const handleRestoreOverhead = async (id: string) => {
+    const result = await settings.restorePackagingOverhead(id)
+    await refreshAfterMutation(reloadPackagingOverheads)
+    return result
   }
 
-  const handleDeleteOverhead = async (id: string) => {
-    if (!confirm('Delete this packaging overhead?')) return
-
-    try {
-      await settings.deletePackagingOverhead(id)
-      await loadSettings()
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to delete overhead')
-    }
+  const handleCreatePostageTier = async (data: PostageTierCreateBody) => {
+    const result = await settings.createPostageTier(data)
+    await refreshAfterMutation(reloadPostageTiers)
+    return result
   }
 
-  const handleAddPostageTier = async () => {
-    if (!newEtsyCharge || !newActualCost) return
-    setSaving(true)
-    setError(null)
-    try {
-      await settings.createPostageTier({
-        etsyCharge: parseFloat(newEtsyCharge),
-        actualCost: parseFloat(newActualCost),
-      })
-      setNewEtsyCharge('')
-      setNewActualCost('')
-      await loadSettings()
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to add postage tier')
-    } finally {
-      setSaving(false)
-    }
+  const handleUpdatePostageTier = async (id: string, data: PostageTierUpdateBody) => {
+    const result = await settings.updatePostageTier(id, data)
+    await refreshAfterMutation(reloadPostageTiers)
+    return result
   }
 
-  const handleDeletePostageTier = async (id: string) => {
-    if (!confirm('Delete this postage tier?')) return
-    try {
-      await settings.deletePostageTier(id)
-      await loadSettings()
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to delete postage tier')
-    }
+  const handleArchivePostageTier = async (id: string) => {
+    await settings.deletePostageTier(id)
+    await refreshAfterMutation(reloadPostageTiers)
   }
 
-  const handleAddSupplier = async () => {
-    if (!newSupplierName.trim()) return
-    setSaving(true)
-    setError(null)
-    try {
-      await suppliers.create({ name: newSupplierName.trim() })
-      setNewSupplierName('')
-      await loadSettings()
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to add supplier')
-    } finally {
-      setSaving(false)
-    }
+  const handleRestorePostageTier = async (id: string) => {
+    const result = await settings.restorePostageTier(id)
+    await refreshAfterMutation(reloadPostageTiers)
+    return result
   }
 
-  const handleDeleteSupplier = async (id: string) => {
-    if (!confirm('Delete this supplier?')) return
-    try {
-      await suppliers.delete(id)
-      await loadSettings()
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to delete supplier')
-    }
+  const handleCreateSupplier = async (data: SupplierCreateBody) => {
+    const result = await suppliers.create(data)
+    await refreshAfterMutation(reloadSuppliers)
+    return result
+  }
+  const handleUpdateSupplier = async (id: string, data: SupplierUpdateBody) => {
+    const result = await suppliers.update(id, data)
+    await refreshAfterMutation(reloadSuppliers)
+    return result
+  }
+  const handleArchiveSupplier = async (id: string) => {
+    await suppliers.delete(id)
+    await refreshAfterMutation(reloadSuppliers)
+  }
+  const handleRestoreSupplier = async (id: string) => {
+    const result = await suppliers.restore(id)
+    await refreshAfterMutation(reloadSuppliers)
+    return result
   }
 
   // Etsy Access Management handlers
@@ -296,49 +318,65 @@ export default function Settings() {
 
       <SettingsLinksList links={settingsLinks} />
 
-      <EtsyFeesSection
-        etsyFees={etsyFees}
-        editing={editingEtsy}
-        etsyForm={etsyForm}
-        setEtsyForm={setEtsyForm}
-        saving={saving}
-        onStartEdit={() => setEditingEtsy(true)}
-        onCancelEdit={() => setEditingEtsy(false)}
-        onSave={handleSaveEtsyFees}
-        onUseDefaults={handleSetDefaultEtsyFees}
-      />
+      <div className="grid gap-4 md:grid-cols-[12rem_minmax(0,1fr)] md:items-start">
+        <SettingsSectionNav active={activeSection} onChange={handleSectionChange} />
 
-      <PackagingOverheadSection
-        packagingOverheads={packagingOverheads}
-        packagingTotal={packagingTotal}
-        newOverheadName={newOverheadName}
-        newOverheadCost={newOverheadCost}
-        onNewOverheadNameChange={setNewOverheadName}
-        onNewOverheadCostChange={setNewOverheadCost}
-        saving={saving}
-        onAddOverhead={handleAddOverhead}
-        onDeleteOverhead={handleDeleteOverhead}
-      />
+        <section
+          id={`settings-panel-${activeSection}`}
+          role="tabpanel"
+          aria-labelledby={`settings-tab-${activeSection}`}
+          tabIndex={0}
+        >
+          {activeSection === 'etsy-fees' && (
+            <EtsyFeesSection
+              etsyFees={etsyFees}
+              editing={editingEtsy}
+              etsyForm={etsyForm}
+              setEtsyForm={setEtsyForm}
+              saving={saving}
+              onStartEdit={() => setEditingEtsy(true)}
+              onCancelEdit={() => setEditingEtsy(false)}
+              onSave={handleSaveEtsyFees}
+              onUseDefaults={handleSetDefaultEtsyFees}
+            />
+          )}
 
-      <PostageTiersSection
-        tiers={postageTiers}
-        newEtsyCharge={newEtsyCharge}
-        newActualCost={newActualCost}
-        onNewEtsyChargeChange={setNewEtsyCharge}
-        onNewActualCostChange={setNewActualCost}
-        saving={saving}
-        onAddTier={handleAddPostageTier}
-        onDeleteTier={handleDeletePostageTier}
-      />
+          {activeSection === 'packaging' && (
+            <PackagingOverheadSection
+              packagingOverheads={packagingOverheads}
+              packagingTotal={packagingTotal}
+              onCreate={handleCreateOverhead}
+              onUpdate={handleUpdateOverhead}
+              onArchive={handleArchiveOverhead}
+              onRestore={handleRestoreOverhead}
+            />
+          )}
 
-      <SupplierManagementSection
-        suppliersList={suppliersList}
-        newSupplierName={newSupplierName}
-        onNewSupplierNameChange={setNewSupplierName}
-        saving={saving}
-        onAddSupplier={handleAddSupplier}
-        onDeleteSupplier={handleDeleteSupplier}
-      />
+          {activeSection === 'postage' && (
+            <PostageTiersSection
+              tiers={postageTiers}
+              onCreate={handleCreatePostageTier}
+              onUpdate={handleUpdatePostageTier}
+              onArchive={handleArchivePostageTier}
+              onRestore={handleRestorePostageTier}
+            />
+          )}
+
+          {activeSection === 'suppliers' && (
+            <SupplierManagementSection
+              suppliersList={suppliersList}
+              onCreate={handleCreateSupplier}
+              onUpdate={handleUpdateSupplier}
+              onArchive={handleArchiveSupplier}
+              onRestore={handleRestoreSupplier}
+            />
+          )}
+
+          {activeSection === 'audit' && (
+            <AuditHistorySection entries={auditEntries} />
+          )}
+        </section>
+      </div>
 
       <EtsyAccessManagementSection
         etsyAccounts={etsyAccounts}

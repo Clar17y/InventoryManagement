@@ -19,9 +19,22 @@ const actionLabels: Record<SettingsAuditEntry['action'], string> = {
   RESTORE: 'restored',
 }
 
-function isSensitiveKey(key: string): boolean {
-  return /token|secret|credential|password|access.?key|private.?key/i.test(key)
-}
+const safeSnapshotKeys = new Set([
+  'name',
+  'label',
+  'etsyCharge',
+  'actualCost',
+  'isActive',
+  'costPerOrder',
+  'effectiveFrom',
+  'effectiveTo',
+  'transactionFee',
+  'regulatoryFee',
+  'paymentFeePercent',
+  'paymentFeeFixed',
+  'vatRate',
+  'listingFee',
+])
 
 function sanitizeSnapshot(value: Record<string, unknown> | null): Record<string, unknown> | null {
   if (value === null) return null
@@ -30,7 +43,7 @@ function sanitizeSnapshot(value: Record<string, unknown> | null): Record<string,
     if (Array.isArray(candidate)) return candidate.map(sanitizeValue)
     if (candidate && typeof candidate === 'object') {
       return Object.fromEntries(
-        Object.entries(candidate).filter(([key]) => !isSensitiveKey(key)).map(([key, nested]) => [key, sanitizeValue(nested)]),
+        Object.entries(candidate).filter(([key]) => safeSnapshotKeys.has(key)).map(([key, nested]) => [key, sanitizeValue(nested)]),
       )
     }
     return candidate

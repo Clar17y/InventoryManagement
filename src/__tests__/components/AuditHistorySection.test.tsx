@@ -77,7 +77,14 @@ describe('AuditHistorySection', () => {
     const entry = {
       ...olderEntry,
       before: null,
-      after: { name: 'Shop', accessToken: 'do-not-show', clientSecret: 'do-not-show' },
+      after: {
+        name: 'Shop',
+        apiKey: 'do-not-show',
+        authorization: 'Bearer do-not-show',
+        accessToken: 'do-not-show',
+        clientSecret: 'do-not-show',
+        unknownOperationalKey: 'do-not-show',
+      },
     }
     render(<AuditHistorySection entries={[entry as any]} />)
 
@@ -85,7 +92,7 @@ describe('AuditHistorySection', () => {
 
     expect(screen.getByText('No previous value recorded')).toBeInTheDocument()
     expect(screen.getByText(/"name": "Shop"/)).toBeInTheDocument()
-    expect(screen.queryByText(/accessToken|clientSecret|do-not-show/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/apiKey|authorization|accessToken|clientSecret|unknownOperationalKey|do-not-show/)).not.toBeInTheDocument()
   })
 
   it('shows an empty state when there are no audit entries', () => {

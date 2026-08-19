@@ -343,7 +343,7 @@ describe('Settings', () => {
       });
     });
 
-    it('calls deletePackagingOverhead when Remove clicked', async () => {
+    it('calls deletePackagingOverhead when Archive clicked', async () => {
       const user = userEvent.setup();
       mockDeletePackagingOverhead.mockResolvedValue(undefined);
 

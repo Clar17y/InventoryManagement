@@ -213,7 +213,7 @@ export default function PackagingOverheadSection({
           ) : (
             <>
               <button type="button" aria-label={`Edit ${name}`} disabled={pending} onClick={() => { setEditingId(item.id); setDraft({ name: item.name, costPerOrder: String(item.costPerOrder) }); setFieldErrors({}); setError(null) }}>Edit</button>
-              <button type="button" aria-label={`Archive ${name}`} disabled={pending} onClick={() => void archive(item)}>Remove</button>
+              <button type="button" aria-label={`Archive ${name}`} disabled={pending} onClick={() => void archive(item)}>Archive</button>
             </>
           )}
         </div>

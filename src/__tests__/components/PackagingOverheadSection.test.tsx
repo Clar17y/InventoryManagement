@@ -162,6 +162,7 @@ describe('PackagingOverheadSection', () => {
 
     await user.click(screen.getByRole('button', { name: 'Archive Tape overhead' }))
 
+    expect(screen.getByRole('button', { name: 'Archive Tape overhead' })).toHaveTextContent('Archive')
     expect(confirmMock).toHaveBeenCalledWith('Archive this packaging overhead?')
     expect(await screen.findByRole('alert')).toHaveTextContent('Archive failed')
   })

@@ -2,41 +2,135 @@ import { Router } from 'express'
 import { z } from 'zod'
 import { Prisma } from '@prisma/client'
 import { prisma } from '../../lib/prisma'
-import {
-  supplierCreateBodySchema,
-  supplierUpdateBodySchema,
-} from '#contracts/routes/suppliers'
+import { includeArchivedQuerySchema } from '#contracts/routes/settings'
+import { supplierCreateBodySchema, supplierUpdateBodySchema } from '#contracts/routes/suppliers'
+import { writeSettingsAudit } from '../../lib/settingsAudit'
 
 const router = Router()
 
-// GET all active suppliers
+function isPrismaError(error: unknown, code: string): error is Prisma.PrismaClientKnownRequestError {
+  return error instanceof Prisma.PrismaClientKnownRequestError && error.code === code
+}
+
+function supplierSnapshot(supplier: { name: string; isActive: boolean }): Prisma.InputJsonObject {
+  return {
+    name: supplier.name,
+    isActive: supplier.isActive,
+  }
+}
+
+function notFound(res: Parameters<Parameters<typeof router.get>[1]>[1]): void {
+  res.status(404).json({ error: 'Supplier not found' })
+}
+
+// GET suppliers
 router.get('/', async (_, res) => {
   try {
+    const { includeArchived } = includeArchivedQuerySchema.parse(_.query)
     const suppliers = await prisma.supplier.findMany({
-      where: { isActive: true },
+      where: includeArchived ? undefined : { isActive: true },
       orderBy: { name: 'asc' },
     })
     res.json(suppliers)
   } catch (error) {
+    if (error instanceof z.ZodError) {
+      return res.status(400).json({ error: 'Validation failed', details: error.errors })
+    }
     console.error('Error fetching suppliers:', error)
     res.status(500).json({ error: 'Failed to fetch suppliers' })
   }
 })
 
-// POST create supplier
+// POST create, restore, or return an existing supplier
 router.post('/', async (req, res) => {
   try {
     const data = supplierCreateBodySchema.parse(req.body)
-    const supplier = await prisma.supplier.create({
-      data: { name: data.name },
-    })
-    res.status(201).json(supplier)
+    const existing = await prisma.supplier.findUnique({ where: { name: data.name } })
+
+    if (existing?.isActive) {
+      res.json({ item: existing, outcome: 'existing' })
+      return
+    }
+
+    if (existing) {
+      const restored = await prisma.$transaction(async (tx) => {
+        const updated = await tx.supplier.update({
+          where: { id: existing.id },
+          data: { isActive: true },
+        })
+
+        await writeSettingsAudit(tx, {
+          settingType: 'SUPPLIER',
+          settingId: updated.id,
+          action: 'RESTORE',
+          before: supplierSnapshot(existing),
+          after: supplierSnapshot(updated),
+        })
+
+        return updated
+      })
+
+      res.json({ item: restored, outcome: 'restored' })
+      return
+    }
+
+    try {
+      const created = await prisma.$transaction(async (tx) => {
+        const supplier = await tx.supplier.create({
+          data: { name: data.name },
+        })
+
+        await writeSettingsAudit(tx, {
+          settingType: 'SUPPLIER',
+          settingId: supplier.id,
+          action: 'CREATE',
+          before: null,
+          after: supplierSnapshot(supplier),
+        })
+
+        return supplier
+      })
+
+      res.status(201).json({ item: created, outcome: 'created' })
+    } catch (error) {
+      if (!isPrismaError(error, 'P2002')) throw error
+
+      const raced = await prisma.$transaction(async (tx) => {
+        const winner = await tx.supplier.findUnique({ where: { name: data.name } })
+        if (!winner) return null
+        if (winner.isActive) return { item: winner, outcome: 'existing' as const }
+
+        const restored = await tx.supplier.update({
+          where: { id: winner.id },
+          data: { isActive: true },
+        })
+
+        await writeSettingsAudit(tx, {
+          settingType: 'SUPPLIER',
+          settingId: restored.id,
+          action: 'RESTORE',
+          before: supplierSnapshot(winner),
+          after: supplierSnapshot(restored),
+        })
+
+        return { item: restored, outcome: 'restored' as const }
+      })
+
+      if (!raced) {
+        res.status(409).json({ error: 'A supplier with this name already exists' })
+        return
+      }
+      res.json(raced)
+    }
   } catch (error) {
     if (error instanceof z.ZodError) {
       return res.status(400).json({ error: 'Validation failed', details: error.errors })
     }
-    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+    if (isPrismaError(error, 'P2002')) {
       return res.status(409).json({ error: 'A supplier with this name already exists' })
+    }
+    if (isPrismaError(error, 'P2025')) {
+      return notFound(res)
     }
     console.error('Error creating supplier:', error)
     res.status(500).json({ error: 'Failed to create supplier' })
@@ -47,14 +141,47 @@ router.post('/', async (req, res) => {
 router.put('/:id', async (req, res) => {
   try {
     const data = supplierUpdateBodySchema.parse(req.body)
-    const supplier = await prisma.supplier.update({
-      where: { id: req.params.id },
-      data: { ...(data.name !== undefined && { name: data.name }) },
+    const existing = await prisma.supplier.findUnique({ where: { id: req.params.id } })
+    if (!existing) {
+      notFound(res)
+      return
+    }
+
+    if (data.name !== undefined) {
+      const conflicting = await prisma.supplier.findUnique({ where: { name: data.name } })
+      if (conflicting && conflicting.id !== existing.id) {
+        res.status(409).json({ error: 'Supplier name is already in use', field: 'name' })
+        return
+      }
+    }
+
+    const supplier = await prisma.$transaction(async (tx) => {
+      const updated = await tx.supplier.update({
+        where: { id: req.params.id },
+        data: { ...(data.name !== undefined && { name: data.name }) },
+      })
+
+      await writeSettingsAudit(tx, {
+        settingType: 'SUPPLIER',
+        settingId: updated.id,
+        action: 'UPDATE',
+        before: supplierSnapshot(existing),
+        after: supplierSnapshot(updated),
+      })
+
+      return updated
     })
     res.json(supplier)
   } catch (error) {
     if (error instanceof z.ZodError) {
       return res.status(400).json({ error: 'Validation failed', details: error.errors })
+    }
+    if (isPrismaError(error, 'P2025')) {
+      return notFound(res)
+    }
+    if (isPrismaError(error, 'P2002')) {
+      res.status(409).json({ error: 'Supplier name is already in use', field: 'name' })
+      return
     }
     console.error('Error updating supplier:', error)
     res.status(500).json({ error: 'Failed to update supplier' })
@@ -64,14 +191,80 @@ router.put('/:id', async (req, res) => {
 // DELETE (soft) supplier
 router.delete('/:id', async (req, res) => {
   try {
-    await prisma.supplier.update({
-      where: { id: req.params.id },
-      data: { isActive: false },
+    const result = await prisma.$transaction(async (tx) => {
+      const before = await tx.supplier.findUnique({ where: { id: req.params.id } })
+      if (!before) return { kind: 'missing' as const }
+
+      const changed = await tx.supplier.updateMany({
+        where: { id: req.params.id, isActive: true },
+        data: { isActive: false },
+      })
+      const current = await tx.supplier.findUnique({ where: { id: req.params.id } })
+      if (!current) return { kind: 'missing' as const }
+      if (changed.count === 0) return { kind: 'unchanged' as const }
+
+      await writeSettingsAudit(tx, {
+        settingType: 'SUPPLIER',
+        settingId: current.id,
+        action: 'ARCHIVE',
+        before: supplierSnapshot(before),
+        after: supplierSnapshot(current),
+      })
+
+      return { kind: 'changed' as const }
     })
+
+    if (result.kind === 'missing') {
+      notFound(res)
+      return
+    }
     res.status(204).send()
   } catch (error) {
+    if (isPrismaError(error, 'P2025')) {
+      return notFound(res)
+    }
     console.error('Error deleting supplier:', error)
     res.status(500).json({ error: 'Failed to delete supplier' })
+  }
+})
+
+// POST restore supplier
+router.post('/:id/restore', async (req, res) => {
+  try {
+    const result = await prisma.$transaction(async (tx) => {
+      const before = await tx.supplier.findUnique({ where: { id: req.params.id } })
+      if (!before) return { kind: 'missing' as const }
+
+      const changed = await tx.supplier.updateMany({
+        where: { id: req.params.id, isActive: false },
+        data: { isActive: true },
+      })
+      const current = await tx.supplier.findUnique({ where: { id: req.params.id } })
+      if (!current) return { kind: 'missing' as const }
+      if (changed.count === 0) return { kind: 'unchanged' as const, item: current }
+
+      await writeSettingsAudit(tx, {
+        settingType: 'SUPPLIER',
+        settingId: current.id,
+        action: 'RESTORE',
+        before: supplierSnapshot(before),
+        after: supplierSnapshot(current),
+      })
+
+      return { kind: 'changed' as const, item: current }
+    })
+
+    if (result.kind === 'missing') {
+      notFound(res)
+      return
+    }
+    res.json(result.item)
+  } catch (error) {
+    if (isPrismaError(error, 'P2025')) {
+      return notFound(res)
+    }
+    console.error('Error restoring supplier:', error)
+    res.status(500).json({ error: 'Failed to restore supplier' })
   }
 })
 

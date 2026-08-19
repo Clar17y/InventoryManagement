@@ -162,10 +162,11 @@ afterEach(async () => {
 
 describe('suppliers router', () => {
   it('restores an archived supplier and preserves its ID', async () => {
-    prismaMock.supplier.findUnique.mockResolvedValue(archivedSupplier)
     const restoredSupplier = { ...archivedSupplier, isActive: true }
     transactionMock.supplier.updateMany.mockResolvedValue({ count: 1 })
-    transactionMock.supplier.findUnique.mockResolvedValue(restoredSupplier)
+    transactionMock.supplier.findUnique
+      .mockResolvedValueOnce(archivedSupplier)
+      .mockResolvedValueOnce(restoredSupplier)
     await startServer()
 
     const response = await request('/api/suppliers', {
@@ -196,10 +197,30 @@ describe('suppliers router', () => {
     expect(transactionMock.productSupplier.createMany).not.toHaveBeenCalled()
   })
 
+  it('restores from the transaction-read archived supplier snapshot', async () => {
+    const transactionRead = { ...archivedSupplier, name: 'Current Supplier' }
+    const restored = { ...transactionRead, isActive: true }
+    transactionMock.supplier.findUnique
+      .mockResolvedValueOnce(transactionRead)
+      .mockResolvedValueOnce(restored)
+    transactionMock.supplier.updateMany.mockResolvedValue({ count: 1 })
+    await startServer()
+
+    const response = await request('/api/suppliers', {
+      method: 'POST', body: JSON.stringify({ name: 'Current Supplier' }),
+    })
+
+    expect(response.status).toBe(200)
+    expect(prismaMock.supplier.findUnique).not.toHaveBeenCalled()
+    expect(transactionMock.settingsAuditLog.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ action: 'RESTORE', before: { name: 'Current Supplier', isActive: false }, after: { name: 'Current Supplier', isActive: true } }),
+    }))
+  })
+
   it('uses the authoritative winner after a P2002 archived restore race', async () => {
-    prismaMock.supplier.findUnique.mockResolvedValue(null)
     transactionMock.supplier.create.mockRejectedValueOnce(knownRequestError('P2002'))
     transactionMock.supplier.findUnique
+      .mockResolvedValueOnce(null)
       .mockResolvedValueOnce(archivedSupplier)
       .mockResolvedValueOnce({ ...archivedSupplier, isActive: true })
     transactionMock.supplier.updateMany.mockResolvedValue({ count: 0 })
@@ -219,10 +240,34 @@ describe('suppliers router', () => {
     expect(transactionMock.settingsAuditLog.create).not.toHaveBeenCalled()
   })
 
+  it('retries P2002 recovery from the transaction-read archived winner snapshot', async () => {
+    const transactionRead = { ...archivedSupplier, name: 'Race Winner' }
+    const restored = { ...transactionRead, isActive: true }
+    transactionMock.supplier.findUnique
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(transactionRead)
+      .mockResolvedValueOnce(restored)
+    transactionMock.supplier.create.mockRejectedValueOnce(knownRequestError('P2002'))
+    transactionMock.supplier.updateMany.mockResolvedValue({ count: 1 })
+    await startServer()
+
+    const response = await request('/api/suppliers', {
+      method: 'POST', body: JSON.stringify({ name: 'Race Winner' }),
+    })
+
+    expect(response.status).toBe(200)
+    expect(prismaMock.$transaction).toHaveBeenCalledTimes(2)
+    expect(prismaMock.supplier.findUnique).not.toHaveBeenCalled()
+    expect(transactionMock.settingsAuditLog.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ action: 'RESTORE', before: { name: 'Race Winner', isActive: false }, after: { name: 'Race Winner', isActive: true } }),
+    }))
+  })
+
   it('does not duplicate or audit when a concurrent restore wins the archived create race', async () => {
-    prismaMock.supplier.findUnique.mockResolvedValue(archivedSupplier)
     transactionMock.supplier.updateMany.mockResolvedValue({ count: 0 })
-    transactionMock.supplier.findUnique.mockResolvedValue({ ...archivedSupplier, isActive: true })
+    transactionMock.supplier.findUnique
+      .mockResolvedValueOnce(archivedSupplier)
+      .mockResolvedValueOnce({ ...archivedSupplier, isActive: true })
     await startServer()
 
     const response = await request('/api/suppliers', {
@@ -243,7 +288,7 @@ describe('suppliers router', () => {
   })
 
   it('returns the existing active supplier without duplicating or auditing it', async () => {
-    prismaMock.supplier.findUnique.mockResolvedValue(activeSupplier)
+    transactionMock.supplier.findUnique.mockResolvedValue(activeSupplier)
     await startServer()
 
     const response = await request('/api/suppliers', {
@@ -256,7 +301,7 @@ describe('suppliers router', () => {
       item: { id: supplierId, name: 'Home Bargains', isActive: true },
       outcome: 'existing',
     })
-    expect(prismaMock.$transaction).not.toHaveBeenCalled()
+    expect(prismaMock.$transaction).toHaveBeenCalledTimes(1)
     expect(prismaMock.supplier.create).not.toHaveBeenCalled()
     expect(transactionMock.settingsAuditLog.create).not.toHaveBeenCalled()
   })
@@ -289,7 +334,7 @@ describe('suppliers router', () => {
 
   it('creates and audits a new supplier in one transaction', async () => {
     const createdSupplier = { ...activeSupplier, id: newSupplierId, name: 'New Supplier' }
-    prismaMock.supplier.findUnique.mockResolvedValue(null)
+    transactionMock.supplier.findUnique.mockResolvedValue(null)
     transactionMock.supplier.create.mockResolvedValue(createdSupplier)
     await startServer()
 
@@ -319,9 +364,10 @@ describe('suppliers router', () => {
   })
 
   it('recovers a create uniqueness race by returning the active winner without auditing a no-op', async () => {
-    prismaMock.supplier.findUnique.mockResolvedValue(null)
     transactionMock.supplier.create.mockRejectedValueOnce(knownRequestError('P2002'))
-    transactionMock.supplier.findUnique.mockResolvedValue(activeSupplier)
+    transactionMock.supplier.findUnique
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(activeSupplier)
     await startServer()
 
     const response = await request('/api/suppliers', {
@@ -340,11 +386,12 @@ describe('suppliers router', () => {
   })
 
   it('recovers a create uniqueness race by restoring an archived winner and auditing it', async () => {
-    prismaMock.supplier.findUnique.mockResolvedValue(null)
     transactionMock.supplier.create.mockRejectedValueOnce(knownRequestError('P2002'))
-    transactionMock.supplier.findUnique.mockResolvedValue(archivedSupplier)
     transactionMock.supplier.updateMany.mockResolvedValue({ count: 1 })
-    transactionMock.supplier.findUnique.mockResolvedValueOnce(archivedSupplier).mockResolvedValueOnce({ ...archivedSupplier, isActive: true })
+    transactionMock.supplier.findUnique
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(archivedSupplier)
+      .mockResolvedValueOnce({ ...archivedSupplier, isActive: true })
     await startServer()
 
     const response = await request('/api/suppliers', {

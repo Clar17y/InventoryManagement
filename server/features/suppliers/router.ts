@@ -24,6 +24,33 @@ function notFound(res: Parameters<Parameters<typeof router.get>[1]>[1]): void {
   res.status(404).json({ error: 'Supplier not found' })
 }
 
+type SupplierRecord = { id: string; name: string; isActive: boolean }
+type SupplierAddResult = { item: SupplierRecord; outcome: 'created' | 'existing' | 'restored' }
+
+async function restoreOrReturnSupplier(
+  tx: Prisma.TransactionClient,
+  existing: SupplierRecord,
+): Promise<SupplierAddResult | null> {
+  if (existing.isActive) return { item: existing, outcome: 'existing' }
+
+  const changed = await tx.supplier.updateMany({
+    where: { id: existing.id, isActive: false },
+    data: { isActive: true },
+  })
+  const current = await tx.supplier.findUnique({ where: { id: existing.id } })
+  if (!current) return null
+  if (changed.count === 0) return { item: current, outcome: 'existing' }
+
+  await writeSettingsAudit(tx, {
+    settingType: 'SUPPLIER',
+    settingId: current.id,
+    action: 'RESTORE',
+    before: supplierSnapshot(existing),
+    after: supplierSnapshot(current),
+  })
+  return { item: current, outcome: 'restored' }
+}
+
 // GET suppliers
 router.get('/', async (_, res) => {
   try {
@@ -46,40 +73,13 @@ router.get('/', async (_, res) => {
 router.post('/', async (req, res) => {
   try {
     const data = supplierCreateBodySchema.parse(req.body)
-    const existing = await prisma.supplier.findUnique({ where: { name: data.name } })
-
-    if (existing?.isActive) {
-      res.json({ item: existing, outcome: 'existing' })
-      return
-    }
-
-    if (existing) {
-      const restored = await prisma.$transaction(async (tx) => {
-        const changed = await tx.supplier.updateMany({
-          where: { id: existing.id, isActive: false },
-          data: { isActive: true },
-        })
-        const current = await tx.supplier.findUnique({ where: { id: existing.id } })
-        if (!current) return { item: existing, outcome: 'existing' as const }
-        if (changed.count === 0) return { item: current, outcome: 'existing' as const }
-
-        await writeSettingsAudit(tx, {
-          settingType: 'SUPPLIER',
-          settingId: current.id,
-          action: 'RESTORE',
-          before: supplierSnapshot(existing),
-          after: supplierSnapshot(current),
-        })
-
-        return { item: current, outcome: 'restored' as const }
-      })
-
-      res.json(restored)
-      return
-    }
-
+    let result: SupplierAddResult | null
+    let recoveredFromCreateRace = false
     try {
-      const created = await prisma.$transaction(async (tx) => {
+      result = await serializableTransaction(async (tx) => {
+        const existing = await tx.supplier.findUnique({ where: { name: data.name } })
+        if (existing) return restoreOrReturnSupplier(tx, existing)
+
         const supplier = await tx.supplier.create({
           data: { name: data.name },
         })
@@ -91,44 +91,28 @@ router.post('/', async (req, res) => {
           before: null,
           after: supplierSnapshot(supplier),
         })
-
-        return supplier
+        return { item: supplier, outcome: 'created' as const }
       })
-
-      res.status(201).json({ item: created, outcome: 'created' })
     } catch (error) {
       if (!isPrismaError(error, 'P2002')) throw error
+      recoveredFromCreateRace = true
 
-      const raced = await prisma.$transaction(async (tx) => {
+      result = await serializableTransaction(async (tx) => {
         const winner = await tx.supplier.findUnique({ where: { name: data.name } })
         if (!winner) return null
-        if (winner.isActive) return { item: winner, outcome: 'existing' as const }
-
-        const changed = await tx.supplier.updateMany({
-          where: { id: winner.id, isActive: false },
-          data: { isActive: true },
-        })
-        const current = await tx.supplier.findUnique({ where: { id: winner.id } })
-        if (!current) return null
-        if (changed.count === 0) return { item: current, outcome: 'existing' as const }
-
-        await writeSettingsAudit(tx, {
-          settingType: 'SUPPLIER',
-          settingId: current.id,
-          action: 'RESTORE',
-          before: supplierSnapshot(winner),
-          after: supplierSnapshot(current),
-        })
-
-        return { item: current, outcome: 'restored' as const }
+        return restoreOrReturnSupplier(tx, winner)
       })
+    }
 
-      if (!raced) {
+    if (!result) {
+      if (recoveredFromCreateRace) {
         res.status(409).json({ error: 'A supplier with this name already exists' })
         return
       }
-      res.json(raced)
+      notFound(res)
+      return
     }
+    res.status(result.outcome === 'created' ? 201 : 200).json(result)
   } catch (error) {
     if (error instanceof z.ZodError) {
       return res.status(400).json({ error: 'Validation failed', details: error.errors })

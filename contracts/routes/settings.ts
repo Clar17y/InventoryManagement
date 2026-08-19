@@ -7,8 +7,12 @@ import {
   settingsAuditEntrySchema,
 } from '../domain/settings'
 
-const finiteNonNegativeNumberSchema = z.number().finite().nonnegative()
-const feeRateSchema = finiteNonNegativeNumberSchema.max(1)
+const decimalSchemaFor = (precision: number, scale: number) => z.number().finite().nonnegative()
+  .refine((value) => value <= (10 ** (precision - scale)) - (10 ** -scale), `Must fit Decimal(${precision}, ${scale})`)
+  .refine((value) => Math.abs(value * (10 ** scale) - Math.round(value * (10 ** scale))) < 1e-8, `Must have at most ${scale} decimal places`)
+const moneySchema = decimalSchemaFor(10, 2)
+const fourDecimalMoneySchema = decimalSchemaFor(10, 4)
+const feeRateSchema = decimalSchemaFor(5, 4).refine((value) => value <= 1, 'Must be at most 1')
 
 export const dashboardStatsResponseSchema = z.object({
   products: z.number().int().nonnegative(),
@@ -35,9 +39,9 @@ export const etsyFeeCreateBodySchema = z.object({
   transactionFee: feeRateSchema,
   regulatoryFee: feeRateSchema,
   paymentFeePercent: feeRateSchema,
-  paymentFeeFixed: finiteNonNegativeNumberSchema,
+  paymentFeeFixed: moneySchema,
   vatRate: feeRateSchema,
-  listingFee: finiteNonNegativeNumberSchema,
+  listingFee: moneySchema,
 })
 
 export const etsyFeeConfigResponseSchema = etsyFeeConfigSchema
@@ -47,7 +51,7 @@ export const packagingOverheadIdParamSchema = cuidSchema
 
 export const packagingOverheadCreateBodySchema = z.object({
   name: z.string().trim().min(1).max(100),
-  costPerOrder: finiteNonNegativeNumberSchema,
+  costPerOrder: fourDecimalMoneySchema,
 })
 
 export const packagingOverheadUpdateBodySchema = packagingOverheadCreateBodySchema.partial()
@@ -69,14 +73,14 @@ export const includeArchivedQuerySchema = z.object({
 export const postageTierIdParamSchema = cuidSchema
 
 export const postageTierCreateBodySchema = z.object({
-  etsyCharge: finiteNonNegativeNumberSchema,
-  actualCost: finiteNonNegativeNumberSchema,
+  etsyCharge: moneySchema,
+  actualCost: moneySchema,
   label: z.string().trim().max(100).transform((value) => value || undefined).optional(),
 })
 
 export const postageTierUpdateBodySchema = z.object({
-  etsyCharge: finiteNonNegativeNumberSchema.optional(),
-  actualCost: finiteNonNegativeNumberSchema.optional(),
+  etsyCharge: moneySchema.optional(),
+  actualCost: moneySchema.optional(),
   label: z.string().trim().max(100).nullable().optional(),
 })
 

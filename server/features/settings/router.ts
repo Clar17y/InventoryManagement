@@ -18,6 +18,17 @@ function isPrismaError(error: unknown, code: string): error is Prisma.PrismaClie
   return error instanceof Prisma.PrismaClientKnownRequestError && error.code === code
 }
 
+async function serializableTransaction<T>(work: (tx: Prisma.TransactionClient) => Promise<T>): Promise<T> {
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    try {
+      return await prisma.$transaction(work, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable })
+    } catch (error) {
+      if (!isPrismaError(error, 'P2034') || attempt === 2) throw error
+    }
+  }
+  throw new Error('Unreachable transaction retry')
+}
+
 function postageSnapshot(tier: {
   etsyCharge: { toString(): string }
   actualCost: { toString(): string }
@@ -35,10 +46,16 @@ function postageSnapshot(tier: {
 function packagingSnapshot(overhead: {
   name: string
   costPerOrder: { toString(): string }
+  isActive: boolean
+  effectiveFrom: Date
+  effectiveTo: Date | null
 }): Prisma.InputJsonObject {
   return {
     name: overhead.name,
     costPerOrder: overhead.costPerOrder.toString(),
+    isActive: overhead.isActive,
+    effectiveFrom: overhead.effectiveFrom.toISOString(),
+    effectiveTo: overhead.effectiveTo?.toISOString() ?? null,
   }
 }
 
@@ -95,7 +112,7 @@ router.post('/etsy-fees', async (req, res) => {
   try {
     const data = etsyFeeCreateBodySchema.parse(req.body)
 
-    const config = await prisma.$transaction(async (tx) => {
+    const config = await serializableTransaction(async (tx) => {
       await tx.etsyFeeConfig.updateMany({
         where: { isActive: true },
         data: { isActive: false, effectiveTo: new Date() },

@@ -544,8 +544,8 @@ describe('settings router', () => {
     expect(transactionMock.settingsAuditLog.create).toHaveBeenCalledWith(expect.objectContaining({
       data: expect.objectContaining({
         action: 'UPDATE',
-        before: { name: 'Old Box', costPerOrder: '9' },
-        after: { name: 'Old Box', costPerOrder: '2.5' },
+        before: expect.objectContaining({ name: 'Old Box', costPerOrder: '9', isActive: false, effectiveTo: '2026-08-18T09:00:00.000Z' }),
+        after: expect.objectContaining({ name: 'Old Box', costPerOrder: '2.5', isActive: false, effectiveTo: '2026-08-18T09:00:00.000Z' }),
       }),
     }))
   })

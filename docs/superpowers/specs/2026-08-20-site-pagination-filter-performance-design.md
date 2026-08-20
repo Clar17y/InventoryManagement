@@ -1,7 +1,7 @@
 # Site Pagination and Filter Performance Design
 
-**Date:** 2026-08-20  
-**Status:** Approved for implementation planning  
+**Date:** 2026-08-20
+**Status:** Approved for implementation planning
 **Primary usage:** Laptop-first, single-user inventory management
 
 ## Purpose

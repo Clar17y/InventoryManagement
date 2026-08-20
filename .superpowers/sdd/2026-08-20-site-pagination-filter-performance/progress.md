@@ -23,3 +23,6 @@ Tasks:
 - Task 9: fix round 1/5 (2 addressed, 0 open — complete Sales lookup and executable SQL/query-bound evidence; commits a19c087..cbc94e8)
 - Task 9: complete (commits 88aabe1..cbc94e8, review clean)
 - Task 10: automated audit complete; authenticated laptop browser verification limited by the absence of a safe non-production authenticated runtime
+- Final simplify pass: complete (commit 9bb5c34; request-loop, duplicate-query, cancellation, and no-op URL work removed)
+- Whole-branch review: fix round 1/5 complete (zero-stock Inventory regression fixed in 0d2f0ad; scoped re-review approved)
+- Final verification: automated gates pass at 0d2f0ad; final docs-only whitespace/count update pending exact-candidate confirmation

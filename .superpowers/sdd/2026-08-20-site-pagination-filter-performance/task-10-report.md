@@ -11,10 +11,10 @@ Status: automated audit complete; authenticated browser verification limited
 
 ## Verification
 
-- Focused client: 18 files / 293 tests passed.
-- Focused server: 12 files / 55 tests passed.
-- Full client: 43 files / 619 tests passed.
-- Full server: 30 files / 282 tests passed.
+- Focused client: 18 files / 301 tests passed.
+- Focused server: 12 files / 57 tests passed.
+- Full client: 43 files / 627 tests passed.
+- Full server: 30 files / 284 tests passed.
 - Client TypeScript, server TypeScript, production build, focused ESLint, and `git diff --check` passed.
 
 No application database, production credentials, migration, or external service was used.

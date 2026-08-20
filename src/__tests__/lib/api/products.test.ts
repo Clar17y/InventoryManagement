@@ -8,6 +8,7 @@ vi.mock('../../../lib/api/request', () => ({
 import {
   productBarcodeResponseSchema,
   productResponseSchema,
+  productsListQuerySchema,
   productsListResponseSchema,
 } from '#contracts/routes/products';
 import { products, Product } from '../../../lib/api/products';
@@ -47,31 +48,51 @@ describe('products API', () => {
   };
 
   describe('list', () => {
-    it('calls request without categoryId', async () => {
-      mockRequestWithSchema.mockResolvedValue([sampleProduct]);
+    it('serializes and validates paginated filters', async () => {
+      const categoryId = `c${'1'.repeat(24)}`;
+      const params = {
+        page: 2,
+        pageSize: 50 as const,
+        categoryId,
+        search: 'tea',
+        sort: 'name' as const,
+        direction: 'asc' as const,
+      };
+      const response = {
+        items: [sampleProduct],
+        pagination: { page: 2, pageSize: 50 as const, totalItems: 51, totalPages: 2 },
+      };
+      mockRequestWithSchema.mockResolvedValue(response);
 
-      await products.list();
+      expect(productsListQuerySchema.parse({
+        ...params,
+        page: '2',
+        pageSize: '50',
+        search: ' tea ',
+      })).toEqual({ ...params, search: 'tea' });
+      expect(() => productsListQuerySchema.parse({ pageSize: '10' })).toThrow();
 
-      expect(mockRequestWithSchema).toHaveBeenCalledWith('/products', productsListResponseSchema);
-    });
-
-    it('calls request with categoryId filter', async () => {
-      mockRequestWithSchema.mockResolvedValue([sampleProduct]);
-
-      await products.list('cat-1');
+      const controller = new AbortController();
+      await products.list(params, { signal: controller.signal });
 
       expect(mockRequestWithSchema).toHaveBeenCalledWith(
-        '/products?categoryId=cat-1',
-        productsListResponseSchema
+        `/products?page=2&pageSize=50&categoryId=${categoryId}&search=tea&sort=name&direction=asc`,
+        productsListResponseSchema,
+        { signal: controller.signal },
       );
     });
 
-    it('returns array of products', async () => {
-      mockRequestWithSchema.mockResolvedValue([sampleProduct]);
+    it('calls request without filters and returns the shared response envelope', async () => {
+      const response = {
+        items: [sampleProduct],
+        pagination: { page: 1, pageSize: 25 as const, totalItems: 1, totalPages: 1 },
+      };
+      mockRequestWithSchema.mockResolvedValue(response);
 
       const result = await products.list();
 
-      expect(result).toEqual([sampleProduct]);
+      expect(mockRequestWithSchema).toHaveBeenCalledWith('/products', productsListResponseSchema);
+      expect(result).toEqual(response);
     });
   });
 

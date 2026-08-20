@@ -54,11 +54,11 @@ export default function Hampers() {
       const [hampersData, catsData, prodsData] = await Promise.all([
         hampers.list(),
         categories.list(),
-        products.list(),
+        products.list({ page: 1, pageSize: 100 }),
       ])
       setHamperList(hampersData)
       setCategoryList(catsData)
-      setProductList(prodsData)
+      setProductList(prodsData.items)
       setError(null)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load data')

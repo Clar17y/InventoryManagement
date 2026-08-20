@@ -68,7 +68,10 @@ describe('AddStockForm', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    mockProductsList.mockResolvedValue(sampleProducts as any);
+    mockProductsList.mockResolvedValue({
+      items: sampleProducts,
+      pagination: { page: 1, pageSize: 25, totalItems: sampleProducts.length, totalPages: 1 },
+    } as any);
     mockCategoriesList.mockResolvedValue(sampleCategories as any);
   });
 

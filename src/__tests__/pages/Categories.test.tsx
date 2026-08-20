@@ -65,7 +65,10 @@ describe('Categories', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockList.mockResolvedValue(sampleCategories);
-    mockProductsList.mockResolvedValue(sampleProducts as any);
+    mockProductsList.mockResolvedValue({
+      items: sampleProducts,
+      pagination: { page: 1, pageSize: 25, totalItems: sampleProducts.length, totalPages: 1 },
+    } as any);
   });
 
   describe('loading state', () => {

@@ -10,7 +10,12 @@ const mockProducts = [
   { id: 'p3', name: 'Hand Cream', category: { name: 'Skincare' }, categoryId: 'c2' },
 ];
 
-const mockListProducts = vi.fn().mockResolvedValue(mockProducts);
+const productListResponse = () => ({
+  items: mockProducts,
+  pagination: { page: 1, pageSize: 25 as const, totalItems: mockProducts.length, totalPages: 1 },
+});
+
+const mockListProducts = vi.fn().mockResolvedValue(productListResponse());
 const mockGetSupplierProducts = vi.fn().mockResolvedValue(['p1']);
 const mockSetSupplierProducts = vi.fn().mockResolvedValue(['p1', 'p3']);
 
@@ -36,7 +41,7 @@ const onClose = vi.fn();
 
 beforeEach(() => {
   vi.clearAllMocks();
-  mockListProducts.mockResolvedValue(mockProducts);
+  mockListProducts.mockResolvedValue(productListResponse());
   mockGetSupplierProducts.mockResolvedValue(['p1']);
   mockSetSupplierProducts.mockResolvedValue(['p1', 'p3']);
 });

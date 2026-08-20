@@ -92,8 +92,11 @@ export default function AddStockForm({ onSuccess, onClose }: AddStockFormProps) 
   const loadData = async () => {
     setIsLoading(true)
     try {
-      const [productsData, categoriesData] = await Promise.all([products.list(), categories.list()])
-      setAllProducts(productsData)
+      const [productsData, categoriesData] = await Promise.all([
+        products.list({ page: 1, pageSize: 100 }),
+        categories.list(),
+      ])
+      setAllProducts(productsData.items)
       setAllCategories(categoriesData)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load data')
@@ -210,10 +213,10 @@ export default function AddStockForm({ onSuccess, onClose }: AddStockFormProps) 
     try {
       await products.addBarcode(product.id, scannedBarcode)
 
-      const updatedProducts = await products.list()
-      setAllProducts(updatedProducts)
+      const updatedProducts = await products.list({ page: 1, pageSize: 100 })
+      setAllProducts(updatedProducts.items)
 
-      const updatedProduct = updatedProducts.find((p) => p.id === product.id)
+      const updatedProduct = updatedProducts.items.find((p) => p.id === product.id)
       if (updatedProduct) {
         setSelectedProduct(updatedProduct)
         setMode('form')

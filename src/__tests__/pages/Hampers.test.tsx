@@ -104,7 +104,10 @@ describe('Hampers', () => {
     mockHampersList.mockResolvedValue(sampleHampers as any);
     mockHampersGet.mockResolvedValue(sampleHamperDetail as any);
     mockCategoriesList.mockResolvedValue(sampleCategories as any);
-    mockProductsList.mockResolvedValue(sampleProducts as any);
+    mockProductsList.mockResolvedValue({
+      items: sampleProducts,
+      pagination: { page: 1, pageSize: 25, totalItems: sampleProducts.length, totalPages: 1 },
+    } as any);
   });
 
   describe('loading state', () => {

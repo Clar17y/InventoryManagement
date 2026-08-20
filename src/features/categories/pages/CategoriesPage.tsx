@@ -32,10 +32,10 @@ export default function Categories() {
       setLoading(true)
       const [cats, prods] = await Promise.all([
         categories.list(),
-        products.list(),
+        products.list({ page: 1, pageSize: 100 }),
       ])
       setCategoryList(cats)
-      setProductList(prods)
+      setProductList(prods.items)
       setError(null)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load data')

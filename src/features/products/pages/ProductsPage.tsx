@@ -1,8 +1,10 @@
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect } from 'react'
 import { MagnifyingGlassIcon, XMarkIcon } from '@heroicons/react/24/outline'
-import { products, categories, suppliers, Product, Category, Supplier } from '../../../lib/api'
+import { products, categories, suppliers, type Product, type Category, type Supplier } from '../../../lib/api'
 import { useDebounce } from '../../../hooks/useDebounce'
 import { useScrollToForm } from '../../../hooks/useScrollToForm'
+import { usePaginationSearchParams } from '../../../hooks/usePaginationSearchParams'
+import { usePaginatedList } from '../../../hooks/usePaginatedList'
 import ProductCategoryFilter from '../components/ProductCategoryFilter'
 import ProductForm from '../components/ProductForm'
 import ProductsHeader from '../components/ProductsHeader'
@@ -10,10 +12,11 @@ import ProductsList from '../components/ProductsList'
 import { emptyForm } from '../constants'
 import type { ProductFormData } from '../types'
 
+type ProductSort = 'name' | 'createdAt'
+type SortDirection = 'asc' | 'desc'
+
 export default function Products() {
-  const [productList, setProductList] = useState<Product[]>([])
   const [categoryList, setCategoryList] = useState<Category[]>([])
-  const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [showForm, setShowForm] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
@@ -22,7 +25,9 @@ export default function Products() {
   const [saving, setSaving] = useState(false)
   const [filterCategory, setFilterCategory] = useState<string>('')
   const [searchQuery, setSearchQuery] = useState('')
-  const debouncedSearch = useDebounce(searchQuery, 300)
+  const [sort, setSort] = useState<ProductSort>('name')
+  const [direction, setDirection] = useState<SortDirection>('asc')
+  const debouncedSearch = useDebounce(searchQuery, 400)
 
   // Barcode management state
   const [newBarcode, setNewBarcode] = useState('')
@@ -33,40 +38,73 @@ export default function Products() {
   const [selectedSupplierIds, setSelectedSupplierIds] = useState<string[]>([])
 
   const { formRef, scrollToForm } = useScrollToForm()
+  const { page, pageSize, setPage, setPageSize, resetPage } = usePaginationSearchParams()
 
-  const loadData = async () => {
-    try {
-      setLoading(true)
-      const [prods, cats] = await Promise.all([
-        products.list(filterCategory || undefined),
-        categories.list(),
-      ])
-      setProductList(prods)
-      setCategoryList(cats)
-      setError(null)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load data')
-    } finally {
-      setLoading(false)
-    }
+  const listParams = {
+    page,
+    pageSize,
+    categoryId: filterCategory || undefined,
+    search: debouncedSearch.trim() || undefined,
+    sort,
+    direction,
+  }
+  const listState = usePaginatedList({
+    queryKey: JSON.stringify(listParams),
+    load: (signal) => products.list(listParams, { signal }),
+  })
+
+  const productList = listState.data?.items ?? []
+  const pagination = listState.data?.pagination ?? {
+    page,
+    pageSize,
+    totalItems: 0,
+    totalPages: 0,
   }
 
   useEffect(() => {
-    loadData()
-  }, [filterCategory])
+    categories.list().then(setCategoryList).catch((err) => {
+      setError(err instanceof Error ? err.message : 'Failed to load categories')
+    })
+  }, [])
 
   useEffect(() => {
     suppliers.list().then(setAllSuppliers).catch((err) => console.error('Failed to load suppliers', err))
   }, [])
 
-  const filteredProducts = useMemo(() => {
-    if (!debouncedSearch.trim()) return productList
-    const query = debouncedSearch.toLowerCase()
-    return productList.filter((p) =>
-      p.name.toLowerCase().includes(query) ||
-      p.category?.name?.toLowerCase().includes(query)
-    )
-  }, [productList, debouncedSearch])
+  useEffect(() => {
+    if (
+      listState.data
+      && listState.data.items.length === 0
+      && listState.data.pagination.totalItems > 0
+      && page > 1
+    ) {
+      setPage(Math.max(1, page - 1))
+    }
+  }, [listState.data, page, setPage])
+
+  const reloadProducts = () => {
+    listState.retry()
+  }
+
+  const handleCategoryChange = (value: string) => {
+    resetPage()
+    setFilterCategory(value)
+  }
+
+  const handleSearchChange = (value: string) => {
+    resetPage()
+    setSearchQuery(value)
+  }
+
+  const handleSortChange = (value: ProductSort) => {
+    resetPage()
+    setSort(value)
+  }
+
+  const handleDirectionChange = () => {
+    resetPage()
+    setDirection((current) => current === 'asc' ? 'desc' : 'asc')
+  }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -99,7 +137,7 @@ export default function Products() {
         setEditingProduct(null)
         setFormData(emptyForm)
         setSelectedSupplierIds([])
-        await loadData()
+        reloadProducts()
         setError('Product saved but supplier links failed. Edit the product to retry.')
         return
       }
@@ -108,7 +146,7 @@ export default function Products() {
       setEditingProduct(null)
       setFormData(emptyForm)
       setSelectedSupplierIds([])
-      await loadData()
+      reloadProducts()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to save product')
     } finally {
@@ -138,7 +176,7 @@ export default function Products() {
 
     try {
       await products.delete(id)
-      await loadData()
+      reloadProducts()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to delete product')
     }
@@ -175,13 +213,7 @@ export default function Products() {
     try {
       await products.addBarcode(editingId, newBarcode.trim())
       setNewBarcode('')
-      // Refresh the product to get updated barcodes
-      const updatedProducts = await products.list(filterCategory || undefined)
-      setProductList(updatedProducts)
-      const updatedProduct = updatedProducts.find(p => p.id === editingId)
-      if (updatedProduct) {
-        setEditingProduct(updatedProduct)
-      }
+      reloadProducts()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to add barcode')
     } finally {
@@ -194,19 +226,13 @@ export default function Products() {
 
     try {
       await products.removeBarcode(editingId, barcodeId)
-      // Refresh the product to get updated barcodes
-      const updatedProducts = await products.list(filterCategory || undefined)
-      setProductList(updatedProducts)
-      const updatedProduct = updatedProducts.find(p => p.id === editingId)
-      if (updatedProduct) {
-        setEditingProduct(updatedProduct)
-      }
+      reloadProducts()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to remove barcode')
     }
   }
 
-  if (loading && productList.length === 0) {
+  if (listState.isInitialLoading) {
     return <div className="text-center py-8 text-gray-500">Loading...</div>
   }
 
@@ -221,13 +247,13 @@ export default function Products() {
             <input
               type="text"
               value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
+              onChange={(e) => handleSearchChange(e.target.value)}
               placeholder="Search products..."
               className="w-full pl-9 pr-8 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
             />
             {searchQuery && (
               <button
-                onClick={() => setSearchQuery('')}
+                onClick={() => handleSearchChange('')}
                 className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
               >
                 <XMarkIcon className="h-4 w-4" />
@@ -239,9 +265,26 @@ export default function Products() {
               showForm={showForm}
               categoryList={categoryList}
               filterCategory={filterCategory}
-              onChange={setFilterCategory}
+              onChange={handleCategoryChange}
             />
           </div>
+          <select
+            aria-label="Product sort"
+            value={sort}
+            onChange={(event) => handleSortChange(event.target.value as ProductSort)}
+            className="input flex-1"
+          >
+            <option value="name">Name</option>
+            <option value="createdAt">Recently added</option>
+          </select>
+          <button
+            type="button"
+            aria-label={direction === 'asc' ? 'Sort descending' : 'Sort ascending'}
+            onClick={handleDirectionChange}
+            className="rounded border border-gray-300 px-3 py-2 text-sm"
+          >
+            {direction === 'asc' ? 'A–Z' : 'Z–A'}
+          </button>
         </div>
       )}
 
@@ -273,19 +316,19 @@ export default function Products() {
         </div>
       )}
 
-      {productList.length > 0 && filteredProducts.length === 0 ? (
-        <div className="card text-gray-500 text-center py-8">
-          <p className="mb-2">No products match "{debouncedSearch}"</p>
-          <p className="text-sm">Try a different search term</p>
-        </div>
-      ) : (
-        <ProductsList
-          productList={filteredProducts}
-          categoryList={categoryList}
-          onEdit={handleEdit}
-          onDelete={handleDelete}
-        />
-      )}
+      <ProductsList
+        productList={productList}
+        categoryList={categoryList}
+        pagination={pagination}
+        isUpdating={listState.isUpdating}
+        listError={listState.error}
+        onRetry={listState.retry}
+        onPageChange={setPage}
+        onPageSizeChange={setPageSize}
+        emptyMessage={debouncedSearch.trim() ? `No products match "${debouncedSearch}"` : undefined}
+        onEdit={handleEdit}
+        onDelete={handleDelete}
+      />
     </div>
   )
 }

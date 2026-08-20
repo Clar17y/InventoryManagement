@@ -109,7 +109,10 @@ describe('Inventory', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    mockProductsList.mockResolvedValue(sampleProducts);
+    mockProductsList.mockResolvedValue({
+      items: sampleProducts,
+      pagination: { page: 1, pageSize: 25, totalItems: sampleProducts.length, totalPages: 1 },
+    });
     mockLots.mockResolvedValue(sampleLots);
     mockLowStock.mockResolvedValue([sampleLowStock]);
     mockExpiring.mockResolvedValue([]);

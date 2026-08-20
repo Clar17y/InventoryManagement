@@ -289,6 +289,7 @@ npm run test:server:run   # Single run (server only)
 | 2026-05-07 | Codex | Etsy API throttling safeguards | Done | codex/etsy-api-throttle |
 | 2026-05-07 | Codex | Etsy duplicate SKU safety + repair | Done | codex/etsy-api-throttle |
 | 2026-05-07 | Codex | Etsy visibility flag + hidden-by-default UI toggle | Done | feature/etsy-visibility-toggle |
+| 2026-08-20 | Codex | Task 6: Paginate and server-filter Products | Done | codex/site-pagination-filter-performance |
 | 2026-05-07 | Codex | Simplify cleanup for Etsy visibility feature | Done | feature/etsy-visibility-toggle |
 | 2026-05-07 | Codex | Mark missing Etsy variants hidden on import | Done | feature/etsy-visibility-toggle |
 | 2026-08-11 | Codex | Design Etsy Offsite Ads fee reconciliation | Done | codex/etsy-offsite-fee-reconciliation |
@@ -331,6 +332,7 @@ npm run test:server:run   # Single run (server only)
 **Last Updated:** 2026-08-20
 
 **Current State:**
+- **Task 6 complete** (branch: `codex/site-pagination-filter-performance`): Products now use the shared paginated envelope with server-side category/search/sort filtering, deterministic bounded Prisma queries, stock/cost projection, URL-backed page-size controls, 400ms search debounce, retained-result updates, stale/abort protection, Retry, mutation reloads, and empty-final-page fallback. Legacy product pickers unwrap the envelope and request the bounded 100-row maximum. Focused Product tests (32), full server tests (252), full client tests (584 with local placeholder Supabase values), server/client TypeScript, build, and touched-file ESLint pass; the no-variable client run retains two environment-only Supabase setup failures documented in the handoff.
 - **Task 5 complete** (branch: `codex/site-pagination-filter-performance`): migrated Expenses to shared URL pagination with retained-result updates, abort/stale protection, Retry, filter/page reset, delete fallback, deterministic sorting, and page-size controls; replaced monthly `findMany` loading with safe grouped SQL plus Prisma aggregate/groupBy summaries. Focused Expenses tests, full client/server suites, client/server TypeScript, build, and touched-file ESLint pass.
 - **Task 1 complete** (branch: `codex/site-pagination-filter-performance`): added the shared pagination Zod contract, paginated response envelope, deterministic Prisma skip/take math, and zero-safe metadata builder. Focused server coverage passes 10 tests; server TypeScript and touched-file ESLint pass. Report: `.superpowers/sdd/2026-08-20-site-pagination-filter-performance/task-1-report.md`.
 - **Task 2 complete** (branch: `codex/site-pagination-filter-performance`): added pure visible-page/range helpers, URL-backed page/page-size state, latest-request-only loading with abort/version protection and retry, numbered pagination controls, and retained-results update feedback. Focused client coverage passes 4 files/13 tests; full client coverage passes 41 files/557 tests with dummy Supabase values. Report: `.superpowers/sdd/2026-08-20-site-pagination-filter-performance/task-2-report.md`.

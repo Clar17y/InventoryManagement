@@ -22,10 +22,10 @@ export default function SupplierProductsModal({ supplier, onClose }: SupplierPro
     const load = async () => {
       try {
         const [productsList, productIds] = await Promise.all([
-          productsApi.list(),
+          productsApi.list({ page: 1, pageSize: 100 }),
           suppliers.getSupplierProducts(supplier.id),
         ])
-        setAllProducts(productsList)
+        setAllProducts(productsList.items)
         const idSet = new Set(productIds)
         setSelectedIds(idSet)
         setInitialIds(idSet)

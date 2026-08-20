@@ -2,41 +2,58 @@ import { Router } from 'express'
 import { z } from 'zod'
 import { prisma } from '../../lib/prisma'
 import { Prisma } from '@prisma/client'
+import { buildPaginationMeta, toPrismaPagination } from '../../lib/pagination'
 import {
   productsAddBarcodeBodySchema,
   productsCreateBodySchema,
+  productsListQuerySchema,
   productsUpdateBodySchema,
 } from '#contracts/routes/products'
 
 const router = Router()
+const productsSortFields = {
+  name: 'name',
+  createdAt: 'createdAt',
+} as const
 
-// GET all products with stock levels
+// GET products with stock levels
 router.get('/', async (req, res) => {
   try {
-    const { categoryId } = req.query
+    const query = productsListQuerySchema.parse(req.query)
+    const { skip, take } = toPrismaPagination(query)
+    const where: Prisma.ProductWhereInput = {
+      isActive: true,
+      ...(query.categoryId ? { categoryId: query.categoryId } : {}),
+      ...(query.search ? {
+        name: { contains: query.search, mode: 'insensitive' },
+      } : {}),
+    }
+    const sortField = productsSortFields[query.sort]
 
-    const products = await prisma.product.findMany({
-      where: {
-        isActive: true,
-        ...(categoryId && { categoryId: categoryId as string }),
-      },
-      include: {
-        category: true,
-        barcodes: {
-          select: { id: true, barcode: true },
+    const [products, totalItems] = await Promise.all([
+      prisma.product.findMany({
+        where,
+        include: {
+          category: true,
+          barcodes: {
+            select: { id: true, barcode: true },
+          },
+          lots: {
+            where: { remaining: { gt: 0 } },
+            select: { remaining: true, unitCost: true },
+          },
+          costs: {
+            where: { effectiveTo: null },
+            take: 1,
+            orderBy: { effectiveFrom: 'desc' },
+          },
         },
-        lots: {
-          where: { remaining: { gt: 0 } },
-          select: { remaining: true, unitCost: true },
-        },
-        costs: {
-          where: { effectiveTo: null },
-          take: 1,
-          orderBy: { effectiveFrom: 'desc' },
-        },
-      },
-      orderBy: { name: 'asc' },
-    })
+        orderBy: [{ [sortField]: query.direction }, { id: query.direction }],
+        skip,
+        take,
+      }),
+      prisma.product.count({ where }),
+    ])
 
     // Calculate total stock for each product
     // For "units" products: sum the remaining quantity
@@ -67,8 +84,14 @@ router.get('/', async (req, res) => {
       }
     })
 
-    res.json(productsWithStock)
+    res.json({
+      items: productsWithStock,
+      pagination: buildPaginationMeta(query, totalItems),
+    })
   } catch (error) {
+    if (error instanceof z.ZodError) {
+      return res.status(400).json({ error: 'Validation failed', details: error.errors })
+    }
     console.error('Error fetching products:', error)
     res.status(500).json({ error: 'Failed to fetch products' })
   }

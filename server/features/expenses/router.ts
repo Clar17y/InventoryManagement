@@ -1,6 +1,9 @@
 import { Router } from 'express'
 import { z } from 'zod'
+import { Prisma } from '@prisma/client'
 import { prisma } from '../../lib/prisma'
+import { getExpensesSummary } from '../../lib/expenses/summary'
+import { buildPaginationMeta, toPrismaPagination } from '../../lib/pagination'
 import {
   expensesCreateBodySchema,
   expensesListQuerySchema,
@@ -9,16 +12,17 @@ import {
 } from '#contracts/routes/expenses'
 
 const router = Router()
+const expenseSortFields = {
+  date: 'date',
+  amountIncVat: 'amountIncVat',
+} as const
 
 // GET /expenses - List expenses with filters
 router.get('/', async (req, res) => {
   try {
     const query = expensesListQuerySchema.parse(req.query)
-
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const where: any = {
-      isActive: true,
-    }
+    const { skip, take } = toPrismaPagination(query)
+    const where: Prisma.BusinessExpenseWhereInput = { isActive: true }
 
     if (query.category) {
       where.category = query.category
@@ -31,7 +35,7 @@ router.get('/', async (req, res) => {
     }
 
     // Search across description and supplier
-    if (query.search && query.search.trim()) {
+    if (query.search) {
       const searchTerm = query.search.trim()
       where.OR = [
         { description: { contains: searchTerm, mode: 'insensitive' } },
@@ -39,17 +43,18 @@ router.get('/', async (req, res) => {
       ]
     }
 
-    const [expenses, total] = await Promise.all([
+    const sortField = expenseSortFields[query.sort]
+    const [items, totalItems] = await Promise.all([
       prisma.businessExpense.findMany({
         where,
-        orderBy: { date: 'desc' },
-        take: query.limit,
-        skip: query.offset,
+        orderBy: [{ [sortField]: query.direction }, { id: query.direction }],
+        take,
+        skip,
       }),
       prisma.businessExpense.count({ where }),
     ])
 
-    res.json({ expenses, total, limit: query.limit, offset: query.offset })
+    res.json({ items, pagination: buildPaginationMeta(query, totalItems) })
   } catch (error) {
     if (error instanceof z.ZodError) {
       return res.status(400).json({ error: 'Validation failed', details: error.errors })
@@ -63,90 +68,7 @@ router.get('/', async (req, res) => {
 router.get('/summary', async (req, res) => {
   try {
     const query = expensesSummaryQuerySchema.parse(req.query)
-
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const where: any = {
-      isActive: true,
-    }
-
-    if (query.startDate || query.endDate) {
-      where.date = {}
-      if (query.startDate) where.date.gte = new Date(query.startDate)
-      if (query.endDate) where.date.lte = new Date(query.endDate)
-    }
-
-    // Search across description and supplier
-    if (query.search && query.search.trim()) {
-      const searchTerm = query.search.trim()
-      where.OR = [
-        { description: { contains: searchTerm, mode: 'insensitive' } },
-        { supplier: { contains: searchTerm, mode: 'insensitive' } },
-      ]
-    }
-
-    // Get totals by category
-    const byCategory = await prisma.businessExpense.groupBy({
-      by: ['category'],
-      where,
-      _sum: {
-        amountIncVat: true,
-        amountExcVat: true,
-      },
-      _count: true,
-    })
-
-    // Get overall totals
-    const totals = await prisma.businessExpense.aggregate({
-      where,
-      _sum: {
-        amountIncVat: true,
-        amountExcVat: true,
-      },
-      _count: true,
-    })
-
-    // Get monthly breakdown for the period
-    const expenses = await prisma.businessExpense.findMany({
-      where,
-      select: {
-        date: true,
-        amountIncVat: true,
-        amountExcVat: true,
-      },
-      orderBy: { date: 'asc' },
-    })
-
-    // Group by month
-    const byMonth: Record<string, { incVat: number; excVat: number; count: number }> = {}
-    for (const expense of expenses) {
-      const monthKey = expense.date.toISOString().slice(0, 7) // YYYY-MM
-      if (!byMonth[monthKey]) {
-        byMonth[monthKey] = { incVat: 0, excVat: 0, count: 0 }
-      }
-      byMonth[monthKey].incVat += Number(expense.amountIncVat)
-      byMonth[monthKey].excVat += Number(expense.amountExcVat)
-      byMonth[monthKey].count += 1
-    }
-
-    res.json({
-      byCategory: byCategory.map((c) => ({
-        category: c.category,
-        totalIncVat: Number(c._sum.amountIncVat) || 0,
-        totalExcVat: Number(c._sum.amountExcVat) || 0,
-        count: c._count,
-      })),
-      byMonth: Object.entries(byMonth).map(([month, data]) => ({
-        month,
-        totalIncVat: data.incVat,
-        totalExcVat: data.excVat,
-        count: data.count,
-      })),
-      totals: {
-        totalIncVat: Number(totals._sum.amountIncVat) || 0,
-        totalExcVat: Number(totals._sum.amountExcVat) || 0,
-        count: totals._count,
-      },
-    })
+    res.json(await getExpensesSummary(query))
   } catch (error) {
     if (error instanceof z.ZodError) {
       return res.status(400).json({ error: 'Validation failed', details: error.errors })

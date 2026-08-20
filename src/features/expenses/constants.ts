@@ -1,8 +1,6 @@
 import type { ExpenseCategory } from '../../lib/api'
 import type { ExpenseFormData } from './types'
 
-export const PAGE_SIZE = 20
-
 export const emptyForm: ExpenseFormData = {
   date: new Date().toISOString().split('T')[0] ?? '',
   category: 'OTHER',

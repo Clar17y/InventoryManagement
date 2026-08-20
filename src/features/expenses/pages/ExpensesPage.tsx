@@ -1,27 +1,24 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect } from 'react'
 import { expenses, BusinessExpense, ExpenseCategory, ExpenseSummary } from '../../../lib/api'
 import { useScrollToForm } from '../../../hooks/useScrollToForm'
+import { usePaginationSearchParams } from '../../../hooks/usePaginationSearchParams'
+import { usePaginatedList } from '../../../hooks/usePaginatedList'
 import DateSearchFilter, { useDateSearchFilter } from '../../../components/filters/DateSearchFilter'
 import ExpenseForm from '../components/ExpenseForm'
 import ExpensesHeader from '../components/ExpensesHeader'
 import ExpensesList from '../components/ExpensesList'
 import ExpensesSummaryPanel from '../components/ExpensesSummaryPanel'
-import { categoryLabels, emptyForm, PAGE_SIZE } from '../constants'
+import { categoryLabels, emptyForm } from '../constants'
 import type { ExpenseFormData } from '../types'
 
 export default function Expenses() {
-  const [expenseList, setExpenseList] = useState<BusinessExpense[]>([])
-  const [summary, setSummary] = useState<ExpenseSummary | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [loadingMore, setLoadingMore] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [showForm, setShowForm] = useState(false)
   const [showSummary, setShowSummary] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [formData, setFormData] = useState<ExpenseFormData>(emptyForm)
   const [saving, setSaving] = useState(false)
-  const [filterCategory, setFilterCategory] = useState<ExpenseCategory | ''>()
-  const [totalExpenses, setTotalExpenses] = useState(0)
+  const [filterCategory, setFilterCategory] = useState<ExpenseCategory | ''>('')
 
   // Date and search filter state
   const {
@@ -29,79 +26,88 @@ export default function Expenses() {
     endDate,
     searchQuery,
     debouncedSearchQuery,
-    setStartDate,
-    setEndDate,
-    setSearchQuery,
+    setStartDate: updateStartDate,
+    setEndDate: updateEndDate,
+    setSearchQuery: updateSearchQuery,
   } = useDateSearchFilter()
 
-  const isFirstRender = useRef(true)
+  const { page, pageSize, setPage, setPageSize, resetPage } = usePaginationSearchParams()
   const { formRef, scrollToForm } = useScrollToForm()
 
-  const buildParams = (offset: number) => {
-    const params: { category?: ExpenseCategory; startDate?: string; endDate?: string; search?: string; limit?: number; offset?: number } = {
-      limit: PAGE_SIZE,
-      offset,
-    }
-    if (filterCategory) params.category = filterCategory
-    if (startDate) params.startDate = new Date(startDate).toISOString()
-    if (endDate) {
+  const startDateIso = startDate ? new Date(startDate).toISOString() : undefined
+  const endDateIso = endDate
+    ? (() => {
       const end = new Date(endDate)
       end.setHours(23, 59, 59, 999)
-      params.endDate = end.toISOString()
-    }
-    if (debouncedSearchQuery) params.search = debouncedSearchQuery
+      return end.toISOString()
+    })()
+    : undefined
+  const listParams = {
+    page,
+    pageSize,
+    category: filterCategory || undefined,
+    startDate: startDateIso,
+    endDate: endDateIso,
+    search: debouncedSearchQuery || undefined,
+  }
+  const summaryParams = {
+    startDate: startDateIso,
+    endDate: endDateIso,
+    search: debouncedSearchQuery || undefined,
+  }
+  const listState = usePaginatedList({
+    queryKey: JSON.stringify(listParams),
+    load: (signal) => expenses.list(listParams, { signal }),
+  })
+  const summaryState = usePaginatedList({
+    queryKey: JSON.stringify(summaryParams),
+    load: () => expenses.summary(summaryParams),
+  })
 
-    return params
+  const expenseList = listState.data?.items ?? []
+  const pagination = listState.data?.pagination ?? {
+    page,
+    pageSize,
+    totalItems: 0,
+    totalPages: 0,
+  }
+  const summary: ExpenseSummary | null = summaryState.data
+
+  const loadData = () => {
+    listState.retry()
+    summaryState.retry()
   }
 
-  const loadExpenses = async (isInitialLoad = false) => {
-    try {
-      if (isInitialLoad) {
-        setLoading(true)
-      }
-      const params = buildParams(0)
-
-      const [listRes, summaryRes] = await Promise.all([
-        expenses.list(params),
-        expenses.summary(params),
-      ])
-      setExpenseList(listRes.expenses)
-      setTotalExpenses(listRes.total ?? listRes.expenses.length)
-      setSummary(summaryRes)
-      setError(null)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load expenses')
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  const loadMore = async () => {
-    try {
-      setLoadingMore(true)
-      const params = buildParams(expenseList.length)
-
-      const result = await expenses.list(params)
-      setExpenseList([...expenseList, ...result.expenses])
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load more expenses')
-    } finally {
-      setLoadingMore(false)
-    }
-  }
-
-  // Initial load
   useEffect(() => {
-    loadExpenses(true)
-    isFirstRender.current = false
-  }, [])
-
-  // Re-fetch when filters change
-  useEffect(() => {
-    if (!isFirstRender.current) {
-      loadExpenses(false)
+    if (
+      listState.data
+      && listState.data.items.length === 0
+      && listState.data.pagination.totalItems > 0
+      && page > 1
+    ) {
+      setPage(Math.max(1, page - 1))
     }
-  }, [filterCategory, startDate, endDate, debouncedSearchQuery])
+  }, [listState.data, page, setPage])
+
+  const setStartDate = (value: string) => {
+    resetPage()
+    updateStartDate(value)
+  }
+
+  const setEndDate = (value: string) => {
+    resetPage()
+    updateEndDate(value)
+  }
+
+  const setSearchQuery = (value: string) => {
+    resetPage()
+    updateSearchQuery(value)
+  }
+
+  const setCategory = (value: ExpenseCategory | '') => {
+    resetPage()
+    setFilterCategory(value)
+  }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -126,7 +132,7 @@ export default function Expenses() {
       setShowForm(false)
       setEditingId(null)
       setFormData(emptyForm)
-      await loadExpenses()
+      loadData()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to save expense')
     } finally {
@@ -153,7 +159,7 @@ export default function Expenses() {
 
     try {
       await expenses.delete(id)
-      await loadExpenses()
+      loadData()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to delete expense')
     }
@@ -174,7 +180,7 @@ export default function Expenses() {
     setFormData(prev => ({ ...prev, amountExcVat: value }))
   }
 
-  if (loading && expenseList.length === 0) {
+  if (listState.isInitialLoading) {
     return <div className="text-center py-8 text-gray-500">Loading...</div>
   }
 
@@ -227,8 +233,9 @@ export default function Expenses() {
       <div className="flex items-center gap-2">
         <span className="text-sm text-gray-500">Category:</span>
         <select
+          aria-label="Expense category"
           value={filterCategory}
-          onChange={(e) => setFilterCategory(e.target.value as ExpenseCategory | '')}
+          onChange={(e) => setCategory(e.target.value as ExpenseCategory | '')}
           className="text-sm border rounded-lg px-2 py-1"
         >
           <option value="">All Categories</option>
@@ -240,11 +247,14 @@ export default function Expenses() {
 
       <ExpensesList
         expenseList={expenseList}
-        totalExpenses={totalExpenses}
-        loadingMore={loadingMore}
+        pagination={pagination}
+        isUpdating={listState.isUpdating}
+        listError={listState.error ?? error}
+        onRetry={listState.retry}
         onEdit={handleEdit}
         onDelete={handleDelete}
-        onLoadMore={loadMore}
+        onPageChange={setPage}
+        onPageSizeChange={setPageSize}
       />
     </div>
   )

@@ -62,9 +62,25 @@ describe('Expenses', () => {
     totals: { totalIncVat: 170, totalExcVat: 141.67, count: 2 },
   };
 
+  const listResponse = (
+    items = sampleExpenses,
+    totalItems = items.length,
+    page = 1,
+    pageSize: 25 | 50 | 100 = 25,
+  ) => ({
+    items,
+    pagination: {
+      page,
+      pageSize,
+      totalItems,
+      totalPages: totalItems === 0 ? 0 : Math.ceil(totalItems / pageSize),
+    },
+  });
+
   beforeEach(() => {
     vi.clearAllMocks();
-    mockList.mockResolvedValue({ expenses: sampleExpenses, total: 2, limit: 20, offset: 0 });
+    window.history.pushState({}, '', '/');
+    mockList.mockResolvedValue(listResponse());
     mockSummary.mockResolvedValue(sampleSummary);
   });
 
@@ -116,7 +132,7 @@ describe('Expenses', () => {
     });
 
     it('shows empty state when no expenses', async () => {
-      mockList.mockResolvedValue({ expenses: [], total: 0, limit: 20, offset: 0 });
+      mockList.mockResolvedValue(listResponse([], 0));
       render(<Expenses />);
       await waitFor(() => {
         expect(screen.getByText('No expenses recorded')).toBeInTheDocument();
@@ -240,7 +256,7 @@ describe('Expenses', () => {
       render(<Expenses />);
       await waitFor(() => {
         expect(screen.getByText('Category:')).toBeInTheDocument();
-        expect(screen.getByRole('combobox')).toBeInTheDocument();
+        expect(screen.getByRole('combobox', { name: 'Expense category' })).toBeInTheDocument();
       });
     });
 

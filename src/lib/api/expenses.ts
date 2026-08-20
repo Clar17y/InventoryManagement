@@ -9,6 +9,9 @@ import {
   type ExpenseResponse,
   type ExpensesCreateBody,
   type ExpensesListResponse,
+  type ExpensesListQuery,
+  type ExpenseSort as ContractExpenseSort,
+  type ExpenseSortDirection as ContractExpenseSortDirection,
   type ExpensesSummaryResponse,
   type ExpensesUpdateBody,
 } from '#contracts/routes/expenses'
@@ -20,26 +23,22 @@ export type BusinessExpense = ExpenseResponse
 export type ExpenseCreateData = ExpensesCreateBody
 
 export type ExpenseListResponse = ExpensesListResponse
+export type ExpenseListQuery = ExpensesListQuery
+export type ExpenseSort = ContractExpenseSort
+export type ExpenseSortDirection = ContractExpenseSortDirection
 
 export type ExpenseSummary = ExpensesSummaryResponse
 
 export const expenses = {
-  list: (params?: {
-    category?: ExpenseCategory
-    startDate?: string
-    endDate?: string
-    search?: string
-    limit?: number
-    offset?: number
-  }) => {
+  list: (params: ExpenseListQuery = {}, options?: Pick<RequestInit, 'signal'>) => {
     const query = new URLSearchParams()
-    if (params?.category) query.set('category', params.category)
-    if (params?.startDate) query.set('startDate', params.startDate)
-    if (params?.endDate) query.set('endDate', params.endDate)
-    if (params?.search) query.set('search', params.search)
-    if (params?.limit) query.set('limit', String(params.limit))
-    if (params?.offset) query.set('offset', String(params.offset))
-    return requestWithSchema(`/expenses?${query.toString()}`, expensesListResponseSchema)
+    for (const [key, value] of Object.entries(params)) {
+      if (value !== undefined && value !== '') query.set(key, String(value))
+    }
+    const path = `/expenses?${query}`
+    return options
+      ? requestWithSchema(path, expensesListResponseSchema, options)
+      : requestWithSchema(path, expensesListResponseSchema)
   },
   get: (id: string) => requestWithSchema(`/expenses/${id}`, expenseResponseSchema),
   summary: (params?: { startDate?: string; endDate?: string; search?: string }) => {

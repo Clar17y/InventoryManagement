@@ -319,6 +319,7 @@ npm run test:server:run   # Single run (server only)
 | 2026-08-20 | Codex subagent | Task 2: Add URL pagination, latest-request loading, and numbered controls | Done | codex/site-pagination-filter-performance |
 | 2026-08-20 | Codex subagent | Task 3: Migrate Sales list and loading lifecycle to shared pagination | Done | codex/site-pagination-filter-performance |
 | 2026-08-20 | Codex subagent | Task 4: Correct Sales date boundaries and aggregate the summary | Done | codex/site-pagination-filter-performance |
+| 2026-08-20 | Codex subagent | Task 5: Migrate Expenses list and aggregate monthly summaries | Done | codex/site-pagination-filter-performance |
 
 
 ---
@@ -330,6 +331,7 @@ npm run test:server:run   # Single run (server only)
 **Last Updated:** 2026-08-20
 
 **Current State:**
+- **Task 5 complete** (branch: `codex/site-pagination-filter-performance`): migrated Expenses to shared URL pagination with retained-result updates, abort/stale protection, Retry, filter/page reset, delete fallback, deterministic sorting, and page-size controls; replaced monthly `findMany` loading with safe grouped SQL plus Prisma aggregate/groupBy summaries. Focused Expenses tests, full client/server suites, client/server TypeScript, build, and touched-file ESLint pass.
 - **Task 1 complete** (branch: `codex/site-pagination-filter-performance`): added the shared pagination Zod contract, paginated response envelope, deterministic Prisma skip/take math, and zero-safe metadata builder. Focused server coverage passes 10 tests; server TypeScript and touched-file ESLint pass. Report: `.superpowers/sdd/2026-08-20-site-pagination-filter-performance/task-1-report.md`.
 - **Task 2 complete** (branch: `codex/site-pagination-filter-performance`): added pure visible-page/range helpers, URL-backed page/page-size state, latest-request-only loading with abort/version protection and retry, numbered pagination controls, and retained-results update feedback. Focused client coverage passes 4 files/13 tests; full client coverage passes 41 files/557 tests with dummy Supabase values. Report: `.superpowers/sdd/2026-08-20-site-pagination-filter-performance/task-2-report.md`.
 - **Task 3 complete** (branch: `codex/site-pagination-filter-performance`): migrated the Sales contract, client, router, page, and list view to shared pagination; added abort-aware list requests, deterministic sort tie-breaks, retained-result update feedback, retry, URL page controls, and one-time hamper reference loading. Focused client coverage passes 45 tests and focused server coverage passes 2 tests; both TypeScript projects, touched-file ESLint, and diff checks pass. Report: `.superpowers/sdd/2026-08-20-site-pagination-filter-performance/task-3-report.md`.

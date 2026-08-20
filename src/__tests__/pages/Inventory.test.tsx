@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { screen, waitFor, within } from '@testing-library/react';
+import { act, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { render } from '../utils/test-utils';
 
@@ -7,6 +7,7 @@ vi.stubGlobal('confirm', vi.fn(() => true));
 
 vi.mock('../../lib/api', () => ({
   inventory: {
+    list: vi.fn(),
     lots: vi.fn(),
     lowStock: vi.fn(),
     expiring: vi.fn(),
@@ -20,13 +21,15 @@ vi.mock('../../lib/api', () => ({
 }));
 
 import Inventory from '../../pages/Inventory';
-import { inventory, products, type LowStockProduct, type Product, type InventoryLot } from '../../lib/api';
+import { inventory, products, type InventoryProduct, type LowStockProduct, type InventoryLot } from '../../lib/api';
 
 const mockLots = vi.mocked(inventory.lots);
+const mockInventoryList = vi.mocked(inventory.list);
 const mockLowStock = vi.mocked(inventory.lowStock);
 const mockExpiring = vi.mocked(inventory.expiring);
 const mockDeleteLot = vi.mocked(inventory.deleteLot);
 const mockProductsList = vi.mocked(products.listAll);
+const mockProductsPage = vi.mocked(products.list);
 
 describe('Inventory', () => {
   const sampleCategories = [
@@ -50,17 +53,18 @@ describe('Inventory', () => {
     },
   ];
 
-  const sampleProducts: Product[] = [
+  const sampleProducts: InventoryProduct[] = [
     {
       id: 'prod-1',
       name: 'Dark Chocolate',
-      barcode: null,
       categoryId: 'cat-1',
       category: sampleCategories[0]!,
       unit: 'units',
       lowStockThreshold: 10,
       isActive: true,
       totalStock: 25,
+      totalRemaining: 25,
+      lotCount: 1,
       currentCost: 2.5,
       createdAt: '2024-01-01T00:00:00Z',
       updatedAt: '2024-01-01T00:00:00Z',
@@ -68,13 +72,14 @@ describe('Inventory', () => {
     {
       id: 'prod-2',
       name: 'Orange Juice',
-      barcode: null,
       categoryId: 'cat-2',
       category: sampleCategories[1]!,
       unit: 'units',
       lowStockThreshold: 5,
       isActive: true,
       totalStock: 3,
+      totalRemaining: 3,
+      lotCount: 1,
       currentCost: 1.2,
       createdAt: '2024-01-02T00:00:00Z',
       updatedAt: '2024-01-02T00:00:00Z',
@@ -109,9 +114,15 @@ describe('Inventory', () => {
   };
 
   beforeEach(() => {
+    window.history.pushState({}, '', '/inventory');
+    localStorage.clear();
     vi.clearAllMocks();
-    mockProductsList.mockResolvedValue({
-      items: sampleProducts,
+    mockInventoryList.mockResolvedValue({
+      items: sampleProducts.map((product) => ({
+        ...product,
+        totalRemaining: product.totalStock ?? 0,
+        lotCount: product.unit === 'units' ? 1 : product.lotCount ?? 0,
+      })),
       pagination: { page: 1, pageSize: 25, totalItems: sampleProducts.length, totalPages: 1 },
     });
     mockLots.mockResolvedValue(sampleLots);
@@ -123,15 +134,83 @@ describe('Inventory', () => {
   it('renders products after loading', async () => {
     render(<Inventory />);
     expect(await screen.findByText('Dark Chocolate')).toBeInTheDocument();
+    expect(mockProductsList).not.toHaveBeenCalled();
+    expect(mockProductsPage).not.toHaveBeenCalled();
   });
 
-  it('renders a compatibility product beyond the first 100 items', async () => {
+  it('passes URL paging, search, category, low-stock, and sort state to inventory.list', async () => {
+    const categoryId = `c${'1'.repeat(24)}`;
+    window.history.pushState({}, '', `/inventory?page=2&pageSize=50&search=dark&categoryId=${categoryId}&filter=low-stock&sort=cost-desc`);
+
+    render(<Inventory />);
+
+    await waitFor(() => {
+      expect(mockInventoryList).toHaveBeenCalledWith({
+        page: 2,
+        pageSize: 50,
+        search: 'dark',
+        categoryId,
+        lowStockOnly: true,
+        sort: 'cost-desc',
+      }, { signal: expect.any(AbortSignal) });
+    });
+  });
+
+  it('keeps the current rows visible while the next page is pending', async () => {
+    let resolveNext!: (value: Awaited<ReturnType<typeof inventory.list>>) => void;
+    mockInventoryList
+      .mockResolvedValueOnce({
+        items: sampleProducts.map((product) => ({
+          ...product,
+          totalRemaining: product.totalStock ?? 0,
+          lotCount: 1,
+        })),
+        pagination: { page: 1, pageSize: 25, totalItems: 51, totalPages: 3 },
+      })
+      .mockImplementationOnce(() => new Promise((resolve) => { resolveNext = resolve; }));
+    const user = userEvent.setup();
+    render(<Inventory />);
+    await screen.findByText('Dark Chocolate');
+
+    await user.click(screen.getByRole('button', { name: 'Next page' }));
+
+    expect(screen.getByText('Dark Chocolate')).toBeInTheDocument();
+    expect(screen.getByRole('status')).toHaveTextContent('Updating results');
+    await act(async () => {
+      resolveNext!({
+        items: [],
+        pagination: { page: 2, pageSize: 25, totalItems: 51, totalPages: 3 },
+      });
+    });
+  });
+
+  it('groups only the products returned on the current category-sorted page', async () => {
+    const currentPageProduct = {
+      ...sampleProducts[0]!,
+      totalRemaining: 25,
+      lotCount: 1,
+    };
+    mockInventoryList.mockResolvedValueOnce({
+      items: [currentPageProduct],
+      pagination: { page: 2, pageSize: 25, totalItems: 51, totalPages: 3 },
+    });
+    window.history.pushState({}, '', '/inventory?page=2&sort=category');
+
+    render(<Inventory />);
+
+    expect(await screen.findByText('Dark Chocolate')).toBeInTheDocument();
+    expect(screen.getByText('Chocolates')).toBeInTheDocument();
+    expect(screen.queryByText('Orange Juice')).not.toBeInTheDocument();
+    expect(screen.queryByText('Drinks')).not.toBeInTheDocument();
+  });
+
+  it('renders a product returned on a 100-row inventory page', async () => {
     const allProducts = Array.from({ length: 101 }, (_, index) => ({
       ...sampleProducts[0]!,
       id: `prod-${index + 1}`,
       name: `Chocolate ${index + 1}`,
     }));
-    mockProductsList.mockResolvedValue({
+    mockInventoryList.mockResolvedValue({
       items: allProducts,
       pagination: { page: 1, pageSize: 100, totalItems: 101, totalPages: 2 },
     } as any);
@@ -141,8 +220,9 @@ describe('Inventory', () => {
     expect(await screen.findByText('Chocolate 101')).toBeInTheDocument();
   });
 
-  it('shows Add Stock button', () => {
+  it('shows Add Stock button', async () => {
     render(<Inventory />);
+    await screen.findByText('Dark Chocolate');
     expect(screen.getByRole('button', { name: /add stock/i })).toBeInTheDocument();
   });
 
@@ -219,6 +299,10 @@ describe('Inventory', () => {
     });
 
     it('filters to only low stock products when filter active', async () => {
+      mockInventoryList.mockResolvedValueOnce({
+        items: [{ ...sampleProducts[1]!, totalRemaining: 3, lotCount: 1 }],
+        pagination: { page: 1, pageSize: 25, totalItems: 1, totalPages: 1 },
+      });
       window.history.pushState({}, '', '/inventory?filter=low-stock');
 
       render(<Inventory />);
@@ -266,10 +350,10 @@ describe('Inventory', () => {
   });
 
   it('shows empty state when load fails', async () => {
-    mockProductsList.mockRejectedValueOnce(new Error('Network error'));
+    mockInventoryList.mockRejectedValueOnce(new Error('Network error'));
 
     render(<Inventory />);
 
-    expect(await screen.findByText('No products yet')).toBeInTheDocument();
+    expect(await screen.findByRole('alert')).toHaveTextContent('Network error');
   });
 });

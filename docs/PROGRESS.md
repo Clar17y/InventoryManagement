@@ -321,11 +321,14 @@ npm run test:server:run   # Single run (server only)
 | 2026-08-20 | Codex subagent | Task 3: Migrate Sales list and loading lifecycle to shared pagination | Done | codex/site-pagination-filter-performance |
 | 2026-08-20 | Codex subagent | Task 4: Correct Sales date boundaries and aggregate the summary | Done | codex/site-pagination-filter-performance |
 | 2026-08-20 | Codex subagent | Task 5: Migrate Expenses list and aggregate monthly summaries | Done | codex/site-pagination-filter-performance |
+| 2026-08-20 | Codex subagent | Task 7: Add a purpose-built paginated Inventory view | Done | codex/site-pagination-filter-performance |
 
 
 ---
 
 ## Handoff Notes
+
+- **Task 7 complete** (branch: `codex/site-pagination-filter-performance`): Inventory now uses a purpose-built, abort-aware `/api/inventory/products` paginated endpoint with pre-pagination search/category/low-stock filtering, nine constant-map SQL sort modes, ordered one-query hydration, count-preserving empty-page behavior, URL-backed controls, retained results, and existing alert/lot actions. Category sorting uses category name because the current `ComponentCategory` schema has no `sortOrder` and schema/migrations were outside Task 7. Focused client tests (26), focused server tests (14), both TypeScript projects, touched-file ESLint, and diff checks pass. Report: `.superpowers/sdd/2026-08-20-site-pagination-filter-performance/task-7-report.md`.
 
 > Leave notes here when ending a session so the next agent knows where you left off
 

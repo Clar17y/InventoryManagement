@@ -13,6 +13,7 @@ import {
   inventoryLotsResponseSchema,
   inventoryLotResponseSchema,
   inventoryLowStockResponseSchema,
+  inventoryProductsResponseSchema,
 } from '#contracts/routes/inventory';
 import { request, requestWithSchema } from '../../../lib/api/request';
 
@@ -56,6 +57,47 @@ describe('inventory API', () => {
       const result = await inventory.byCategory();
 
       expect(result).toEqual([summary]);
+    });
+  });
+
+  describe('list', () => {
+    it('sends paging, filters, sort, and the abort signal to the inventory products endpoint', async () => {
+      const response = {
+        items: [],
+        pagination: { page: 2, pageSize: 50 as const, totalItems: 0, totalPages: 0 },
+      };
+      const controller = new AbortController();
+      mockRequestWithSchema.mockResolvedValue(response);
+
+      const result = await inventory.list({
+        page: 2,
+        pageSize: 50,
+        categoryId: `c${'1'.repeat(24)}`,
+        search: 'dark chocolate',
+        lowStockOnly: true,
+        sort: 'cost-desc',
+      }, { signal: controller.signal });
+
+      expect(mockRequestWithSchema).toHaveBeenCalledWith(
+        `/inventory/products?page=2&pageSize=50&categoryId=c${'1'.repeat(24)}&search=dark+chocolate&lowStockOnly=true&sort=cost-desc`,
+        inventoryProductsResponseSchema,
+        { signal: controller.signal },
+      );
+      expect(result).toBe(response);
+    });
+
+    it('omits empty optional filters and request options', async () => {
+      mockRequestWithSchema.mockResolvedValue({
+        items: [],
+        pagination: { page: 1, pageSize: 25, totalItems: 0, totalPages: 0 },
+      });
+
+      await inventory.list({ page: 1, pageSize: 25, search: '' });
+
+      expect(mockRequestWithSchema).toHaveBeenCalledWith(
+        '/inventory/products?page=1&pageSize=25',
+        inventoryProductsResponseSchema,
+      );
     });
   });
 

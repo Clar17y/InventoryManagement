@@ -1,20 +1,22 @@
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useCallback } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { MagnifyingGlassIcon, XMarkIcon } from '@heroicons/react/24/outline'
-import { products, inventory, type Product, type InventoryLot } from '../../../lib/api'
+import {
+  inventory,
+  type InventoryLot,
+  type InventoryProduct,
+} from '../../../lib/api'
+import { inventorySortSchema, type InventorySort } from '#contracts/routes/inventory'
 import { useDebounce } from '../../../hooks/useDebounce'
+import { usePaginationSearchParams } from '../../../hooks/usePaginationSearchParams'
+import { usePaginatedList } from '../../../hooks/usePaginatedList'
 import AddStockForm from '../../../components/inventory/AddStockForm'
 import StockLevelBar from '../../../components/inventory/StockLevelBar'
+import PaginationControls from '../../../components/ui/PaginationControls'
+import UpdatingResults from '../../../components/ui/UpdatingResults'
 import InventoryProductRow from '../components/InventoryProductRow'
 
-type InventorySortOption =
-  | 'stock-desc' | 'stock-asc'
-  | 'name-asc' | 'name-desc'
-  | 'category'
-  | 'cost-asc' | 'cost-desc'
-  | 'date-desc' | 'date-asc'
-
-const INVENTORY_SORT_OPTIONS: { value: InventorySortOption; label: string }[] = [
+const INVENTORY_SORT_OPTIONS: { value: InventorySort; label: string }[] = [
   { value: 'stock-desc', label: 'Amount (high→low)' },
   { value: 'stock-asc', label: 'Amount (low→high)' },
   { value: 'name-asc', label: 'Name (A→Z)' },
@@ -22,25 +24,48 @@ const INVENTORY_SORT_OPTIONS: { value: InventorySortOption; label: string }[] = 
   { value: 'category', label: 'Category' },
   { value: 'cost-asc', label: 'Cost (low→high)' },
   { value: 'cost-desc', label: 'Cost (high→low)' },
-  { value: 'date-desc', label: 'Newest first' },
-  { value: 'date-asc', label: 'Oldest first' },
+  { value: 'newest', label: 'Newest first' },
+  { value: 'oldest', label: 'Oldest first' },
 ]
 
 export default function Inventory() {
+  const [searchParams, setSearchParams] = useSearchParams()
   const [showAddStock, setShowAddStock] = useState(false)
-  const [allProducts, setAllProducts] = useState<Product[]>([])
   const [expandedProduct, setExpandedProduct] = useState<string | null>(null)
   const [productLots, setProductLots] = useState<Record<string, InventoryLot[]>>({})
-  const [isLoading, setIsLoading] = useState(true)
   const [lowStockCount, setLowStockCount] = useState(0)
   const [expiringCount, setExpiringCount] = useState(0)
-  const [sortBy, setSortBy] = useState<InventorySortOption>(
-    () => (localStorage.getItem('inventory-sort') as InventorySortOption) || 'category'
-  )
-  const [searchQuery, setSearchQuery] = useState('')
+  const [sortBy, setSortBy] = useState<InventorySort>(() => {
+    const urlSort = inventorySortSchema.safeParse(searchParams.get('sort'))
+    if (urlSort.success) return urlSort.data
+    const storedSort = inventorySortSchema.safeParse(localStorage.getItem('inventory-sort'))
+    return storedSort.success ? storedSort.data : 'category'
+  })
+  const [searchQuery, setSearchQuery] = useState(() => searchParams.get('search') ?? '')
   const debouncedSearch = useDebounce(searchQuery, 300)
-  const [searchParams, setSearchParams] = useSearchParams()
+  const { page, pageSize, setPage, setPageSize } = usePaginationSearchParams()
   const lowStockFilter = searchParams.get('filter') === 'low-stock'
+  const categoryId = searchParams.get('categoryId') || undefined
+
+  const listParams = {
+    page,
+    pageSize,
+    search: debouncedSearch.trim() || undefined,
+    categoryId,
+    lowStockOnly: lowStockFilter,
+    sort: sortBy,
+  }
+  const listState = usePaginatedList({
+    queryKey: JSON.stringify(listParams),
+    load: (signal) => inventory.list(listParams, { signal }),
+  })
+  const productList = useMemo(() => listState.data?.items ?? [], [listState.data])
+  const pagination = listState.data?.pagination ?? {
+    page,
+    pageSize,
+    totalItems: 0,
+    totalPages: 0,
+  }
   // Edit lot state
   const [editingLot, setEditingLot] = useState<string | null>(null)
   const [editForm, setEditForm] = useState<{
@@ -49,89 +74,53 @@ export default function Inventory() {
     expiresAt: string
   }>({ remaining: '', unitCost: '', expiresAt: '' })
 
-  const loadProducts = async () => {
-    setIsLoading(true)
+  const loadAlerts = useCallback(async () => {
     try {
-      const [data, lowStock, expiring] = await Promise.all([
-        products.listAll(),
+      const [lowStock, expiring] = await Promise.all([
         inventory.lowStock(),
         inventory.expiring(30),
       ])
-      setAllProducts(data.items)
       setLowStockCount(lowStock.length)
       setExpiringCount(expiring.length)
     } catch (err) {
-      console.error('Failed to load products', err)
-    } finally {
-      setIsLoading(false)
+      console.error('Failed to load inventory alerts', err)
     }
-  }
+  }, [])
 
   useEffect(() => {
-    loadProducts()
-  }, [])
+    void loadAlerts()
+  }, [loadAlerts])
 
   useEffect(() => {
     localStorage.setItem('inventory-sort', sortBy)
   }, [sortBy])
 
-  // Filter products by search and low-stock filter
-  const filteredProducts = useMemo(() => {
-    let filtered = allProducts
-    if (debouncedSearch.trim()) {
-      const query = debouncedSearch.toLowerCase()
-      filtered = filtered.filter((p) =>
-        p.name.toLowerCase().includes(query) ||
-        p.category?.name?.toLowerCase().includes(query)
-      )
-    }
-    if (lowStockFilter) {
-      filtered = filtered.filter(p =>
-        p.lowStockThreshold > 0 && (p.totalStock ?? 0) <= p.lowStockThreshold
-      )
-    }
-    return filtered
-  }, [allProducts, debouncedSearch, lowStockFilter])
+  useEffect(() => {
+    setSearchParams((current) => {
+      const next = new URLSearchParams(current)
+      if (debouncedSearch.trim()) next.set('search', debouncedSearch.trim())
+      else next.delete('search')
+      return next
+    }, { replace: true })
+  }, [debouncedSearch, setSearchParams])
 
-  // Sort products based on selected option
-  const sortedProducts = useMemo(() => {
-    if (sortBy === 'category') return null // Use grouped view
-
-    const sorted = [...filteredProducts]
-    switch (sortBy) {
-      case 'stock-desc':
-        sorted.sort((a, b) => (b.totalStock ?? 0) - (a.totalStock ?? 0))
-        break
-      case 'stock-asc':
-        sorted.sort((a, b) => (a.totalStock ?? 0) - (b.totalStock ?? 0))
-        break
-      case 'name-asc':
-        sorted.sort((a, b) => a.name.localeCompare(b.name))
-        break
-      case 'name-desc':
-        sorted.sort((a, b) => b.name.localeCompare(a.name))
-        break
-      case 'cost-asc':
-        sorted.sort((a, b) => (a.currentCost ?? 0) - (b.currentCost ?? 0))
-        break
-      case 'cost-desc':
-        sorted.sort((a, b) => (b.currentCost ?? 0) - (a.currentCost ?? 0))
-        break
-      case 'date-desc':
-        sorted.sort((a, b) => new Date(b.createdAt ?? 0).getTime() - new Date(a.createdAt ?? 0).getTime())
-        break
-      case 'date-asc':
-        sorted.sort((a, b) => new Date(a.createdAt ?? 0).getTime() - new Date(b.createdAt ?? 0).getTime())
-        break
+  useEffect(() => {
+    if (
+      listState.data
+      && listState.data.items.length === 0
+      && listState.data.pagination.totalItems > 0
+      && page > 1
+    ) {
+      setPage(Math.max(1, page - 1))
     }
-    return sorted
-  }, [filteredProducts, sortBy])
+  }, [listState.data, page, setPage])
 
   const handleStockAdded = async () => {
     setShowAddStock(false)
     // Clear the lots cache so it reloads with fresh data
     setProductLots({})
-    await loadProducts()
+    listState.retry()
+    await loadAlerts()
 
     // If a product was expanded, reload its lots
     if (expandedProduct) {
@@ -176,7 +165,8 @@ export default function Inventory() {
       const lots = await inventory.lots(productId)
       setProductLots(prev => ({ ...prev, [productId]: lots }))
       // Reload products to update stock counts
-      await loadProducts()
+      listState.retry()
+      await loadAlerts()
     } catch (err) {
       console.error('Failed to delete lot', err)
       alert('Failed to delete lot. Please try again.')
@@ -213,29 +203,30 @@ export default function Inventory() {
       const lots = await inventory.lots(productId)
       setProductLots(prev => ({ ...prev, [productId]: lots }))
       // Reload products to update stock counts
-      await loadProducts()
+      listState.retry()
+      await loadAlerts()
     } catch (err) {
       console.error('Failed to update lot', err)
       alert('Failed to update lot. Please try again.')
     }
   }
 
-  // Group products by category (uses filtered list)
-  const productsByCategory: Record<string, Product[]> = {}
-  filteredProducts.forEach((p) => {
-    const catName = p.category?.name || 'Uncategorized'
-    if (!productsByCategory[catName]) {
-      productsByCategory[catName] = []
-    }
-    productsByCategory[catName].push(p)
-  })
+  const productsByCategory = useMemo(() => {
+    const grouped: Record<string, InventoryProduct[]> = {}
+    productList.forEach((product) => {
+      const categoryName = product.category.name
+      grouped[categoryName] ??= []
+      grouped[categoryName].push(product)
+    })
+    return grouped
+  }, [productList])
 
-  // Calculate totals - for unit products sum remaining, for others count lots
-  const totalProducts = allProducts.length
-  const totalUnitItems = allProducts
+  // Stock totals describe the visible page; the product count comes from the server-filtered total.
+  const totalProducts = pagination.totalItems
+  const totalUnitItems = productList
     .filter(p => p.unit === 'units')
     .reduce((sum, p) => sum + (p.totalStock ?? 0), 0)
-  const totalLots = allProducts
+  const totalLots = productList
     .filter(p => p.unit !== 'units')
     .reduce((sum, p) => sum + (p.lotCount ?? 0), 0)
 
@@ -263,13 +254,19 @@ export default function Inventory() {
           <input
             type="text"
             value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
+            onChange={(e) => {
+              setPage(1)
+              setSearchQuery(e.target.value)
+            }}
             placeholder="Search products..."
             className="w-full pl-9 pr-8 py-1.5 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
           />
           {searchQuery && (
             <button
-              onClick={() => setSearchQuery('')}
+              onClick={() => {
+                setPage(1)
+                setSearchQuery('')
+              }}
               className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
             >
               <XMarkIcon className="h-4 w-4" />
@@ -280,8 +277,19 @@ export default function Inventory() {
         <div className="flex items-center gap-2">
           <span className="text-sm text-gray-500">Sort:</span>
           <select
+            aria-label="Inventory sort"
             value={sortBy}
-            onChange={(e) => setSortBy(e.target.value as InventorySortOption)}
+            onChange={(e) => {
+              const nextSort = e.target.value as InventorySort
+              setSortBy(nextSort)
+              localStorage.setItem('inventory-sort', nextSort)
+              setSearchParams((current) => {
+                const next = new URLSearchParams(current)
+                next.set('sort', nextSort)
+                next.set('page', '1')
+                return next
+              })
+            }}
             className="px-2 py-1.5 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
           >
             {INVENTORY_SORT_OPTIONS.map((opt) => (
@@ -299,7 +307,12 @@ export default function Inventory() {
           <span className="inline-flex items-center gap-1 px-3 py-1 bg-amber-100 text-amber-800 rounded-full text-sm font-medium">
             Low Stock Only
             <button
-              onClick={() => setSearchParams({})}
+              onClick={() => setSearchParams((current) => {
+                const next = new URLSearchParams(current)
+                next.delete('filter')
+                next.set('page', '1')
+                return next
+              })}
               className="ml-1 hover:text-amber-900"
             >
               <XMarkIcon className="h-4 w-4" />
@@ -315,7 +328,13 @@ export default function Inventory() {
           <div className="text-xs text-gray-500">Products</div>
         </div>
         <button
-          onClick={() => setSearchParams(lowStockFilter ? {} : { filter: 'low-stock' })}
+          onClick={() => setSearchParams((current) => {
+            const next = new URLSearchParams(current)
+            if (lowStockFilter) next.delete('filter')
+            else next.set('filter', 'low-stock')
+            next.set('page', '1')
+            return next
+          })}
           className={`card py-2 px-3 text-center cursor-pointer transition-shadow ${lowStockFilter ? 'ring-2 ring-amber-400' : 'hover:ring-2 hover:ring-amber-300'}`}
         >
           <div className={`text-xl font-bold ${lowStockCount > 0 ? 'text-red-600' : 'text-emerald-600'}`}>
@@ -343,77 +362,92 @@ export default function Inventory() {
       </div>
 
       {/* Product List */}
-      {isLoading ? (
+      {listState.isInitialLoading ? (
         <div className="card text-gray-500 text-center py-8">
           <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-primary-600 mx-auto mb-2" />
           Loading inventory...
         </div>
-      ) : allProducts.length === 0 ? (
-        <div className="card text-gray-500 text-center py-8">
-          <p className="mb-2">No products yet</p>
-          <p className="text-sm">Add your first product to get started</p>
-        </div>
-      ) : filteredProducts.length === 0 ? (
-        <div className="card text-gray-500 text-center py-8">
-          <p className="mb-2">No products match "{debouncedSearch}"</p>
-          <p className="text-sm">Try a different search term</p>
-        </div>
-      ) : sortedProducts ? (
-        // Flat sorted view
-        <div className="card py-1 px-2">
-          <div className="divide-y divide-gray-100">
-            {sortedProducts.map((product) => (
-              <InventoryProductRow
-                key={product.id}
-                product={product}
-                expanded={expandedProduct === product.id}
-                onToggle={() => toggleProductExpand(product.id)}
-                lots={productLots[product.id]}
-                editingLot={editingLot}
-                editForm={editForm}
-                setEditForm={setEditForm}
-                onStartEdit={startEditLot}
-                onSaveEdit={handleSaveEdit}
-                onCancelEdit={() => setEditingLot(null)}
-                onDeleteLot={handleDeleteLot}
-                formatDate={formatDate}
-                showCategory
-              />
-            ))}
-          </div>
-        </div>
       ) : (
-        // Grouped by category view
         <div className="space-y-2">
-          {Object.entries(productsByCategory).map(([categoryName, categoryProducts]) => (
-            <div key={categoryName} className="card py-2 px-2">
-              <h3 className="text-sm font-medium text-gray-900 mb-1 flex items-center gap-2 px-1">
-                <span>{categoryName}</span>
-                <span className="text-xs font-normal text-gray-500">
-                  ({categoryProducts.length})
-                </span>
-              </h3>
-              <div className="divide-y divide-gray-100">
-                {categoryProducts.map((product) => (
-                  <InventoryProductRow
-                    key={product.id}
-                    product={product}
-                    expanded={expandedProduct === product.id}
-                    onToggle={() => toggleProductExpand(product.id)}
-                    lots={productLots[product.id]}
-                    editingLot={editingLot}
-                    editForm={editForm}
-                    setEditForm={setEditForm}
-                    onStartEdit={startEditLot}
-                    onSaveEdit={handleSaveEdit}
-                    onCancelEdit={() => setEditingLot(null)}
-                    onDeleteLot={handleDeleteLot}
-                    formatDate={formatDate}
-                  />
+          <UpdatingResults
+            updating={listState.isUpdating}
+            error={listState.error}
+            onRetry={listState.retry}
+          >
+            {productList.length === 0 ? (
+              <div className="card text-gray-500 text-center py-8">
+                <p className="mb-2">
+                  {debouncedSearch ? `No products match "${debouncedSearch}"` : 'No products yet'}
+                </p>
+                <p className="text-sm">
+                  {debouncedSearch ? 'Try a different search term' : 'Add your first product to get started'}
+                </p>
+              </div>
+            ) : sortBy !== 'category' ? (
+              <div className="card py-1 px-2">
+                <div className="divide-y divide-gray-100">
+                  {productList.map((product) => (
+                    <InventoryProductRow
+                      key={product.id}
+                      product={{ ...product, barcode: null }}
+                      expanded={expandedProduct === product.id}
+                      onToggle={() => toggleProductExpand(product.id)}
+                      lots={productLots[product.id]}
+                      editingLot={editingLot}
+                      editForm={editForm}
+                      setEditForm={setEditForm}
+                      onStartEdit={startEditLot}
+                      onSaveEdit={handleSaveEdit}
+                      onCancelEdit={() => setEditingLot(null)}
+                      onDeleteLot={handleDeleteLot}
+                      formatDate={formatDate}
+                      showCategory
+                    />
+                  ))}
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {Object.entries(productsByCategory).map(([categoryName, categoryProducts]) => (
+                  <div key={categoryName} className="card py-2 px-2">
+                    <h3 className="text-sm font-medium text-gray-900 mb-1 flex items-center gap-2 px-1">
+                      <span>{categoryName}</span>
+                      <span className="text-xs font-normal text-gray-500">
+                        ({categoryProducts.length})
+                      </span>
+                    </h3>
+                    <div className="divide-y divide-gray-100">
+                      {categoryProducts.map((product) => (
+                        <InventoryProductRow
+                          key={product.id}
+                          product={{ ...product, barcode: null }}
+                          expanded={expandedProduct === product.id}
+                          onToggle={() => toggleProductExpand(product.id)}
+                          lots={productLots[product.id]}
+                          editingLot={editingLot}
+                          editForm={editForm}
+                          setEditForm={setEditForm}
+                          onStartEdit={startEditLot}
+                          onSaveEdit={handleSaveEdit}
+                          onCancelEdit={() => setEditingLot(null)}
+                          onDeleteLot={handleDeleteLot}
+                          formatDate={formatDate}
+                        />
+                      ))}
+                    </div>
+                  </div>
                 ))}
               </div>
-            </div>
-          ))}
+            )}
+          </UpdatingResults>
+          {pagination.totalItems > 0 && (
+            <PaginationControls
+              {...pagination}
+              loading={listState.isUpdating}
+              onPageChange={setPage}
+              onPageSizeChange={setPageSize}
+            />
+          )}
         </div>
       )}
 

@@ -44,6 +44,25 @@ describe('PaginationControls', () => {
     expect(screen.getAllByRole('button').every((button) => button.hasAttribute('disabled'))).toBe(true)
     expect(screen.getByRole('combobox')).toBeDisabled()
   })
+
+  it('normalizes an out-of-range page before rendering controls', () => {
+    render(
+      <PaginationControls
+        page={999}
+        pageSize={25}
+        totalItems={42}
+        totalPages={2}
+        loading={false}
+        onPageChange={vi.fn()}
+        onPageSizeChange={vi.fn()}
+      />,
+    )
+
+    expect(screen.getByText('Showing 26–42 of 42')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '2' })).toHaveAttribute('aria-current', 'page')
+    expect(screen.getByRole('button', { name: /previous/i })).toBeEnabled()
+    expect(screen.getByRole('button', { name: /next/i })).toBeDisabled()
+  })
 })
 
 describe('UpdatingResults', () => {

@@ -1,6 +1,6 @@
 import type { PageSize, PaginationMeta } from '#contracts/http/pagination'
 import { PAGE_SIZES } from '#contracts/http/pagination'
-import { getVisiblePages, getVisibleRange } from '../../lib/pagination'
+import { getVisiblePages, getVisibleRange, normalizePage } from '../../lib/pagination'
 
 interface PaginationControlsProps extends PaginationMeta {
   loading: boolean
@@ -17,8 +17,9 @@ export default function PaginationControls({
   onPageChange,
   onPageSizeChange,
 }: PaginationControlsProps) {
+  const currentPage = normalizePage(page, totalPages)
   const range = getVisibleRange({ page, pageSize, totalItems, totalPages })
-  const visiblePages = getVisiblePages(page, totalPages)
+  const visiblePages = getVisiblePages(currentPage, totalPages)
 
   return (
     <nav aria-label="Pagination" className="flex flex-wrap items-center justify-between gap-3 py-4">
@@ -30,8 +31,8 @@ export default function PaginationControls({
         <button
           type="button"
           aria-label="Previous page"
-          disabled={loading || page <= 1}
-          onClick={() => onPageChange(page - 1)}
+          disabled={loading || currentPage <= 1}
+          onClick={() => onPageChange(currentPage - 1)}
           className="rounded border border-gray-300 px-3 py-1.5 text-sm disabled:cursor-not-allowed disabled:opacity-50"
         >
           Previous
@@ -46,7 +47,7 @@ export default function PaginationControls({
             <button
               key={visiblePage}
               type="button"
-              aria-current={visiblePage === page ? 'page' : undefined}
+              aria-current={visiblePage === currentPage ? 'page' : undefined}
               disabled={loading}
               onClick={() => onPageChange(visiblePage)}
               className="min-w-9 rounded border border-gray-300 px-2 py-1.5 text-sm disabled:cursor-not-allowed disabled:opacity-50 aria-[current=page]:border-primary-600 aria-[current=page]:bg-primary-600 aria-[current=page]:text-white"
@@ -59,8 +60,8 @@ export default function PaginationControls({
         <button
           type="button"
           aria-label="Next page"
-          disabled={loading || totalPages === 0 || page >= totalPages}
-          onClick={() => onPageChange(page + 1)}
+          disabled={loading || totalPages === 0 || currentPage >= totalPages}
+          onClick={() => onPageChange(currentPage + 1)}
           className="rounded border border-gray-300 px-3 py-1.5 text-sm disabled:cursor-not-allowed disabled:opacity-50"
         >
           Next

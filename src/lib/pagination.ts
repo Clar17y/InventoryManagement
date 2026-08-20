@@ -2,13 +2,18 @@ import type { PaginationMeta } from '#contracts/http/pagination'
 
 export type VisiblePage = number | 'ellipsis'
 
+export function normalizePage(page: number, totalPages: number): number {
+  if (totalPages <= 0 || !Number.isFinite(page)) return 1
+  return Math.min(Math.max(Math.trunc(page), 1), totalPages)
+}
+
 export function getVisiblePages(page: number, totalPages: number): VisiblePage[] {
   if (totalPages <= 0) return []
   if (totalPages <= 9) {
     return Array.from({ length: totalPages }, (_, index) => index + 1)
   }
 
-  const currentPage = Math.min(Math.max(page, 1), totalPages)
+  const currentPage = normalizePage(page, totalPages)
   let start = currentPage - 2
   let end = currentPage + 2
 
@@ -50,8 +55,10 @@ export function getVisiblePages(page: number, totalPages: number): VisiblePage[]
 export function getVisibleRange(meta: PaginationMeta): { start: number; end: number } {
   if (meta.totalItems === 0) return { start: 0, end: 0 }
 
+  const currentPage = normalizePage(meta.page, meta.totalPages)
+
   return {
-    start: (meta.page - 1) * meta.pageSize + 1,
-    end: Math.min(meta.page * meta.pageSize, meta.totalItems),
+    start: (currentPage - 1) * meta.pageSize + 1,
+    end: Math.min(currentPage * meta.pageSize, meta.totalItems),
   }
 }

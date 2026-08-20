@@ -42,4 +42,13 @@ describe('pagination helpers', () => {
 
     expect(getVisibleRange(meta)).toEqual({ start: 0, end: 0 })
   })
+
+  it('clamps an out-of-range page to the final page in the metadata', () => {
+    expect(getVisibleRange({
+      page: 999,
+      pageSize: 25,
+      totalItems: 42,
+      totalPages: 2,
+    })).toEqual({ start: 26, end: 42 })
+  })
 })

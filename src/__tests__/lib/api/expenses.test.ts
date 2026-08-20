@@ -146,6 +146,19 @@ describe('expenses API', () => {
         expensesSummaryResponseSchema
       );
     });
+
+    it('forwards an abort signal to the summary request', async () => {
+      mockRequestWithSchema.mockResolvedValue(sampleSummary);
+      const signal = new AbortController().signal;
+
+      await expenses.summary({ search: 'wholesale' }, { signal });
+
+      expect(mockRequestWithSchema).toHaveBeenCalledWith(
+        '/expenses/summary?search=wholesale',
+        expensesSummaryResponseSchema,
+        { signal },
+      );
+    });
   });
 
   describe('create', () => {

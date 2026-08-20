@@ -438,6 +438,22 @@ describe('Expenses', () => {
       expect(mockList.mock.calls.some(([params]) => params?.page === 1)).toBe(true);
     });
 
+    it('corrects a stale high page with one request for the final page', async () => {
+      window.history.pushState({}, '', '/expenses?page=999&pageSize=25');
+      mockList.mockImplementation((params) => {
+        if (params?.page === 999) return Promise.resolve(listResponse([], 51, 999));
+        if (params?.page === 3) return Promise.resolve(listResponse(sampleExpenses, 51, 3));
+        return Promise.reject(new Error(`Unexpected page ${params?.page}`));
+      });
+
+      render(<Expenses />);
+
+      await waitFor(() => expect(screen.getByText('Chocolate supplies')).toBeInTheDocument());
+      expect(mockList).toHaveBeenCalledTimes(2);
+      expect(mockList.mock.calls.map(([params]) => params?.page)).toEqual([999, 3]);
+      expect(new URLSearchParams(window.location.search).get('page')).toBe('3');
+    });
+
     it('does not reload the summary when only page or page size changes', async () => {
       window.history.pushState({}, '', '/?page=1&pageSize=50');
       mockList.mockResolvedValue(listResponse(sampleExpenses, 51, 1, 50));
@@ -451,6 +467,24 @@ describe('Expenses', () => {
       expect(mockSummary).toHaveBeenCalledTimes(1);
       expect(mockSummary.mock.calls[0]?.[0]).not.toHaveProperty('page');
       expect(mockSummary.mock.calls[0]?.[0]).not.toHaveProperty('pageSize');
+    });
+
+    it('aborts an obsolete summary request when filters change', async () => {
+      const signals: AbortSignal[] = [];
+      mockSummary.mockImplementation((_params, options) => {
+        if (options?.signal) signals.push(options.signal);
+        return Promise.resolve(sampleSummary);
+      });
+      render(<Expenses />);
+
+      await waitFor(() => expect(signals).toHaveLength(1));
+      const startDateInput = document.querySelector('input[type="date"]');
+      expect(startDateInput).not.toBeNull();
+      fireEvent.change(startDateInput!, { target: { value: '2026-08-01' } });
+
+      await waitFor(() => expect(signals).toHaveLength(2));
+      expect(signals[0]?.aborted).toBe(true);
+      expect(signals[1]?.aborted).toBe(false);
     });
   });
 

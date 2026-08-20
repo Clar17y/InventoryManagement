@@ -41,12 +41,18 @@ export const expenses = {
       : requestWithSchema(path, expensesListResponseSchema)
   },
   get: (id: string) => requestWithSchema(`/expenses/${id}`, expenseResponseSchema),
-  summary: (params?: { startDate?: string; endDate?: string; search?: string }) => {
+  summary: (
+    params?: { startDate?: string; endDate?: string; search?: string },
+    options?: Pick<RequestInit, 'signal'>,
+  ) => {
     const query = new URLSearchParams()
     if (params?.startDate) query.set('startDate', params.startDate)
     if (params?.endDate) query.set('endDate', params.endDate)
     if (params?.search) query.set('search', params.search)
-    return requestWithSchema(`/expenses/summary?${query.toString()}`, expensesSummaryResponseSchema)
+    const path = `/expenses/summary?${query.toString()}`
+    return options
+      ? requestWithSchema(path, expensesSummaryResponseSchema, options)
+      : requestWithSchema(path, expensesSummaryResponseSchema)
   },
   create: (data: ExpenseCreateData) =>
     requestWithSchema('/expenses', expenseResponseSchema, {

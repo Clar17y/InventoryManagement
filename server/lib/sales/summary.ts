@@ -142,10 +142,12 @@ export async function getSalesSummary(where: Prisma.SaleWhereInput): Promise<Sal
   const hamperIds = [...new Set(lineGroups.flatMap((group) => (
     group.hamperId ? [group.hamperId] : []
   )))]
-  const hampers = await prisma.hamper.findMany({
-    where: { id: { in: hamperIds } },
-    select: { id: true, name: true },
-  })
+  const hampers = hamperIds.length > 0
+    ? await prisma.hamper.findMany({
+        where: { id: { in: hamperIds } },
+        select: { id: true, name: true },
+      })
+    : []
   const hamperNames = new Map(hampers.map((hamper) => [hamper.id, hamper.name]))
 
   return mapSalesSummary({ totals, channels, lineGroups, hamperNames, unverifiedEtsySales })

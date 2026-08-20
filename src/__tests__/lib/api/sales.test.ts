@@ -256,6 +256,19 @@ describe('sales API', () => {
         salesSummaryResponseSchema
       );
     });
+
+    it('forwards an abort signal to the summary request', async () => {
+      mockRequestWithSchema.mockResolvedValue(sampleSummary);
+      const signal = new AbortController().signal;
+
+      await sales.summary({ search: 'chocolate' }, { signal });
+
+      expect(mockRequestWithSchema).toHaveBeenCalledWith(
+        '/sales/summary?search=chocolate',
+        salesSummaryResponseSchema,
+        { signal },
+      );
+    });
   });
 
   describe('analytics', () => {

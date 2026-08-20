@@ -78,7 +78,7 @@ export default function Products() {
       && listState.data.pagination.totalItems > 0
       && page > 1
     ) {
-      setPage(Math.max(1, page - 1))
+      setPage(listState.data.pagination.totalPages)
     }
   }, [listState.data, page, setPage])
 

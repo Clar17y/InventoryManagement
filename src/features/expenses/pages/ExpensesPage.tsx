@@ -61,7 +61,7 @@ export default function Expenses() {
   })
   const summaryState = usePaginatedList({
     queryKey: JSON.stringify(summaryParams),
-    load: () => expenses.summary(summaryParams),
+    load: (signal) => expenses.summary(summaryParams, { signal }),
   })
 
   const expenseList = listState.data?.items ?? []
@@ -85,7 +85,7 @@ export default function Expenses() {
       && listState.data.pagination.totalItems > 0
       && page > 1
     ) {
-      setPage(Math.max(1, page - 1))
+      setPage(listState.data.pagination.totalPages)
     }
   }, [listState.data, page, setPage])
 

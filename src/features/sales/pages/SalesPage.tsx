@@ -61,11 +61,11 @@ export default function Sales() {
   })
   const summaryState = usePaginatedList({
     queryKey: JSON.stringify({ startDate, endDate, search: debouncedSearchQuery }),
-    load: () => sales.summary({
+    load: (signal) => sales.summary({
       startDate: startDate || undefined,
       endDate: endDate || undefined,
       search: debouncedSearchQuery || undefined,
-    }),
+    }, { signal }),
   })
 
   const saleList = listState.data?.items ?? []
@@ -122,7 +122,7 @@ export default function Sales() {
       && listState.data.pagination.totalItems > 0
       && page > 1
     ) {
-      setPage(Math.max(1, page - 1))
+      setPage(listState.data.pagination.totalPages)
     }
   }, [listState.data, page, setPage])
 

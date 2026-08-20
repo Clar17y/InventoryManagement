@@ -55,12 +55,18 @@ export const sales = {
       method: 'POST',
       body: JSON.stringify(data),
     }),
-  summary: (params?: { startDate?: string; endDate?: string; search?: string }) => {
+  summary: (
+    params?: { startDate?: string; endDate?: string; search?: string },
+    options?: Pick<RequestInit, 'signal'>,
+  ) => {
     const query = new URLSearchParams()
     if (params?.startDate) query.set('startDate', params.startDate)
     if (params?.endDate) query.set('endDate', params.endDate)
     if (params?.search) query.set('search', params.search)
-    return requestWithSchema(`/sales/summary?${query.toString()}`, salesSummaryResponseSchema)
+    const path = `/sales/summary?${query.toString()}`
+    return options
+      ? requestWithSchema(path, salesSummaryResponseSchema, options)
+      : requestWithSchema(path, salesSummaryResponseSchema)
   },
   analytics: (days = 30) =>
     requestWithSchema(`/sales/analytics/margins?days=${days}`, salesMarginAnalyticsResponseSchema),

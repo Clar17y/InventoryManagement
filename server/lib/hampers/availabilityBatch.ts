@@ -31,8 +31,78 @@ export type VariantAvailabilitySummary = {
   canMake: number
 }
 
+export interface LoadedHamperAvailability {
+  id: string
+  requirements: Array<{
+    categoryId: string
+    quantity: unknown
+    isOptional: boolean
+    category: {
+      products: Array<{
+        id: string
+        lots: Array<{ remaining: unknown }>
+      }>
+    }
+  }>
+  variants: Array<{
+    id: string
+    name: string
+    etsySku: string | null
+    sellingPrice: unknown | null
+    etsyIsEnabled: boolean
+    indicativeQuantity: number | null
+    mappings: Array<{ categoryId: string; productId: string }>
+  }>
+}
+
 function toNumber(value: unknown): number {
   return Number(value ?? 0)
+}
+
+export function availabilityInputsFromLoadedHamper(
+  hamper: LoadedHamperAvailability,
+): AvailabilityInputs {
+  const productIdsByCategorySets = new Map<string, Set<string>>()
+  const remainingByProductId = new Map<string, number>()
+
+  for (const requirement of hamper.requirements) {
+    const productIds = productIdsByCategorySets.get(requirement.categoryId) ?? new Set<string>()
+    for (const product of requirement.category.products) {
+      productIds.add(product.id)
+      remainingByProductId.set(
+        product.id,
+        product.lots.reduce((total, lot) => total + toNumber(lot.remaining), 0),
+      )
+    }
+    productIdsByCategorySets.set(requirement.categoryId, productIds)
+  }
+
+  return {
+    requirements: hamper.requirements.map((requirement) => ({
+      hamperId: hamper.id,
+      categoryId: requirement.categoryId,
+      quantity: toNumber(requirement.quantity),
+      isOptional: requirement.isOptional,
+    })),
+    variants: hamper.variants.map((variant) => ({
+      id: variant.id,
+      hamperId: hamper.id,
+      name: variant.name,
+      etsySku: variant.etsySku,
+      sellingPrice: variant.sellingPrice === null ? null : toNumber(variant.sellingPrice),
+      etsyIsEnabled: variant.etsyIsEnabled,
+      indicativeQuantity: variant.indicativeQuantity,
+    })),
+    mappings: hamper.variants.flatMap((variant) => variant.mappings.map((mapping) => ({
+      variantId: variant.id,
+      categoryId: mapping.categoryId,
+      productId: mapping.productId,
+    }))),
+    productIdsByCategory: new Map(
+      [...productIdsByCategorySets].map(([categoryId, productIds]) => [categoryId, [...productIds]]),
+    ),
+    remainingByProductId,
+  }
 }
 
 export async function loadAvailabilityInputs(hamperIds: string[]): Promise<AvailabilityInputs> {

@@ -22,6 +22,8 @@ type ListQuery = {
   sort: HamperSort
 }
 
+type HamperListRow = Prisma.HamperGetPayload<{ include: typeof hamperInclude }>
+
 export type HampersListResult = {
   items: unknown[]
   totalItems: number
@@ -145,11 +147,15 @@ export function buildAvailabilitySortSql(
   return availabilitySortSql(normalizeQuery(query), skip, take)
 }
 
-async function hydrateHampers(ids: string[], hideEtsyHidden: boolean): Promise<unknown[]> {
+async function hydrateHampers(
+  ids: string[],
+  hideEtsyHidden: boolean,
+  loadedRows?: HamperListRow[],
+): Promise<unknown[]> {
   if (ids.length === 0) return []
 
   const [rows, inputs] = await Promise.all([
-    prisma.hamper.findMany({
+    loadedRows ?? prisma.hamper.findMany({
       where: { id: { in: ids }, isActive: true },
       include: hamperInclude,
     }),
@@ -204,7 +210,7 @@ export async function listHampers(query: HampersListQuery): Promise<HampersListR
   ])
 
   const ids = rows.map((row) => row.id)
-  const items = await hydrateHampers(ids, normalized.hideEtsyHidden)
+  const items = await hydrateHampers(ids, normalized.hideEtsyHidden, rows)
   return { items, totalItems }
 }
 

@@ -112,7 +112,7 @@ describe('hampers pagination router', () => {
         itemCount: result.items.length,
         totalItems: result.totalItems,
         calls: {
-          pageAndHydration: mockPrisma.hamper.findMany.mock.calls.length,
+          hamperFindMany: mockPrisma.hamper.findMany.mock.calls.length,
           count: mockPrisma.hamper.count.mock.calls.length,
           requirements: mockPrisma.hamperRequirement.findMany.mock.calls.length,
           variants: mockPrisma.hamperVariant.findMany.mock.calls.length,
@@ -127,7 +127,7 @@ describe('hampers pagination router', () => {
       itemCount: 25,
       totalItems: 100,
       calls: {
-        pageAndHydration: 2,
+        hamperFindMany: 1,
         count: 1,
         requirements: 1,
         variants: 1,
@@ -140,7 +140,7 @@ describe('hampers pagination router', () => {
       itemCount: 100,
       totalItems: 100,
       calls: {
-        pageAndHydration: 2,
+        hamperFindMany: 1,
         count: 1,
         requirements: 1,
         variants: 1,
@@ -250,7 +250,7 @@ describe('hampers pagination router', () => {
     expect(response.status).toBe(200)
     expect(body.pagination).toEqual({ page: 2, pageSize: 25, totalItems: 51, totalPages: 3 })
     expect(mockPrisma.hamper.findMany.mock.calls[0]?.[0]).toMatchObject({ skip: 25, take: 25, orderBy })
-    expect(mockPrisma.hamper.findMany).toHaveBeenCalledTimes(2)
+    expect(mockPrisma.hamper.findMany).toHaveBeenCalledTimes(1)
     expect(mockPrisma.hamper.count).toHaveBeenCalledTimes(1)
     expect(mockPrisma.hamperRequirement.findMany).toHaveBeenCalledTimes(1)
     expect(mockPrisma.hamperVariant.findMany).toHaveBeenCalledTimes(1)
@@ -304,41 +304,67 @@ describe('hampers pagination router', () => {
     ])
   })
 
-  it('uses the shared batch calculation for rich ordinary Hamper availability', async () => {
+  it('reuses the rich Hamper graph for shared ordinary and variant availability', async () => {
     mockPrisma.hamper.findUnique.mockResolvedValue({
       ...hamper,
-      hasVariants: false,
-      requirements: [{
-        id: 'requirement-1',
-        hamperId: hamper.id,
-        categoryId: 'category-1',
-        quantity: 2,
-        isOptional: false,
-        category: {
-          id: 'category-1',
-          name: 'Chocolate',
-          products: [{ id: 'product-1', lots: [{ remaining: 5, unitCost: 1 }] }],
+      requirements: [
+        {
+          id: 'requirement-1',
+          hamperId: hamper.id,
+          categoryId: 'category-1',
+          quantity: 2,
+          isOptional: false,
+          category: {
+            id: 'category-1',
+            name: 'Chocolate',
+            products: [{ id: 'product-1', lots: [{ remaining: 5, unitCost: 1 }] }],
+          },
         },
-      }],
-      variants: [],
+        {
+          id: 'requirement-2',
+          hamperId: hamper.id,
+          categoryId: 'category-2',
+          quantity: 1,
+          isOptional: true,
+          category: {
+            id: 'category-2',
+            name: 'Tea',
+            products: [{ id: 'product-2', lots: [{ remaining: 3, unitCost: 2 }] }],
+          },
+        },
+      ],
+      variants: [
+        {
+          id: 'variant-1', hamperId: hamper.id, name: 'Mapped', etsySku: null,
+          sellingPrice: null, etsyIsEnabled: true, indicativeQuantity: null,
+          mappings: [{
+            categoryId: 'category-2', productId: 'product-2', priority: 0,
+            category: { id: 'category-2', name: 'Tea' },
+            product: { id: 'product-2', name: 'Tea Product', lots: [{ remaining: 3 }] },
+          }],
+        },
+        {
+          id: 'variant-2', hamperId: hamper.id, name: 'Fallback', etsySku: null,
+          sellingPrice: null, etsyIsEnabled: true, indicativeQuantity: null, mappings: [],
+        },
+      ],
     })
-    mockPrisma.hamperRequirement.findMany.mockResolvedValue([
-      { hamperId: hamper.id, categoryId: 'category-1', quantity: 2, isOptional: false },
-    ])
-    mockPrisma.product.findMany.mockResolvedValue([{ id: 'product-1', categoryId: 'category-1' }])
-    mockPrisma.inventoryLot.groupBy.mockResolvedValue([
-      { productId: 'product-1', _sum: { remaining: 5 } },
-    ])
     const baseUrl = await startServer()
     const response = await fetch(`${baseUrl}/api/hampers/${hamper.id}`)
     const body = await response.json()
 
     expect(response.status).toBe(200)
     expect(body.canMake).toBe(2)
-    expect(mockPrisma.hamperRequirement.findMany).toHaveBeenCalledWith(expect.objectContaining({
-      where: { hamperId: { in: [hamper.id] } },
-    }))
-    expect(mockPrisma.inventoryLot.groupBy).toHaveBeenCalledTimes(1)
+    expect(body.variantAvailability).toEqual([
+      expect.objectContaining({ variantId: 'variant-1', canMake: 2 }),
+      expect.objectContaining({ variantId: 'variant-2', canMake: 2 }),
+    ])
+    expect(mockPrisma.hamper.findUnique).toHaveBeenCalledTimes(1)
+    expect(mockPrisma.hamperRequirement.findMany).not.toHaveBeenCalled()
+    expect(mockPrisma.hamperVariant.findMany).not.toHaveBeenCalled()
+    expect(mockPrisma.hamperVariantMapping.findMany).not.toHaveBeenCalled()
+    expect(mockPrisma.product.findMany).not.toHaveBeenCalled()
+    expect(mockPrisma.inventoryLot.groupBy).not.toHaveBeenCalled()
   })
 
   it('rejects unsupported page sizes before loading data', async () => {

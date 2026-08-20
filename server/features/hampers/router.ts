@@ -9,6 +9,7 @@ import {
   hampersUpdateBodySchema,
 } from '#contracts/routes/hampers'
 import {
+  availabilityInputsFromLoadedHamper,
   calculateAvailabilityMap,
   calculateVariantAvailabilityMap,
   loadAvailabilityInputs,
@@ -131,16 +132,19 @@ router.get('/:id', async (req, res) => {
       0
     )
 
-    const availabilityInputs = await loadAvailabilityInputs([hamper.id])
+    const availabilityInputs = availabilityInputsFromLoadedHamper(hamper)
     const canMake = calculateAvailabilityMap(availabilityInputs).get(hamper.id) ?? 0
     const variantAvailabilityByHamper = hamper.hasVariants
       ? calculateVariantAvailabilityMap(availabilityInputs).get(hamper.id) ?? []
       : []
+    const availabilityByVariantId = new Map(
+      variantAvailabilityByHamper.map((variant) => [variant.variantId, variant]),
+    )
 
     // Calculate variant availability if hasVariants
     const variantAvailability = hamper.hasVariants
       ? hamper.variants.map((variant) => {
-        const summary = variantAvailabilityByHamper.find((item) => item.variantId === variant.id)
+        const summary = availabilityByVariantId.get(variant.id)
         return {
           variantId: variant.id,
           name: variant.name,

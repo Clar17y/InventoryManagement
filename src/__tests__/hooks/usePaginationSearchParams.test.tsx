@@ -46,4 +46,24 @@ describe('usePaginationSearchParams', () => {
     expect(new URLSearchParams(window.location.search).get('page')).toBe('1')
     expect(new URLSearchParams(window.location.search).get('pageSize')).toBe('100')
   })
+
+  it('keeps callbacks stable and skips an identical page reset', () => {
+    window.history.pushState({}, '', '/sales?page=1&pageSize=25')
+    const states: PaginationSearchParams[] = []
+    const { rerender } = render(
+      <PaginationHarness onState={(nextState) => { states.push(nextState) }} />,
+    )
+    const first = states[states.length - 1]!
+
+    rerender(<PaginationHarness onState={(nextState) => { states.push(nextState) }} />)
+    const second = states[states.length - 1]!
+
+    expect(second.setPage).toBe(first.setPage)
+    expect(second.setPageSize).toBe(first.setPageSize)
+    expect(second.resetPage).toBe(first.resetPage)
+
+    const rendersBeforeReset = states.length
+    act(() => second.resetPage())
+    expect(states).toHaveLength(rendersBeforeReset)
+  })
 })

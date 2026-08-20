@@ -341,6 +341,22 @@ describe('Products', () => {
       await waitFor(() => expect(screen.getByText('Orange Juice')).toBeInTheDocument());
     });
 
+    it('corrects a stale high page with one request for the final page', async () => {
+      window.history.pushState({}, '', '/products?page=999&pageSize=25');
+      mockProductsList.mockImplementation((params) => {
+        if (params?.page === 999) return Promise.resolve(listResponse([], 51, 999) as any);
+        if (params?.page === 3) return Promise.resolve(listResponse([sampleProducts[0]!], 51, 3) as any);
+        return Promise.reject(new Error(`Unexpected page ${params?.page}`));
+      });
+
+      render(<Products />);
+
+      await waitFor(() => expect(screen.getByText('Dark Chocolate Bar')).toBeInTheDocument());
+      expect(mockProductsList).toHaveBeenCalledTimes(2);
+      expect(mockProductsList.mock.calls.map(([params]) => params?.page)).toEqual([999, 3]);
+      expect(new URLSearchParams(window.location.search).get('page')).toBe('3');
+    });
+
     it('aborts the first request and ignores its late response after a newer query starts', async () => {
       const user = userEvent.setup();
       let resolveFirst!: (value: ReturnType<typeof listResponse>) => void;

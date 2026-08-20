@@ -144,4 +144,20 @@ describe('sales summary aggregation', () => {
     })
     expect(mockPrisma.sale.findMany).not.toHaveBeenCalled()
   })
+
+  it('does not query Hampers when the summary has no Hamper-backed lines', async () => {
+    mockPrisma.saleLine.groupBy.mockResolvedValue([
+      {
+        hamperId: null,
+        description: 'Custom basket',
+        unitPrice: new Prisma.Decimal('7.50'),
+        _sum: { quantity: 2 },
+      },
+    ])
+
+    const result = await getSalesSummary({})
+
+    expect(result.byHamper).toEqual([{ name: 'Custom basket', count: 2, revenue: 15 }])
+    expect(mockPrisma.hamper.findMany).not.toHaveBeenCalled()
+  })
 })

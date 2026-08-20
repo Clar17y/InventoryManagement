@@ -4,7 +4,6 @@ import { usePaginationSearchParams } from '../../../hooks/usePaginationSearchPar
 import { usePaginatedList } from '../../../hooks/usePaginatedList'
 import {
   sales,
-  hampers,
   inventory,
   settings,
   SalePreview,
@@ -104,20 +103,6 @@ export default function Sales() {
     listState.retry()
     summaryState.retry()
   }
-
-  // Load hampers once for the record-sale reference data.
-  useEffect(() => {
-    let active = true
-    hampers.list({ page: 1, pageSize: 100, hideEtsyHidden: false, sort: 'name-asc' }).then((response) => {
-      if (active) setHamperList(response.items)
-    }).catch((err: unknown) => {
-      if (active) setError(err instanceof Error ? err.message : 'Failed to load hampers')
-    })
-
-    return () => {
-      active = false
-    }
-  }, [])
 
   // Load postage tiers on mount and set default cost
   useEffect(() => {
@@ -245,6 +230,14 @@ export default function Sales() {
     }
   }
 
+  const handleSelectHamper = (index: number, hamper: Hamper) => {
+    setHamperList((current) => [
+      ...current.filter((item) => item.id !== hamper.id),
+      hamper,
+    ])
+    handleUpdateLine(index, { hamperId: hamper.id, variantId: undefined })
+  }
+
   const handleCancel = () => {
     setViewMode('list')
     setLines([{ quantity: 1 }])
@@ -260,6 +253,7 @@ export default function Sales() {
     setOverrides({})
     setEditingOverride(null)
     setIsHistorical(false)
+    setHamperList([])
   }
 
   const handleStartOverride = (hamperIdx: number, categoryId: string) => {
@@ -419,6 +413,7 @@ export default function Sales() {
         handleAddLine={handleAddLine}
         handleRemoveLine={handleRemoveLine}
         handleUpdateLine={handleUpdateLine}
+        handleSelectHamper={handleSelectHamper}
         handleSubmit={handleSubmit}
         handleStartOverride={handleStartOverride}
         handleClearOverride={handleClearOverride}

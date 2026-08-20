@@ -159,7 +159,7 @@ describe('Sales', () => {
     mockSalesSummary.mockResolvedValue(sampleSummary);
     mockHampersList.mockResolvedValue({
       items: sampleHampers,
-      pagination: { page: 1, pageSize: 100, totalItems: sampleHampers.length, totalPages: 1 },
+      pagination: { page: 1, pageSize: 25, totalItems: sampleHampers.length, totalPages: 1 },
     } as any);
     mockSalesPreview.mockResolvedValue(samplePreview as any);
     mockEtsyGetStatus.mockResolvedValue({ connected: false });
@@ -389,7 +389,7 @@ describe('Sales', () => {
       expect(screen.getByRole('button', { name: 'Fair/Market' })).toBeInTheDocument();
     });
 
-    it('has hamper selection dropdown', async () => {
+    it('has a searchable Hamper lookup', async () => {
       const user = userEvent.setup();
       render(<Sales />);
 
@@ -400,7 +400,7 @@ describe('Sales', () => {
       await user.click(screen.getByRole('button', { name: /record sale/i }));
 
       expect(screen.getByText('Items')).toBeInTheDocument();
-      expect(screen.getByText('Select hamper...')).toBeInTheDocument();
+      expect(screen.getByRole('searchbox', { name: 'Search hampers' })).toBeInTheDocument();
     });
 
     it('has postage inputs', async () => {
@@ -428,13 +428,60 @@ describe('Sales', () => {
 
       await user.click(screen.getByRole('button', { name: /record sale/i }));
 
-      // Select a hamper
-      const hamperSelect = screen.getByRole('combobox');
-      await user.selectOptions(hamperSelect, 'ham-1');
+      const hamperSearch = screen.getByRole('searchbox', { name: 'Search hampers' });
+      await user.click(hamperSearch);
+      await user.click(await screen.findByRole('button', { name: 'Select Chocolate Lovers' }));
 
       await waitFor(() => {
-        expect(mockSalesPreview).toHaveBeenCalled();
+        expect(mockSalesPreview).toHaveBeenCalledWith(expect.objectContaining({
+          lines: [expect.objectContaining({ hamperId: 'ham-1' })],
+        }));
       });
+    });
+
+    it('reaches Hampers beyond the first 100 through local numbered pages', async () => {
+      const target = { ...sampleHampers[0]!, id: 'ham-101', name: 'Hamper 101' };
+      mockHampersList.mockImplementation((params) => Promise.resolve({
+        items: params?.page === 2 ? [target] : sampleHampers,
+        pagination: { page: params?.page ?? 1, pageSize: 25, totalItems: 101, totalPages: 5 },
+      } as any));
+      const user = userEvent.setup();
+      render(<Sales />);
+
+      await user.click(await screen.findByRole('button', { name: /record sale/i }));
+      await user.click(screen.getByRole('searchbox', { name: 'Search hampers' }));
+      await waitFor(() => expect(mockHampersList).toHaveBeenCalledWith(
+        { page: 1, pageSize: 25, search: undefined, hideEtsyHidden: false, sort: 'name-asc' },
+        { signal: expect.any(AbortSignal) },
+      ));
+      await user.click(await screen.findByRole('button', { name: '2' }));
+      await user.click(await screen.findByRole('button', { name: 'Select Hamper 101' }));
+
+      expect(screen.getByText('Selected: Hamper 101')).toBeInTheDocument();
+      expect(window.location.search).toBe('');
+    });
+
+    it('server-searches all eligible Hampers without changing the Sales URL', async () => {
+      const target = { ...sampleHampers[0]!, id: 'ham-rare', name: 'Rare Hamper' };
+      mockHampersList.mockImplementation((params) => Promise.resolve({
+        items: params?.search === 'rare' ? [target] : sampleHampers,
+        pagination: { page: 1, pageSize: 25, totalItems: params?.search === 'rare' ? 1 : 101, totalPages: params?.search === 'rare' ? 1 : 5 },
+      } as any));
+      const user = userEvent.setup();
+      render(<Sales />);
+
+      await user.click(await screen.findByRole('button', { name: /record sale/i }));
+      const search = screen.getByRole('searchbox', { name: 'Search hampers' });
+      await user.click(search);
+      await user.type(search, 'rare');
+
+      await waitFor(() => expect(mockHampersList).toHaveBeenCalledWith(
+        expect.objectContaining({ page: 1, pageSize: 25, search: 'rare' }),
+        { signal: expect.any(AbortSignal) },
+      ));
+      await user.click(await screen.findByRole('button', { name: 'Select Rare Hamper' }));
+      expect(screen.getByText('Selected: Rare Hamper')).toBeInTheDocument();
+      expect(window.location.search).toBe('');
     });
 
     it('has cancel button', async () => {
@@ -513,7 +560,7 @@ describe('Sales', () => {
         expect(mockSalesList).toHaveBeenCalledTimes(2);
         expect(mockSalesSummary).toHaveBeenCalledTimes(2);
       });
-      expect(mockHampersList).toHaveBeenCalledTimes(1);
+      expect(mockHampersList).not.toHaveBeenCalled();
     });
 
     it('changes only the list query when moving to page two', async () => {

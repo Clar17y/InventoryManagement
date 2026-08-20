@@ -1,6 +1,7 @@
 import { XMarkIcon } from '@heroicons/react/24/outline'
 import type { Hamper } from '../../../../lib/api'
 import { formatCurrency } from '../../../../lib/formatting'
+import HamperLookupField from '../../../hampers/components/HamperLookupField'
 import type { SaleLineInput } from '../../types'
 
 interface SaleItemsCardProps {
@@ -9,6 +10,7 @@ interface SaleItemsCardProps {
   handleAddLine: (bespoke?: boolean) => void
   handleRemoveLine: (index: number) => void
   handleUpdateLine: (index: number, updates: Partial<SaleLineInput>) => void
+  handleSelectHamper: (index: number, hamper: Hamper) => void
 }
 
 export default function SaleItemsCard({
@@ -17,6 +19,7 @@ export default function SaleItemsCard({
   handleAddLine,
   handleRemoveLine,
   handleUpdateLine,
+  handleSelectHamper,
 }: SaleItemsCardProps) {
   return (
     <div className="card space-y-4">
@@ -34,7 +37,9 @@ export default function SaleItemsCard({
 
       <div className="space-y-2">
         {lines.map((line, index) => {
-          const selectedHamper = line.hamperId ? hamperList.find((h) => h.id === line.hamperId) : null
+          const selectedHamper = line.hamperId
+            ? hamperList.find((hamper) => hamper.id === line.hamperId) ?? null
+            : null
           const lineTotal = line.isBespoke
             ? (line.unitPrice || 0) * line.quantity
             : selectedHamper
@@ -87,19 +92,10 @@ export default function SaleItemsCard({
                 // Hamper selection row
                 <div className="space-y-2">
                   <div className="flex gap-2 items-center">
-                    <select
-                      value={line.hamperId || ''}
-                      onChange={(e) => handleUpdateLine(index, { hamperId: e.target.value, variantId: undefined })}
-                      className="input flex-1"
-                    >
-                      <option value="">Select hamper...</option>
-                      {hamperList.map((h) => (
-                        <option key={h.id} value={h.id}>
-                          {h.name} - {formatCurrency(Number(h.sellingPrice))}
-                          {h.hasVariants ? ' (has variants)' : ` (Can make: ${h.canMake})`}
-                        </option>
-                      ))}
-                    </select>
+                    <HamperLookupField
+                      value={selectedHamper}
+                      onChange={(hamper) => handleSelectHamper(index, hamper)}
+                    />
                     <input
                       type="number"
                       min="1"

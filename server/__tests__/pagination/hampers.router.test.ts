@@ -1,4 +1,5 @@
 import { createServer, type Server } from 'node:http'
+import { PGlite } from '@electric-sql/pglite'
 import express from 'express'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -16,6 +17,7 @@ vi.mock('../../lib/prisma', () => ({
 
 import { prisma } from '../../lib/prisma'
 import hampersRouter from '../../features/hampers/router'
+import { buildAvailabilitySortSql, listHampers } from '../../lib/hampers/list'
 
 const mockPrisma = prisma as unknown as {
   hamper: {
@@ -38,6 +40,13 @@ const hamper = {
   requirements: [],
 }
 let activeServer: Server | null = null
+
+function toParameterizedSql(statement: { strings: readonly string[]; values: readonly unknown[] }) {
+  return statement.strings.reduce(
+    (sql, chunk, index) => sql + chunk + (index < statement.values.length ? `$${index + 1}` : ''),
+    '',
+  )
+}
 
 async function startServer(): Promise<string> {
   const app = express()
@@ -70,6 +79,159 @@ beforeEach(() => {
 })
 
 describe('hampers pagination router', () => {
+  it('keeps list and availability query counts fixed when the page grows', async () => {
+    const fixture = Array.from({ length: 100 }, (_, index) => ({
+      ...hamper,
+      id: `hamper-${index + 1}`,
+      name: `Hamper ${index + 1}`,
+      hasVariants: false,
+    }))
+
+    const run = async (pageSize: 25 | 100) => {
+      vi.clearAllMocks()
+      mockPrisma.hamper.findMany.mockImplementation(async (args: { skip?: number; take?: number; where?: { id?: { in?: string[] } } }) => {
+        if (args.skip !== undefined) return fixture.slice(args.skip, args.skip + (args.take ?? 0))
+        const ids = args.where?.id?.in
+        return ids ? fixture.filter((row) => ids.includes(row.id)) : fixture
+      })
+      mockPrisma.hamper.count.mockResolvedValue(fixture.length)
+      mockPrisma.hamperRequirement.findMany.mockResolvedValue([])
+      mockPrisma.hamperVariant.findMany.mockResolvedValue([])
+      mockPrisma.hamperVariantMapping.findMany.mockResolvedValue([])
+      mockPrisma.product.findMany.mockResolvedValue([])
+      mockPrisma.inventoryLot.groupBy.mockResolvedValue([])
+
+      const result = await listHampers({
+        page: 1,
+        pageSize,
+        hideEtsyHidden: false,
+        sort: 'name-asc',
+      })
+
+      return {
+        itemCount: result.items.length,
+        totalItems: result.totalItems,
+        calls: {
+          pageAndHydration: mockPrisma.hamper.findMany.mock.calls.length,
+          count: mockPrisma.hamper.count.mock.calls.length,
+          requirements: mockPrisma.hamperRequirement.findMany.mock.calls.length,
+          variants: mockPrisma.hamperVariant.findMany.mock.calls.length,
+          mappings: mockPrisma.hamperVariantMapping.findMany.mock.calls.length,
+          products: mockPrisma.product.findMany.mock.calls.length,
+          lots: mockPrisma.inventoryLot.groupBy.mock.calls.length,
+        },
+      }
+    }
+
+    await expect(run(25)).resolves.toEqual({
+      itemCount: 25,
+      totalItems: 100,
+      calls: {
+        pageAndHydration: 2,
+        count: 1,
+        requirements: 1,
+        variants: 1,
+        mappings: 1,
+        products: 1,
+        lots: 1,
+      },
+    })
+    await expect(run(100)).resolves.toEqual({
+      itemCount: 100,
+      totalItems: 100,
+      calls: {
+        pageAndHydration: 2,
+        count: 1,
+        requirements: 1,
+        variants: 1,
+        mappings: 1,
+        products: 1,
+        lots: 1,
+      },
+    })
+  })
+
+  it('executes the computed availability CTE with global ordering, visibility, and total metadata', async () => {
+    const db = new PGlite()
+    try {
+      await db.exec(`
+        CREATE TABLE "Hamper" (
+          "id" TEXT PRIMARY KEY,
+          "name" TEXT NOT NULL,
+          "isActive" BOOLEAN NOT NULL,
+          "etsyIsEnabled" BOOLEAN NOT NULL,
+          "hasVariants" BOOLEAN NOT NULL
+        );
+        CREATE TABLE "HamperVariant" (
+          "id" TEXT PRIMARY KEY,
+          "hamperId" TEXT NOT NULL,
+          "isActive" BOOLEAN NOT NULL,
+          "etsyIsEnabled" BOOLEAN NOT NULL
+        );
+        CREATE TABLE "HamperRequirement" (
+          "id" TEXT PRIMARY KEY,
+          "hamperId" TEXT NOT NULL,
+          "categoryId" TEXT NOT NULL,
+          "quantity" NUMERIC NOT NULL,
+          "isOptional" BOOLEAN NOT NULL
+        );
+        CREATE TABLE "Product" (
+          "id" TEXT PRIMARY KEY,
+          "categoryId" TEXT NOT NULL,
+          "isActive" BOOLEAN NOT NULL
+        );
+        CREATE TABLE "InventoryLot" (
+          "id" TEXT PRIMARY KEY,
+          "productId" TEXT NOT NULL,
+          "remaining" NUMERIC NOT NULL
+        );
+        INSERT INTO "Hamper" ("id", "name", "isActive", "etsyIsEnabled", "hasVariants") VALUES
+          ('h1', 'Tea Ordinary', TRUE, TRUE, FALSE),
+          ('h2', 'Tea Disabled', TRUE, FALSE, FALSE),
+          ('h3', 'Tea Variant', TRUE, TRUE, TRUE),
+          ('h4', 'Tea Hidden Variant', TRUE, TRUE, TRUE),
+          ('h5', 'Tea Secondary', TRUE, TRUE, FALSE);
+        INSERT INTO "HamperVariant" ("id", "hamperId", "isActive", "etsyIsEnabled") VALUES
+          ('v3', 'h3', TRUE, TRUE),
+          ('v4', 'h4', TRUE, FALSE);
+        INSERT INTO "HamperRequirement" ("id", "hamperId", "categoryId", "quantity", "isOptional") VALUES
+          ('r1', 'h1', 'category-a', 2, FALSE),
+          ('r3', 'h3', 'category-b', 1, FALSE),
+          ('r4', 'h4', 'category-c', 1, FALSE),
+          ('r5', 'h5', 'category-a', 3, FALSE);
+        INSERT INTO "Product" ("id", "categoryId", "isActive") VALUES
+          ('p1', 'category-a', TRUE),
+          ('p2', 'category-b', TRUE),
+          ('p3', 'category-c', TRUE);
+        INSERT INTO "InventoryLot" ("id", "productId", "remaining") VALUES
+          ('l1', 'p1', 8),
+          ('l2', 'p2', 6),
+          ('l3', 'p3', 100);
+      `)
+
+      const execute = async (offset: number) => {
+        const statement = buildAvailabilitySortSql({
+          page: 1,
+          pageSize: 25,
+          search: 'Tea',
+          hideEtsyHidden: true,
+          sort: 'canmake-desc',
+        }, offset, 1)
+        const result = await db.query<{ id: string; totalItems: number | string }>(
+          toParameterizedSql(statement),
+          statement.values as unknown[],
+        )
+        return result.rows
+      }
+
+      await expect(execute(0)).resolves.toEqual([{ id: 'h3', totalItems: 3 }])
+      await expect(execute(1)).resolves.toEqual([{ id: 'h1', totalItems: 3 }])
+      await expect(execute(2)).resolves.toEqual([{ id: 'h5', totalItems: 3 }])
+    } finally {
+      await db.close()
+    }
+  })
+
   const prismaSorts = [
     ['name-asc', [{ name: 'asc' }, { id: 'asc' }]],
     ['name-desc', [{ name: 'desc' }, { id: 'desc' }]],

@@ -130,11 +130,19 @@ function availabilitySortSql(query: ListQuery, skip: number, take: number): Pris
       WHERE ${whereSql}
       GROUP BY h."id"
     )
-    SELECT "id"
+    SELECT "id", COUNT(*) OVER() AS "totalItems"
     FROM hamper_availability
     ORDER BY "canMake" ${direction}, "id" ${direction}
     LIMIT ${take} OFFSET ${skip}
   `
+}
+
+export function buildAvailabilitySortSql(
+  query: HampersListQuery,
+  skip: number,
+  take: number,
+): Prisma.Sql {
+  return availabilitySortSql(normalizeQuery(query), skip, take)
 }
 
 async function hydrateHampers(ids: string[], hideEtsyHidden: boolean): Promise<unknown[]> {

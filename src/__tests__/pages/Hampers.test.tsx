@@ -357,6 +357,10 @@ describe('Hampers', () => {
         id: 'ham-variants',
         name: 'Variant Chocolate Hamper',
         hasVariants: true,
+        requirements: [
+          ...sampleHampers[0]!.requirements,
+          { id: 'req-2', categoryId: 'cat-2', category: { id: 'cat-2', name: 'Drinks' }, quantity: 1, isOptional: false },
+        ],
       };
       const existingVariant = {
         id: 'variant-1',
@@ -373,6 +377,12 @@ describe('Hampers', () => {
           priority: 1,
           category: { id: 'cat-1', name: 'Chocolates' },
           product: { id: 'prod-existing', name: 'Legacy Chocolate' },
+        }, {
+          categoryId: 'cat-2',
+          productId: 'prod-drink',
+          priority: 1,
+          category: { id: 'cat-2', name: 'Drinks' },
+          product: { id: 'prod-drink', name: 'Legacy Drink' },
         }],
       };
       mockHampersList.mockResolvedValue([variantHamper] as any);
@@ -387,14 +397,27 @@ describe('Hampers', () => {
       await user.click(await screen.findByTitle('Edit variant'));
 
       expect((await screen.findAllByText(/Legacy Chocolate/)).length).toBeGreaterThan(0);
-      await user.click((await screen.findAllByRole('button', { name: 'Select New Chocolate' }))[0]!);
+      expect(screen.getAllByRole('searchbox', { name: 'Search products' })).toHaveLength(4);
+      expect(mockProductsList).not.toHaveBeenCalled();
+
+      await user.click(screen.getAllByRole('searchbox', { name: 'Search products' })[0]!);
+      await waitFor(() => expect(mockProductsList).toHaveBeenCalledTimes(1));
+      expect(mockProductsList).toHaveBeenCalledWith(
+        { categoryId: 'cat-1', page: 1, pageSize: 25, search: undefined },
+        { signal: expect.any(AbortSignal) },
+      );
+
+      await user.click(await screen.findByRole('button', { name: 'Select New Chocolate' }));
       await user.click(screen.getByRole('button', { name: 'Update Variant' }));
 
       await waitFor(() => expect(mockHamperVariantUpdate).toHaveBeenCalledWith(
         'ham-variants',
         'variant-1',
         expect.objectContaining({
-          mappings: [{ categoryId: 'cat-1', productId: 'prod-new', priority: 1 }],
+          mappings: [
+            { categoryId: 'cat-1', productId: 'prod-new', priority: 1 },
+            { categoryId: 'cat-2', productId: 'prod-drink', priority: 1 },
+          ],
         }),
       ));
       expect(mockProductsListAll).not.toHaveBeenCalled();

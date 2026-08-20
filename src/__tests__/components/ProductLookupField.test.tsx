@@ -27,6 +27,7 @@ describe('ProductLookupField', () => {
 
   it('keeps the selected product label visible when it is outside the current result page', async () => {
     mockProductsList.mockResolvedValue(response([productFixtures[1]!]))
+    const user = userEvent.setup()
 
     render(
       <ProductLookupField
@@ -37,7 +38,16 @@ describe('ProductLookupField', () => {
     )
 
     expect(screen.getByText(/Dark Chocolate Bar/)).toBeInTheDocument()
+    expect(mockProductsList).not.toHaveBeenCalled()
+    expect(screen.queryByRole('navigation', { name: 'Pagination' })).not.toBeInTheDocument()
+
+    const input = screen.getByRole('searchbox', { name: 'Search products' })
+    await user.click(input)
     await waitFor(() => expect(screen.getByRole('button', { name: /orange juice/i })).toBeInTheDocument())
+    expect(screen.getByText(/Dark Chocolate Bar/)).toBeInTheDocument()
+
+    await user.keyboard('{Escape}')
+    expect(screen.queryByRole('button', { name: /orange juice/i })).not.toBeInTheDocument()
     expect(screen.getByText(/Dark Chocolate Bar/)).toBeInTheDocument()
   })
 
@@ -48,6 +58,7 @@ describe('ProductLookupField', () => {
 
     render(<ProductLookupField value={null} onChange={onChange} />)
 
+    await user.click(screen.getByRole('searchbox', { name: 'Search products' }))
     await user.click(await screen.findByRole('button', { name: /orange juice/i }))
     expect(onChange).toHaveBeenCalledWith(productFixtures[1])
   })
@@ -60,6 +71,7 @@ describe('ProductLookupField', () => {
 
     render(<ProductLookupField value={null} onChange={vi.fn()} />)
 
+    await user.click(screen.getByRole('searchbox', { name: 'Search products' }))
     expect(await screen.findByText('Product search failed')).toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: 'Retry' }))
 

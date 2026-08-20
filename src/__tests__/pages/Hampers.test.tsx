@@ -29,14 +29,16 @@ vi.mock('../../lib/api', () => ({
 }));
 
 import Hampers from '../../pages/Hampers';
-import { hampers, categories, products } from '../../lib/api';
+import { hampers, categories, products, hamperVariants } from '../../lib/api';
 
   const mockHampersList = vi.mocked(hampers.list);
   const mockHampersGet = vi.mocked(hampers.get);
   const mockHampersUpdate = vi.mocked(hampers.update);
   const mockHampersDelete = vi.mocked(hampers.delete);
   const mockCategoriesList = vi.mocked(categories.list);
-  const mockProductsList = vi.mocked(products.listAll);
+  const mockProductsList = vi.mocked(products.list);
+  const mockProductsListAll = vi.mocked(products.listAll);
+  const mockHamperVariantUpdate = vi.mocked(hamperVariants.update);
 
 describe('Hampers', () => {
   const sampleCategories = [
@@ -106,6 +108,10 @@ describe('Hampers', () => {
     mockHampersGet.mockResolvedValue(sampleHamperDetail as any);
     mockCategoriesList.mockResolvedValue(sampleCategories as any);
     mockProductsList.mockResolvedValue({
+      items: sampleProducts,
+      pagination: { page: 1, pageSize: 25, totalItems: sampleProducts.length, totalPages: 1 },
+    } as any);
+    mockProductsListAll.mockResolvedValue({
       items: sampleProducts,
       pagination: { page: 1, pageSize: 25, totalItems: sampleProducts.length, totalPages: 1 },
     } as any);
@@ -340,16 +346,11 @@ describe('Hampers', () => {
       expect(screen.getByRole('checkbox', { name: /remove chocolates/i })).toBeInTheDocument();
     });
 
-    it('makes compatibility products beyond the first 100 available to variant forms', async () => {
+    it('preserves an existing mapping label and replaces its ID through product lookup', async () => {
       const user = userEvent.setup();
-      const allProducts = Array.from({ length: 101 }, (_, index) => ({
-        id: `prod-${index + 1}`,
-        name: `Chocolate ${index + 1}`,
-        categoryId: 'cat-1',
-      }));
       mockProductsList.mockResolvedValue({
-        items: allProducts,
-        pagination: { page: 1, pageSize: 100, totalItems: 101, totalPages: 2 },
+        items: [{ id: 'prod-new', name: 'New Chocolate', categoryId: 'cat-1', unit: 'units' }],
+        pagination: { page: 1, pageSize: 25, totalItems: 1, totalPages: 1 },
       } as any);
       const variantHamper = {
         ...sampleHampers[0],
@@ -357,16 +358,46 @@ describe('Hampers', () => {
         name: 'Variant Chocolate Hamper',
         hasVariants: true,
       };
+      const existingVariant = {
+        id: 'variant-1',
+        hamperId: 'ham-variants',
+        name: 'Classic',
+        etsySku: null,
+        etsyIsEnabled: true,
+        isActive: true,
+        createdAt: '2024-01-01T00:00:00Z',
+        updatedAt: '2024-01-01T00:00:00Z',
+        mappings: [{
+          categoryId: 'cat-1',
+          productId: 'prod-existing',
+          priority: 1,
+          category: { id: 'cat-1', name: 'Chocolates' },
+          product: { id: 'prod-existing', name: 'Legacy Chocolate' },
+        }],
+      };
       mockHampersList.mockResolvedValue([variantHamper] as any);
-      mockHampersGet.mockResolvedValue({ ...variantHamper, variants: [] } as any);
+      mockHampersGet.mockResolvedValue({ ...variantHamper, variants: [existingVariant] } as any);
+      mockHamperVariantUpdate.mockResolvedValue(existingVariant as any);
 
       render(<Hampers />);
       await waitFor(() => expect(screen.getByText('Variant Chocolate Hamper')).toBeInTheDocument());
+      expect(mockProductsList).not.toHaveBeenCalled();
+      expect(mockProductsListAll).not.toHaveBeenCalled();
       await user.click(screen.getByRole('button', { name: 'Edit hamper Variant Chocolate Hamper' }));
-      await waitFor(() => expect(screen.getByRole('button', { name: '+ Add Variant' })).toBeInTheDocument());
-      await user.click(screen.getByRole('button', { name: '+ Add Variant' }));
+      await user.click(await screen.findByTitle('Edit variant'));
 
-      expect(screen.getByRole('option', { name: 'Chocolate 101' })).toBeInTheDocument();
+      expect((await screen.findAllByText(/Legacy Chocolate/)).length).toBeGreaterThan(0);
+      await user.click((await screen.findAllByRole('button', { name: 'Select New Chocolate' }))[0]!);
+      await user.click(screen.getByRole('button', { name: 'Update Variant' }));
+
+      await waitFor(() => expect(mockHamperVariantUpdate).toHaveBeenCalledWith(
+        'ham-variants',
+        'variant-1',
+        expect.objectContaining({
+          mappings: [{ categoryId: 'cat-1', productId: 'prod-new', priority: 1 }],
+        }),
+      ));
+      expect(mockProductsListAll).not.toHaveBeenCalled();
     });
   });
 

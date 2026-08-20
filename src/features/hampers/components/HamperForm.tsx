@@ -1,7 +1,8 @@
-import { useEffect, useMemo, useRef } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { ChevronDownIcon, ChevronUpIcon, PencilIcon, TrashIcon, XMarkIcon } from '@heroicons/react/24/outline'
 import type { FormEvent, RefObject } from 'react'
 import type { Category, HamperVariant, HamperVariantCreateData, Product } from '../../../lib/api'
+import ProductLookupField from '../../products/components/ProductLookupField'
 import { emptyVariantForm } from '../constants'
 import type { HamperFormData } from '../types'
 import RequirementsChecklist from './RequirementsChecklist'
@@ -13,7 +14,6 @@ export default function HamperForm({
   formData,
   setFormData,
   categoryList,
-  productList,
   showVariantForm,
   setShowVariantForm,
   editingVariantId,
@@ -34,7 +34,6 @@ export default function HamperForm({
   formData: HamperFormData
   setFormData: (data: HamperFormData) => void
   categoryList: Category[]
-  productList: Product[]
   showVariantForm: boolean
   setShowVariantForm: (value: boolean) => void
   editingVariantId: string | null
@@ -50,14 +49,27 @@ export default function HamperForm({
   handleCancel: () => void
 }) {
   const variantFormRef = useRef<HTMLDivElement>(null)
+  const [selectedProducts, setSelectedProducts] = useState<Map<string, Pick<Product, 'id' | 'name'>>>(new Map())
 
   useEffect(() => {
     if (showVariantForm && editingVariantId) {
       setTimeout(() => {
-        variantFormRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+        variantFormRef.current?.scrollIntoView?.({ behavior: 'smooth', block: 'start' })
       }, 0)
     }
   }, [showVariantForm, editingVariantId])
+
+  useEffect(() => {
+    if (!editingVariantId) {
+      setSelectedProducts(new Map())
+      return
+    }
+
+    const variant = editingVariants.find((item) => item.id === editingVariantId)
+    setSelectedProducts(new Map(
+      variant?.mappings.map((mapping) => [mapping.productId, mapping.product]) ?? [],
+    ))
+  }, [editingVariantId, editingVariants])
 
   // Group mappings by category for display
   const mappingsByCategory = useMemo(() => {
@@ -106,12 +118,36 @@ export default function HamperForm({
   }
 
   // Add an alternative product to a category
-  const addAlternative = (categoryId: string, productId: string) => {
+  const addAlternative = (categoryId: string, product: Product) => {
     const existing = mappingsByCategory.get(categoryId) || []
+    if (existing.some((mapping) => mapping.productId === product.id)) return
     const newPriority = existing.length + 1
     setVariantFormData({
       ...variantFormData,
-      mappings: [...variantFormData.mappings, { categoryId, productId, priority: newPriority }],
+      mappings: [...variantFormData.mappings, { categoryId, productId: product.id, priority: newPriority }],
+    })
+    setSelectedProducts((current) => new Map(current).set(product.id, product))
+  }
+
+  const replaceAlternative = (categoryId: string, productId: string, product: Product) => {
+    const duplicate = variantFormData.mappings.some(
+      (mapping) => mapping.productId === product.id && mapping.productId !== productId,
+    )
+    if (duplicate) return
+
+    setVariantFormData({
+      ...variantFormData,
+      mappings: variantFormData.mappings.map((mapping) =>
+        mapping.categoryId === categoryId && mapping.productId === productId
+          ? { ...mapping, productId: product.id }
+          : mapping
+      ),
+    })
+    setSelectedProducts((current) => {
+      const next = new Map(current)
+      next.delete(productId)
+      next.set(product.id, product)
+      return next
     })
   }
 
@@ -132,6 +168,11 @@ export default function HamperForm({
       sorted.forEach((m, i) => normalized.push({ ...m, priority: i + 1 }))
     }
     setVariantFormData({ ...variantFormData, mappings: normalized })
+    setSelectedProducts((current) => {
+      const next = new Map(current)
+      next.delete(productId)
+      return next
+    })
   }
 
   return (
@@ -341,10 +382,6 @@ export default function HamperForm({
                     if (!req.categoryId) return null
                     const category = categoryList.find((c) => c.id === req.categoryId)
                     const catMappings = mappingsByCategory.get(req.categoryId) || []
-                    const categoryProds = productList.filter((p) => p.categoryId === req.categoryId)
-                    // Products already selected (can't select again)
-                    const selectedProductIds = new Set(catMappings.map((m) => m.productId))
-                    const availableProds = categoryProds.filter((p) => !selectedProductIds.has(p.id))
 
                     return (
                       <div key={req.categoryId} className="bg-white p-3 rounded-lg border border-gray-200">
@@ -362,7 +399,6 @@ export default function HamperForm({
                         ) : (
                           <div className="space-y-1 mb-2">
                             {catMappings.map((mapping, idx) => {
-                              const product = productList.find((p) => p.id === mapping.productId)
                               const isFirst = idx === 0
                               const isLast = idx === catMappings.length - 1
 
@@ -372,7 +408,18 @@ export default function HamperForm({
                                   className="flex items-center gap-2 text-sm bg-gray-50 p-2 rounded"
                                 >
                                   <span className="text-xs text-gray-400 w-4">{idx + 1}.</span>
-                                  <span className="flex-1 text-gray-800">{product?.name || 'Unknown'}</span>
+                                  <div className="min-w-0 flex-1">
+                                    <ProductLookupField
+                                      value={selectedProducts.get(mapping.productId) ?? null}
+                                      categoryId={req.categoryId}
+                                      onChange={(product) => replaceAlternative(
+                                        req.categoryId,
+                                        mapping.productId,
+                                        product,
+                                      )}
+                                      disabled={variantLoading}
+                                    />
+                                  </div>
                                   <button
                                     type="button"
                                     onClick={() => moveUp(req.categoryId, mapping.productId)}
@@ -405,24 +452,15 @@ export default function HamperForm({
                           </div>
                         )}
 
-                        {availableProds.length > 0 && (
-                          <select
-                            value=""
-                            onChange={(e) => {
-                              if (e.target.value) {
-                                addAlternative(req.categoryId, e.target.value)
-                              }
-                            }}
-                            className="input text-xs py-1"
-                          >
-                            <option value="">+ Add alternative...</option>
-                            {availableProds.map((p) => (
-                              <option key={p.id} value={p.id}>
-                                {p.name}
-                              </option>
-                            ))}
-                          </select>
-                        )}
+                        <div className="mt-2">
+                          <p className="mb-1 text-xs text-gray-500">Add alternative</p>
+                          <ProductLookupField
+                            value={null}
+                            categoryId={req.categoryId}
+                            onChange={(product) => addAlternative(req.categoryId, product)}
+                            disabled={variantLoading}
+                          />
+                        </div>
                       </div>
                     )
                   })}

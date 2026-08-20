@@ -4,13 +4,11 @@ import {
   categories,
   hamperVariants,
   hampers,
-  products,
   type Category,
   type Hamper,
   type HamperDetail,
   type HamperVariant,
   type HamperVariantCreateData,
-  type Product,
 } from '../../../lib/api'
 import { useDebounce } from '../../../hooks/useDebounce'
 import HamperForm from '../components/HamperForm'
@@ -33,7 +31,6 @@ export default function Hampers() {
   const [expandedId, setExpandedId] = useState<string | null>(null)
   const [expandedDetail, setExpandedDetail] = useState<HamperDetail | null>(null)
   const [editingVariants, setEditingVariants] = useState<HamperVariant[]>([])
-  const [productList, setProductList] = useState<Product[]>([])
   const [variantLoading, setVariantLoading] = useState(false)
   const [showVariantForm, setShowVariantForm] = useState(false)
   const [editingVariantId, setEditingVariantId] = useState<string | null>(null)
@@ -51,14 +48,12 @@ export default function Hampers() {
   const loadData = async () => {
     try {
       setLoading(true)
-      const [hampersData, catsData, prodsData] = await Promise.all([
+      const [hampersData, catsData] = await Promise.all([
         hampers.list(),
         categories.list(),
-        products.listAll(),
       ])
       setHamperList(hampersData)
       setCategoryList(catsData)
-      setProductList(prodsData.items)
       setError(null)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load data')
@@ -347,7 +342,6 @@ export default function Hampers() {
           formData={formData}
           setFormData={setFormData}
           categoryList={categoryList}
-          productList={productList}
           showVariantForm={showVariantForm}
           setShowVariantForm={setShowVariantForm}
           editingVariantId={editingVariantId}

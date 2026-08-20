@@ -1,8 +1,10 @@
 import { useState, useEffect, useMemo } from 'react'
 import { PlusIcon, PencilIcon, TrashIcon, MagnifyingGlassIcon, XMarkIcon, ChevronDownIcon, ChevronUpIcon } from '@heroicons/react/24/outline'
-import { categories, products, Category, Product } from '../../../lib/api'
+import { categories, Category } from '../../../lib/api'
+import PaginationControls from '../../../components/ui/PaginationControls'
 import { useDebounce } from '../../../hooks/useDebounce'
 import { useScrollToForm } from '../../../hooks/useScrollToForm'
+import { useProductSearch } from '../../products/hooks/useProductSearch'
 
 interface CategoryFormData {
   name: string
@@ -12,9 +14,55 @@ interface CategoryFormData {
 
 const emptyForm: CategoryFormData = { name: '', description: '', pickRule: 'FIFO' }
 
+function ExpandedCategoryProducts({ categoryId }: { categoryId: string }) {
+  const productSearch = useProductSearch({ categoryId })
+
+  if (productSearch.isInitialLoading) {
+    return <div className="text-sm text-gray-400 text-center py-2">Loading products...</div>
+  }
+
+  if (productSearch.error) {
+    return (
+      <div className="space-y-2 text-center text-sm text-red-600">
+        <p>{productSearch.error}</p>
+        <button type="button" onClick={productSearch.retry} className="btn-secondary text-sm">
+          Retry
+        </button>
+      </div>
+    )
+  }
+
+  return (
+    <div aria-busy={productSearch.isUpdating}>
+      {productSearch.items.length === 0 ? (
+        <div className="text-sm text-gray-400 text-center py-2">No products in this category</div>
+      ) : (
+        <div className="space-y-1">
+          {productSearch.items.map((product) => (
+            <div
+              key={product.id}
+              className="flex justify-between items-center py-1.5 px-2 bg-gray-50 rounded text-sm"
+            >
+              <span className="font-medium">{product.name}</span>
+              <span className="text-xs text-gray-500">
+                {product.totalStock ?? 0} {product.unit}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+      <PaginationControls
+        {...productSearch.pagination}
+        loading={productSearch.isUpdating}
+        onPageChange={productSearch.setPage}
+        onPageSizeChange={productSearch.setPageSize}
+      />
+    </div>
+  )
+}
+
 export default function Categories() {
   const [categoryList, setCategoryList] = useState<Category[]>([])
-  const [productList, setProductList] = useState<Product[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [showForm, setShowForm] = useState(false)
@@ -30,12 +78,8 @@ export default function Categories() {
   const loadData = async () => {
     try {
       setLoading(true)
-      const [cats, prods] = await Promise.all([
-        categories.list(),
-        products.listAll(),
-      ])
+      const cats = await categories.list()
       setCategoryList(cats)
-      setProductList(prods.items)
       setError(null)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load data')
@@ -56,16 +100,6 @@ export default function Categories() {
       c.description?.toLowerCase().includes(query)
     )
   }, [categoryList, debouncedSearch])
-
-  const productsByCategory = useMemo(() => {
-    const grouped: Record<string, Product[]> = {}
-    productList.forEach((p) => {
-      const catId = p.categoryId
-      if (!grouped[catId]) grouped[catId] = []
-      grouped[catId].push(p)
-    })
-    return grouped
-  }, [productList])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -229,7 +263,6 @@ export default function Categories() {
       ) : (
         <div className="space-y-2">
           {filteredCategories.map((category) => {
-            const categoryProducts = productsByCategory[category.id] || []
             const isExpanded = expandedId === category.id
             return (
               <div key={category.id} className="card">
@@ -250,7 +283,7 @@ export default function Categories() {
                         <div className="text-sm text-gray-500">{category.description}</div>
                       )}
                       <div className="text-xs text-gray-400 mt-1">
-                        {categoryProducts.length} products • {category.pickRule}
+                        {category._count?.products ?? 0} products • {category.pickRule}
                       </div>
                     </div>
                   </button>
@@ -275,25 +308,7 @@ export default function Categories() {
                 </div>
                 {isExpanded && (
                   <div className="mt-3 pt-3 border-t border-gray-100">
-                    {categoryProducts.length === 0 ? (
-                      <div className="text-sm text-gray-400 text-center py-2">
-                        No products in this category
-                      </div>
-                    ) : (
-                      <div className="space-y-1">
-                        {categoryProducts.map((product) => (
-                          <div
-                            key={product.id}
-                            className="flex justify-between items-center py-1.5 px-2 bg-gray-50 rounded text-sm"
-                          >
-                            <span className="font-medium">{product.name}</span>
-                            <span className="text-xs text-gray-500">
-                              {product.totalStock ?? 0} {product.unit}
-                            </span>
-                          </div>
-                        ))}
-                      </div>
-                    )}
+                    <ExpandedCategoryProducts categoryId={category.id} />
                   </div>
                 )}
               </div>

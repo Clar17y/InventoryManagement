@@ -1,11 +1,19 @@
+import type { PageSize, PaginationMeta } from '#contracts/http/pagination'
 import type { Product } from '../../../lib/api'
+import PaginationControls from '../../../components/ui/PaginationControls'
 
 export default function AddStockLinkBarcodeView({
   scannedBarcode,
   searchQuery,
   setSearchQuery,
-  isLoading,
-  filteredProducts,
+  isInitialLoading,
+  isUpdating,
+  error,
+  retry,
+  products,
+  pagination,
+  setPage,
+  setPageSize,
   isSubmitting,
   handleLinkBarcodeToProduct,
   onBack,
@@ -13,8 +21,14 @@ export default function AddStockLinkBarcodeView({
   scannedBarcode: string | null
   searchQuery: string
   setSearchQuery: (value: string) => void
-  isLoading: boolean
-  filteredProducts: Product[]
+  isInitialLoading: boolean
+  isUpdating: boolean
+  error: string | null
+  retry: () => void
+  products: Product[]
+  pagination: PaginationMeta
+  setPage: (page: number) => void
+  setPageSize: (pageSize: PageSize) => void
   isSubmitting: boolean
   handleLinkBarcodeToProduct: (product: Product) => void
   onBack: () => void
@@ -55,31 +69,44 @@ export default function AddStockLinkBarcodeView({
       </div>
 
       {/* Product list */}
-      {isLoading ? (
+      {isInitialLoading ? (
         <div className="text-center py-8 text-gray-500">Loading products...</div>
-      ) : searchQuery && filteredProducts.length === 0 ? (
+      ) : error ? (
+        <div className="space-y-2 text-center py-6 text-sm text-red-600">
+          <p>{error}</p>
+          <button type="button" onClick={retry} className="btn-secondary text-sm">Retry</button>
+        </div>
+      ) : searchQuery && products.length === 0 ? (
         <div className="text-center py-8 text-gray-500">No products found</div>
       ) : searchQuery ? (
-        <div className="space-y-2 max-h-64 overflow-y-auto">
-          {filteredProducts.map((product) => (
-            <button
-              key={product.id}
-              onClick={() => handleLinkBarcodeToProduct(product)}
-              disabled={isSubmitting}
-              className="w-full flex items-center justify-between p-3 bg-gray-50 hover:bg-primary-50 hover:border-primary-200 border border-transparent rounded-lg transition-colors text-left disabled:opacity-50"
-            >
-              <div>
-                <p className="font-medium text-gray-900">{product.name}</p>
-                <p className="text-sm text-gray-500">
-                  {product.category?.name} • {product.unit}
-                  {product.barcode && ` • ${product.barcode}`}
-                </p>
-              </div>
-              <div className="text-right">
-                <p className="text-sm font-medium text-gray-700">Stock: {product.totalStock ?? 0}</p>
-              </div>
-            </button>
-          ))}
+        <div aria-busy={isUpdating}>
+          <div className="space-y-2 max-h-64 overflow-y-auto">
+            {products.map((product) => (
+              <button
+                key={product.id}
+                onClick={() => handleLinkBarcodeToProduct(product)}
+                disabled={isSubmitting}
+                className="w-full flex items-center justify-between p-3 bg-gray-50 hover:bg-primary-50 hover:border-primary-200 border border-transparent rounded-lg transition-colors text-left disabled:opacity-50"
+              >
+                <div>
+                  <p className="font-medium text-gray-900">{product.name}</p>
+                  <p className="text-sm text-gray-500">
+                    {product.category?.name} • {product.unit}
+                    {product.barcode && ` • ${product.barcode}`}
+                  </p>
+                </div>
+                <div className="text-right">
+                  <p className="text-sm font-medium text-gray-700">Stock: {product.totalStock ?? 0}</p>
+                </div>
+              </button>
+            ))}
+          </div>
+          <PaginationControls
+            {...pagination}
+            loading={isUpdating}
+            onPageChange={setPage}
+            onPageSizeChange={setPageSize}
+          />
         </div>
       ) : (
         <p className="text-center text-gray-500 text-sm py-4">Start typing to search for a product</p>

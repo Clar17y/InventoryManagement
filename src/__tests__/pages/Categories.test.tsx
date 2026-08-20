@@ -26,7 +26,8 @@ import { categories, products } from '../../lib/api';
 const mockList = vi.mocked(categories.list);
 const mockCreate = vi.mocked(categories.create);
 const mockDelete = vi.mocked(categories.delete);
-const mockProductsList = vi.mocked(products.listAll);
+const mockProductsList = vi.mocked(products.list);
+const mockProductsListAll = vi.mocked(products.listAll);
 
 describe('Categories', () => {
   const sampleCategories = [
@@ -67,6 +68,10 @@ describe('Categories', () => {
     vi.clearAllMocks();
     mockList.mockResolvedValue(sampleCategories);
     mockProductsList.mockResolvedValue({
+      items: sampleProducts,
+      pagination: { page: 1, pageSize: 25, totalItems: sampleProducts.length, totalPages: 1 },
+    } as any);
+    mockProductsListAll.mockResolvedValue({
       items: sampleProducts,
       pagination: { page: 1, pageSize: 25, totalItems: sampleProducts.length, totalPages: 1 },
     } as any);
@@ -125,22 +130,32 @@ describe('Categories', () => {
       });
     });
 
-    it('renders the complete compatibility product set beyond the first 100 items', async () => {
-      const allProducts = Array.from({ length: 101 }, (_, index) => ({
-        id: `prod-${index + 1}`,
-        name: `Chocolate ${index + 1}`,
-        categoryId: 'cat-1',
-        unit: 'pcs',
-        totalStock: 0,
-      }));
+    it('loads and paginates only the expanded category', async () => {
+      const user = userEvent.setup();
       mockProductsList.mockResolvedValue({
-        items: allProducts,
-        pagination: { page: 1, pageSize: 100, totalItems: 101, totalPages: 2 },
+        items: sampleProducts.slice(0, 5),
+        pagination: { page: 1, pageSize: 25, totalItems: 30, totalPages: 2 },
       } as any);
 
       render(<Categories />);
 
-      await waitFor(() => expect(screen.getByText('101 products • FIFO')).toBeInTheDocument());
+      await waitFor(() => expect(screen.getByText('Chocolates')).toBeInTheDocument());
+      expect(mockProductsList).not.toHaveBeenCalled();
+      expect(mockProductsListAll).not.toHaveBeenCalled();
+
+      await user.click(screen.getByText('Chocolates'));
+
+      await waitFor(() => expect(mockProductsList).toHaveBeenCalledWith(
+        { categoryId: 'cat-1', page: 1, pageSize: 25, search: undefined },
+        { signal: expect.any(AbortSignal) },
+      ));
+      expect(screen.getByRole('navigation', { name: 'Pagination' })).toBeInTheDocument();
+
+      await user.click(screen.getByRole('button', { name: 'Next page' }));
+      await waitFor(() => expect(mockProductsList).toHaveBeenLastCalledWith(
+        { categoryId: 'cat-1', page: 2, pageSize: 25, search: undefined },
+        { signal: expect.any(AbortSignal) },
+      ));
     });
   });
 

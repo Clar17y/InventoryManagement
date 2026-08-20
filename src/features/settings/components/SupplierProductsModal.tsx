@@ -1,7 +1,8 @@
 import { useState, useEffect, useMemo } from 'react'
 import { MagnifyingGlassIcon, XMarkIcon } from '@heroicons/react/24/outline'
-import { products as productsApi, suppliers, type Product, type Supplier } from '../../../lib/api'
-import { useDebounce } from '../../../hooks/useDebounce'
+import { suppliers, type Product, type Supplier } from '../../../lib/api'
+import PaginationControls from '../../../components/ui/PaginationControls'
+import { useProductSearch } from '../../products/hooks/useProductSearch'
 
 interface SupplierProductsModalProps {
   supplier: Supplier
@@ -9,55 +10,40 @@ interface SupplierProductsModalProps {
 }
 
 export default function SupplierProductsModal({ supplier, onClose }: SupplierProductsModalProps) {
-  const [allProducts, setAllProducts] = useState<Product[]>([])
+  const productSearch = useProductSearch({})
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [initialIds, setInitialIds] = useState<Set<string>>(new Set())
-  const [loading, setLoading] = useState(true)
+  const [loadingAssignments, setLoadingAssignments] = useState(true)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [searchQuery, setSearchQuery] = useState('')
-  const debouncedSearch = useDebounce(searchQuery, 300)
 
   useEffect(() => {
     const load = async () => {
       try {
-        const [productsList, productIds] = await Promise.all([
-          productsApi.listAll(),
-          suppliers.getSupplierProducts(supplier.id),
-        ])
-        setAllProducts(productsList.items)
+        const productIds = await suppliers.getSupplierProducts(supplier.id)
         const idSet = new Set(productIds)
         setSelectedIds(idSet)
         setInitialIds(idSet)
       } catch (err) {
         console.error('Failed to load supplier products', err)
+        setError('Failed to load supplier products.')
       } finally {
-        setLoading(false)
+        setLoadingAssignments(false)
       }
     }
-    load()
+    void load()
   }, [supplier.id])
-
-  const filteredProducts = useMemo(() => {
-    if (!debouncedSearch.trim()) return allProducts
-    const query = debouncedSearch.toLowerCase()
-    return allProducts.filter(
-      (p) =>
-        p.name.toLowerCase().includes(query) ||
-        p.category?.name?.toLowerCase().includes(query)
-    )
-  }, [allProducts, debouncedSearch])
 
   // Group by category
   const productsByCategory = useMemo(() => {
     const groups: Record<string, Product[]> = {}
-    filteredProducts.forEach((p) => {
+    productSearch.items.forEach((p) => {
       const cat = p.category?.name || 'Uncategorized'
       if (!groups[cat]) groups[cat] = []
       groups[cat].push(p)
     })
     return Object.entries(groups).sort(([a], [b]) => a.localeCompare(b))
-  }, [filteredProducts])
+  }, [productSearch.items])
 
   const toggleProduct = (productId: string) => {
     setSelectedIds((prev) => {
@@ -125,15 +111,15 @@ export default function SupplierProductsModal({ supplier, onClose }: SupplierPro
             <MagnifyingGlassIcon className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
             <input
               type="text"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
+              value={productSearch.search}
+              onChange={(e) => productSearch.setSearch(e.target.value)}
               placeholder="Search products..."
               className="w-full pl-9 pr-8 py-1.5 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
               autoFocus
             />
-            {searchQuery && (
+            {productSearch.search && (
               <button
-                onClick={() => setSearchQuery('')}
+                onClick={() => productSearch.setSearch('')}
                 className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
               >
                 <XMarkIcon className="h-4 w-4" />
@@ -144,10 +130,15 @@ export default function SupplierProductsModal({ supplier, onClose }: SupplierPro
 
         {/* Product List */}
         <div className="flex-1 overflow-y-auto p-3">
-          {loading ? (
+          {loadingAssignments || productSearch.isInitialLoading ? (
             <div className="text-center py-8 text-gray-500">
               <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-primary-600 mx-auto mb-2" />
               Loading products...
+            </div>
+          ) : productSearch.error ? (
+            <div className="space-y-2 text-center py-8 text-sm text-red-600">
+              <p>{productSearch.error}</p>
+              <button type="button" onClick={productSearch.retry} className="btn-secondary text-sm">Retry</button>
             </div>
           ) : productsByCategory.length === 0 ? (
             <div className="text-center py-8 text-gray-500 text-sm">
@@ -198,6 +189,15 @@ export default function SupplierProductsModal({ supplier, onClose }: SupplierPro
                 )
               })}
             </div>
+          )}
+
+          {!loadingAssignments && !productSearch.isInitialLoading && !productSearch.error && (
+            <PaginationControls
+              {...productSearch.pagination}
+              loading={productSearch.isUpdating}
+              onPageChange={productSearch.setPage}
+              onPageSizeChange={productSearch.setPageSize}
+            />
           )}
         </div>
 

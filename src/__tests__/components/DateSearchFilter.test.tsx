@@ -2,6 +2,8 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { screen, renderHook, act, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { render } from '../utils/test-utils';
+import { useEffect, useState } from 'react';
+import { useDebounce } from '../../hooks/useDebounce';
 import DateSearchFilter, { useDateSearchFilter } from '../../components/filters/DateSearchFilter';
 
 describe('DateSearchFilter', () => {
@@ -161,6 +163,53 @@ describe('DateSearchFilter', () => {
 
       expect(mockOnStartDateChange).toHaveBeenCalledWith('');
       expect(mockOnEndDateChange).toHaveBeenCalledWith('');
+    });
+
+    it('produces one debounced query transition with both dates for a preset', async () => {
+      vi.useFakeTimers();
+
+      function QueryKeyHarness() {
+        const [startDate, setStartDate] = useState('');
+        const [endDate, setEndDate] = useState('');
+        const debouncedStartDate = useDebounce(startDate, 400);
+        const debouncedEndDate = useDebounce(endDate, 400);
+        const [queryKeys, setQueryKeys] = useState<string[]>([]);
+
+        useEffect(() => {
+          setQueryKeys((keys) => [...keys, `${debouncedStartDate}|${debouncedEndDate}`]);
+        }, [debouncedStartDate, debouncedEndDate]);
+
+        return (
+          <>
+            <DateSearchFilter
+              {...defaultProps}
+              startDate={startDate}
+              endDate={endDate}
+              onStartDateChange={setStartDate}
+              onEndDateChange={setEndDate}
+            />
+            <output data-testid="query-keys">{queryKeys.join(',')}</output>
+          </>
+        );
+      }
+
+      try {
+        render(<QueryKeyHarness />);
+        const currentYear = new Date().getFullYear();
+
+        act(() => {
+          fireEvent.click(screen.getByText(`Q1 ${currentYear}`));
+        });
+        act(() => {
+          vi.advanceTimersByTime(400);
+        });
+
+        expect(screen.getByTestId('query-keys')).toHaveTextContent(
+          `|,${currentYear}-01-01|${currentYear}-03-31`,
+        );
+      } finally {
+        vi.useRealTimers();
+      }
     });
   });
 });

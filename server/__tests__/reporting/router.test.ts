@@ -9,7 +9,10 @@ vi.mock('../../lib/prisma', () => ({
       findMany: vi.fn(),
       count: vi.fn(),
       aggregate: vi.fn(),
+      groupBy: vi.fn(),
     },
+    saleLine: { groupBy: vi.fn() },
+    hamper: { findMany: vi.fn() },
     etsyFeeConfig: { findFirst: vi.fn() },
     packagingOverhead: { findMany: vi.fn() },
     $transaction: vi.fn(),
@@ -26,7 +29,10 @@ const mockPrisma = prisma as unknown as {
     findMany: ReturnType<typeof vi.fn>
     count: ReturnType<typeof vi.fn>
     aggregate: ReturnType<typeof vi.fn>
+    groupBy: ReturnType<typeof vi.fn>
   }
+  saleLine: { groupBy: ReturnType<typeof vi.fn> }
+  hamper: { findMany: ReturnType<typeof vi.fn> }
   etsyFeeConfig: { findFirst: ReturnType<typeof vi.fn> }
   packagingOverhead: { findMany: ReturnType<typeof vi.fn> }
   $transaction: ReturnType<typeof vi.fn>
@@ -63,7 +69,20 @@ beforeEach(() => {
 
 describe('sales and analytics reporting routers', () => {
   it('counts unverified Etsy sales with the summary period/search filters', async () => {
-    mockPrisma.sale.findMany.mockResolvedValue([])
+    mockPrisma.sale.aggregate.mockResolvedValue({
+      _count: { _all: 0 },
+      _sum: {
+        grossRevenue: null,
+        postageCharged: null,
+        postageCost: null,
+        etsyFees: null,
+        totalCost: null,
+        margin: null,
+      },
+    })
+    mockPrisma.sale.groupBy.mockResolvedValue([])
+    mockPrisma.saleLine.groupBy.mockResolvedValue([])
+    mockPrisma.hamper.findMany.mockResolvedValue([])
     mockPrisma.sale.count.mockResolvedValue(4)
     const baseUrl = await startServer()
 
@@ -75,14 +94,39 @@ describe('sales and analytics reporting routers', () => {
     expect(response.status).toBe(200)
     expect(body.unverifiedEtsySales).toBe(4)
 
-    const findManyWhere = mockPrisma.sale.findMany.mock.calls[0][0].where
+    const expectedWhere = expect.objectContaining({
+      saleDate: {
+        gte: new Date('2026-07-31T23:00:00.000Z'),
+        lt: new Date('2026-08-03T23:00:00.000Z'),
+      },
+      OR: expect.any(Array),
+    })
+    expect(mockPrisma.sale.aggregate).toHaveBeenCalledWith(expect.objectContaining({ where: expectedWhere }))
+    expect(mockPrisma.sale.groupBy).toHaveBeenCalledWith(expect.objectContaining({ where: expectedWhere }))
+    expect(mockPrisma.saleLine.groupBy).toHaveBeenCalledWith(expect.objectContaining({ where: { sale: expectedWhere } }))
     expect(mockPrisma.sale.count).toHaveBeenCalledWith({
       where: {
-        ...findManyWhere,
-        saleChannel: 'etsy',
-        etsyFeeReconciliationStatus: { not: 'STATEMENT_VERIFIED' },
+        AND: [
+          expectedWhere,
+          { saleChannel: 'etsy' },
+          { etsyFeeReconciliationStatus: { notIn: ['STATEMENT_VERIFIED', 'NOT_APPLICABLE'] } },
+        ],
       },
     })
+    expect(mockPrisma.sale.findMany).not.toHaveBeenCalled()
+  })
+
+  it('rejects an invalid date-only summary filter before querying Prisma', async () => {
+    const baseUrl = await startServer()
+
+    const response = await fetch(`${baseUrl}/api/sales/summary?startDate=2026-02-30`)
+
+    expect(response.status).toBe(400)
+    expect(mockPrisma.sale.findMany).not.toHaveBeenCalled()
+    expect(mockPrisma.sale.aggregate).not.toHaveBeenCalled()
+    expect(mockPrisma.sale.groupBy).not.toHaveBeenCalled()
+    expect(mockPrisma.saleLine.groupBy).not.toHaveBeenCalled()
+    expect(mockPrisma.hamper.findMany).not.toHaveBeenCalled()
   })
 
   it('maps Decimal and null Offsite Ads sums without changing existing profit totals', async () => {

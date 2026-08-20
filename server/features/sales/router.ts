@@ -6,6 +6,7 @@ import { allocateStockForRequirement, allocateStockForVariantRequirement, type A
 import { calculateEtsyFees, calculatePackagingOverhead } from '../../lib/sales/fees'
 import { buildSalesWhereClause } from '../../lib/sales/filters'
 import { groupSalesByChannel, groupSalesByHamper } from '../../lib/sales/grouping'
+import { getSalesSummary } from '../../lib/sales/summary'
 import { buildPaginationMeta, toPrismaPagination } from '../../lib/pagination'
 import {
   salesCreateBodySchema,
@@ -466,45 +467,14 @@ router.get('/', async (req, res) => {
 // GET sales summary (like expenses summary)
 router.get('/summary', async (req, res) => {
   try {
-    const { startDate, endDate, search } = req.query
+    const { startDate, endDate, search } = salesListQuerySchema.parse(req.query)
 
     const where = buildSalesWhereClause({ startDate, endDate, search })
-
-    const [sales, unverifiedEtsySales] = await Promise.all([
-      prisma.sale.findMany({
-        where,
-        include: {
-          lines: {
-            include: { hamper: true },
-          },
-        },
-      }),
-      prisma.sale.count({
-        where: {
-          ...where,
-          saleChannel: 'etsy',
-          etsyFeeReconciliationStatus: { not: 'STATEMENT_VERIFIED' },
-        },
-      }),
-    ])
-
-    const totals = {
-      salesCount: sales.length,
-      totalRevenue: sales.reduce((sum, s) => sum + Number(s.grossRevenue), 0),
-      totalPostageCharged: sales.reduce((sum, s) => sum + Number(s.postageCharged), 0),
-      totalPostageCost: sales.reduce((sum, s) => sum + Number(s.postageCost), 0),
-      totalFees: sales.reduce((sum, s) => sum + Number(s.etsyFees), 0),
-      totalCost: sales.reduce((sum, s) => sum + Number(s.totalCost), 0),
-      totalMargin: sales.reduce((sum, s) => sum + Number(s.margin), 0),
-    }
-
-    res.json({
-      unverifiedEtsySales,
-      totals,
-      byChannel: groupSalesByChannel(sales),
-      byHamper: groupSalesByHamper(sales),
-    })
+    res.json(await getSalesSummary(where))
   } catch (error) {
+    if (error instanceof z.ZodError) {
+      return res.status(400).json({ error: 'Validation failed', details: error.errors })
+    }
     console.error('Error fetching sales summary:', error)
     res.status(500).json({ error: 'Failed to fetch sales summary' })
   }

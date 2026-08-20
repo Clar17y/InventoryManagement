@@ -1,4 +1,5 @@
 import { Prisma } from '@prisma/client'
+import { PGlite } from '@electric-sql/pglite'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { listInventoryProducts } from '../../lib/inventory/productList'
 import type { InventoryProductsQuery } from '#contracts/routes/inventory'
@@ -31,6 +32,13 @@ function product(id: string, name: string) {
 
 function sqlText(query: Prisma.Sql): string {
   return query.sql.replace(/\s+/g, ' ').trim()
+}
+
+function toParameterizedSql(statement: { strings: readonly string[]; values: readonly unknown[] }) {
+  return statement.strings.reduce(
+    (sql, chunk, index) => sql + chunk + (index < statement.values.length ? `$${index + 1}` : ''),
+    '',
+  )
 }
 
 describe('listInventoryProducts', () => {
@@ -149,5 +157,88 @@ describe('listInventoryProducts', () => {
       items: [],
       pagination: { page: 99, pageSize: 100, totalItems: 51, totalPages: 1 },
     })
+  })
+
+  it('includes active products with no positive lots in both unfiltered and low-stock pages', async () => {
+    const pglite = new PGlite()
+    try {
+      await pglite.exec(`
+        CREATE TABLE "ComponentCategory" (
+          "id" TEXT PRIMARY KEY,
+          "name" TEXT NOT NULL,
+          "description" TEXT,
+          "pickRule" TEXT NOT NULL,
+          "isActive" BOOLEAN NOT NULL,
+          "createdAt" TIMESTAMP NOT NULL,
+          "updatedAt" TIMESTAMP NOT NULL
+        );
+        CREATE TABLE "Product" (
+          "id" TEXT PRIMARY KEY,
+          "name" TEXT NOT NULL,
+          "unit" TEXT NOT NULL,
+          "categoryId" TEXT NOT NULL,
+          "lowStockThreshold" INTEGER NOT NULL,
+          "isActive" BOOLEAN NOT NULL,
+          "createdAt" TIMESTAMP NOT NULL,
+          "updatedAt" TIMESTAMP NOT NULL
+        );
+        CREATE TABLE "InventoryLot" (
+          "id" TEXT PRIMARY KEY,
+          "productId" TEXT NOT NULL,
+          "remaining" NUMERIC NOT NULL
+        );
+        CREATE TABLE "ProductCost" (
+          "id" TEXT PRIMARY KEY,
+          "productId" TEXT NOT NULL,
+          "unitCost" NUMERIC NOT NULL,
+          "effectiveFrom" TIMESTAMP NOT NULL,
+          "effectiveTo" TIMESTAMP
+        );
+        INSERT INTO "ComponentCategory" ("id", "name", "description", "pickRule", "isActive", "createdAt", "updatedAt")
+        VALUES ('${categoryId}', 'Chocolate', NULL, 'FIFO', TRUE, '2026-08-20T00:00:00Z', '2026-08-20T00:00:00Z');
+        INSERT INTO "Product" ("id", "name", "unit", "categoryId", "lowStockThreshold", "isActive", "createdAt", "updatedAt")
+        VALUES ('zero-stock', 'No stock', 'units', '${categoryId}', 5, TRUE, '2026-08-20T00:00:00Z', '2026-08-20T00:00:00Z');
+      `)
+
+      const emptyProduct = { ...product('zero-stock', 'No stock'), lots: [], costs: [] }
+      const queryRaw = vi.fn(async (statement: Prisma.Sql) => {
+        const result = await pglite.query(
+          toParameterizedSql(statement),
+          statement.values as unknown[],
+        )
+        return result.rows
+      })
+      const findMany = vi.fn().mockResolvedValue([emptyProduct])
+      const db = { $queryRaw: queryRaw, product: { findMany } } as Parameters<typeof listInventoryProducts>[0]
+
+      const unfiltered = await listInventoryProducts(db, {
+        page: 1,
+        pageSize: 25,
+        lowStockOnly: false,
+        sort: 'stock-asc',
+      })
+      const lowStock = await listInventoryProducts(db, {
+        page: 1,
+        pageSize: 25,
+        lowStockOnly: true,
+        sort: 'stock-asc',
+      })
+
+      for (const response of [unfiltered, lowStock]) {
+        expect(response.items).toHaveLength(1)
+        expect(response.items[0]).toMatchObject({
+          id: 'zero-stock',
+          totalStock: 0,
+          totalRemaining: 0,
+          lotCount: 0,
+          currentCost: null,
+        })
+        expect(response.pagination).toMatchObject({ totalItems: 1, totalPages: 1 })
+      }
+      expect(queryRaw).toHaveBeenCalledTimes(2)
+      expect(findMany).toHaveBeenCalledTimes(2)
+    } finally {
+      await pglite.close()
+    }
   })
 })

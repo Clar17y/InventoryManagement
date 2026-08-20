@@ -81,7 +81,7 @@ function stockCte(query: ParsedInventoryProductsQuery): Prisma.Sql {
         current_cost."unitCost" AS "currentCost"
       FROM "Product" p
       JOIN "ComponentCategory" c ON c.id = p."categoryId"
-      JOIN "InventoryLot" l ON l."productId" = p.id AND l.remaining > 0
+      LEFT JOIN "InventoryLot" l ON l."productId" = p.id AND l.remaining > 0
       LEFT JOIN LATERAL (
         SELECT pc."unitCost"
         FROM "ProductCost" pc

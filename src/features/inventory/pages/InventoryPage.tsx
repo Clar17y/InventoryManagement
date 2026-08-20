@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback } from 'react'
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { MagnifyingGlassIcon, XMarkIcon } from '@heroicons/react/24/outline'
 import {
@@ -28,6 +28,14 @@ const INVENTORY_SORT_OPTIONS: { value: InventorySort; label: string }[] = [
   { value: 'oldest', label: 'Oldest first' },
 ]
 
+function getInventorySort(searchParams: URLSearchParams): InventorySort {
+  const urlSort = inventorySortSchema.safeParse(searchParams.get('sort'))
+  if (urlSort.success) return urlSort.data
+
+  const storedSort = inventorySortSchema.safeParse(localStorage.getItem('inventory-sort'))
+  return storedSort.success ? storedSort.data : 'category'
+}
+
 export default function Inventory() {
   const [searchParams, setSearchParams] = useSearchParams()
   const [showAddStock, setShowAddStock] = useState(false)
@@ -35,13 +43,10 @@ export default function Inventory() {
   const [productLots, setProductLots] = useState<Record<string, InventoryLot[]>>({})
   const [lowStockCount, setLowStockCount] = useState(0)
   const [expiringCount, setExpiringCount] = useState(0)
-  const [sortBy, setSortBy] = useState<InventorySort>(() => {
-    const urlSort = inventorySortSchema.safeParse(searchParams.get('sort'))
-    if (urlSort.success) return urlSort.data
-    const storedSort = inventorySortSchema.safeParse(localStorage.getItem('inventory-sort'))
-    return storedSort.success ? storedSort.data : 'category'
-  })
-  const [searchQuery, setSearchQuery] = useState(() => searchParams.get('search') ?? '')
+  const sortBy = getInventorySort(searchParams)
+  const urlSearch = searchParams.get('search') ?? ''
+  const [searchQuery, setSearchQuery] = useState(urlSearch)
+  const searchEditingRef = useRef(false)
   const debouncedSearch = useDebounce(searchQuery, 300)
   const { page, pageSize, setPage, setPageSize } = usePaginationSearchParams()
   const lowStockFilter = searchParams.get('filter') === 'low-stock'
@@ -50,7 +55,7 @@ export default function Inventory() {
   const listParams = {
     page,
     pageSize,
-    search: debouncedSearch.trim() || undefined,
+    search: urlSearch.trim() || undefined,
     categoryId,
     lowStockOnly: lowStockFilter,
     sort: sortBy,
@@ -92,17 +97,33 @@ export default function Inventory() {
   }, [loadAlerts])
 
   useEffect(() => {
-    localStorage.setItem('inventory-sort', sortBy)
-  }, [sortBy])
+    setSearchQuery((current) => {
+      if (searchEditingRef.current && current.trim() === urlSearch) {
+        searchEditingRef.current = false
+        return current
+      }
+      searchEditingRef.current = false
+      return urlSearch
+    })
+  }, [urlSearch])
 
   useEffect(() => {
+    if (!searchEditingRef.current) return
+    if (searchQuery !== debouncedSearch) return
+    const normalizedSearch = debouncedSearch.trim()
+    if (normalizedSearch === urlSearch) {
+      searchEditingRef.current = false
+      return
+    }
+
     setSearchParams((current) => {
       const next = new URLSearchParams(current)
-      if (debouncedSearch.trim()) next.set('search', debouncedSearch.trim())
+      if (normalizedSearch) next.set('search', normalizedSearch)
       else next.delete('search')
+      next.set('page', '1')
       return next
     }, { replace: true })
-  }, [debouncedSearch, setSearchParams])
+  }, [debouncedSearch, searchQuery, setSearchParams, urlSearch])
 
   useEffect(() => {
     if (
@@ -110,8 +131,9 @@ export default function Inventory() {
       && listState.data.items.length === 0
       && listState.data.pagination.totalItems > 0
       && page > 1
+      && page !== listState.data.pagination.totalPages
     ) {
-      setPage(Math.max(1, page - 1))
+      setPage(listState.data.pagination.totalPages)
     }
   }, [listState.data, page, setPage])
 
@@ -255,7 +277,7 @@ export default function Inventory() {
             type="text"
             value={searchQuery}
             onChange={(e) => {
-              setPage(1)
+              searchEditingRef.current = true
               setSearchQuery(e.target.value)
             }}
             placeholder="Search products..."
@@ -264,7 +286,7 @@ export default function Inventory() {
           {searchQuery && (
             <button
               onClick={() => {
-                setPage(1)
+                searchEditingRef.current = true
                 setSearchQuery('')
               }}
               className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
@@ -281,7 +303,6 @@ export default function Inventory() {
             value={sortBy}
             onChange={(e) => {
               const nextSort = e.target.value as InventorySort
-              setSortBy(nextSort)
               localStorage.setItem('inventory-sort', nextSort)
               setSearchParams((current) => {
                 const next = new URLSearchParams(current)

@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { act, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { useNavigate } from 'react-router-dom';
 import { render } from '../utils/test-utils';
 
 vi.stubGlobal('confirm', vi.fn(() => true));
@@ -30,6 +31,21 @@ const mockExpiring = vi.mocked(inventory.expiring);
 const mockDeleteLot = vi.mocked(inventory.deleteLot);
 const mockProductsList = vi.mocked(products.listAll);
 const mockProductsPage = vi.mocked(products.list);
+
+function InventoryNavigationHarness() {
+  const navigate = useNavigate();
+  return (
+    <>
+      <button
+        type="button"
+        onClick={() => navigate('/inventory?search=orange&sort=name-asc')}
+      >
+        Navigate inventory
+      </button>
+      <Inventory />
+    </>
+  );
+}
 
 describe('Inventory', () => {
   const sampleCategories = [
@@ -202,6 +218,48 @@ describe('Inventory', () => {
     expect(screen.getByText('Chocolates')).toBeInTheDocument();
     expect(screen.queryByText('Orange Juice')).not.toBeInTheDocument();
     expect(screen.queryByText('Drinks')).not.toBeInTheDocument();
+  });
+
+  it('corrects a very high out-of-range page directly to the final page once', async () => {
+    window.history.pushState({}, '', '/inventory?page=999&sort=category');
+    mockInventoryList
+      .mockResolvedValueOnce({
+        items: [],
+        pagination: { page: 999, pageSize: 25, totalItems: 51, totalPages: 3 },
+      })
+      .mockResolvedValueOnce({
+        items: [sampleProducts[0]!],
+        pagination: { page: 3, pageSize: 25, totalItems: 51, totalPages: 3 },
+      });
+
+    render(<Inventory />);
+
+    expect(await screen.findByText('Dark Chocolate')).toBeInTheDocument();
+    await waitFor(() => expect(mockInventoryList).toHaveBeenCalledTimes(2));
+    expect(mockInventoryList.mock.calls[1]?.[0]).toMatchObject({ page: 3 });
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(mockInventoryList).toHaveBeenCalledTimes(2);
+  });
+
+  it('updates the controls and request when browser navigation changes search and sort', async () => {
+    window.history.pushState({}, '', '/inventory?search=dark&sort=cost-desc');
+    const user = userEvent.setup();
+    render(<InventoryNavigationHarness />);
+    await waitFor(() => expect(mockInventoryList).toHaveBeenCalledWith(
+      expect.objectContaining({ search: 'dark', sort: 'cost-desc' }),
+      { signal: expect.any(AbortSignal) },
+    ));
+
+    await user.click(screen.getByRole('button', { name: 'Navigate inventory' }));
+
+    await waitFor(() => {
+      expect(screen.getByPlaceholderText('Search products...')).toHaveValue('orange');
+      expect(screen.getByRole('combobox', { name: 'Inventory sort' })).toHaveValue('name-asc');
+      expect(mockInventoryList).toHaveBeenLastCalledWith(
+        expect.objectContaining({ search: 'orange', sort: 'name-asc' }),
+        { signal: expect.any(AbortSignal) },
+      );
+    });
   });
 
   it('renders a product returned on a 100-row inventory page', async () => {

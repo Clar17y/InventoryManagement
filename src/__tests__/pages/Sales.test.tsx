@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { screen, waitFor } from '@testing-library/react';
+import { fireEvent, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { render } from '../utils/test-utils';
 
@@ -106,6 +106,21 @@ describe('Sales', () => {
     byHamper: [],
   };
 
+  const listResponse = (
+    items: any[] = sampleSales,
+    totalItems = items.length,
+    page = 1,
+    pageSize: 25 | 50 | 100 = 25,
+  ) => ({
+    items,
+    pagination: {
+      page,
+      pageSize,
+      totalItems,
+      totalPages: totalItems === 0 ? 0 : Math.ceil(totalItems / pageSize),
+    },
+  });
+
   const samplePreview = {
     lines: [
       {
@@ -139,7 +154,8 @@ describe('Sales', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    mockSalesList.mockResolvedValue({ sales: sampleSales, total: 1 });
+    window.history.pushState({}, '', '/');
+    mockSalesList.mockResolvedValue(listResponse());
     mockSalesSummary.mockResolvedValue(sampleSummary);
     mockHampersList.mockResolvedValue(sampleHampers as any);
     mockSalesPreview.mockResolvedValue(samplePreview as any);
@@ -148,9 +164,10 @@ describe('Sales', () => {
   });
 
   describe('loading state', () => {
-    it('shows loading message initially', () => {
+    it('shows loading message initially', async () => {
       render(<Sales />);
       expect(screen.getByText('Loading...')).toBeInTheDocument();
+      await waitFor(() => expect(screen.queryByText('Loading...')).not.toBeInTheDocument());
     });
 
     it('hides loading after data loads', async () => {
@@ -205,7 +222,7 @@ describe('Sales', () => {
     });
 
     it('shows empty state when no sales', async () => {
-      mockSalesList.mockResolvedValue({ sales: [], total: 0 });
+      mockSalesList.mockResolvedValue(listResponse([], 0));
       render(<Sales />);
       await waitFor(() => {
         expect(screen.getByText('No sales recorded yet')).toBeInTheDocument();
@@ -233,7 +250,7 @@ describe('Sales', () => {
 
     it('shows not checked attribution without turning unknown fees into zero', async () => {
       const user = userEvent.setup();
-      mockSalesList.mockResolvedValue({ sales: [saleWithFeeEvidence()], total: 1 });
+      mockSalesList.mockResolvedValue(listResponse([saleWithFeeEvidence()]));
       render(<Sales />);
 
       await waitFor(() => {
@@ -247,17 +264,14 @@ describe('Sales', () => {
 
     it('shows verified no attribution and statement source', async () => {
       const user = userEvent.setup();
-      mockSalesList.mockResolvedValue({
-        sales: [saleWithFeeEvidence({
+      mockSalesList.mockResolvedValue(listResponse([saleWithFeeEvidence({
           offsiteAdsAttributed: false,
           offsiteAdsFee: 0,
           vatOnOffsiteAdsFee: 0,
           etsyFeeReconciliationStatus: 'STATEMENT_VERIFIED',
           etsyFeeReconciliationSource: 'ETSY_STATEMENT',
           etsyFeeReconciledAt: '2024-02-01T10:00:00Z',
-        })],
-        total: 1,
-      });
+        })]));
       render(<Sales />);
 
       await waitFor(() => {
@@ -274,17 +288,14 @@ describe('Sales', () => {
 
     it('shows verified attribution with Offsite fee, VAT, and Payment source', async () => {
       const user = userEvent.setup();
-      mockSalesList.mockResolvedValue({
-        sales: [saleWithFeeEvidence({
+      mockSalesList.mockResolvedValue(listResponse([saleWithFeeEvidence({
           offsiteAdsAttributed: true,
           offsiteAdsFee: 4.8,
           vatOnOffsiteAdsFee: 0.96,
           etsyFeeReconciliationStatus: 'PAYMENT_SYNCED',
           etsyFeeReconciliationSource: 'ETSY_PAYMENT_API',
           etsyFeeReconciledAt: '2024-02-01T10:00:00Z',
-        })],
-        total: 1,
-      });
+        })]));
       render(<Sales />);
 
       await waitFor(() => {
@@ -475,6 +486,124 @@ describe('Sales', () => {
       await waitFor(() => {
         expect(screen.getByPlaceholderText('Search sales...')).toBeInTheDocument();
       });
+    });
+  });
+
+  describe('pagination and request lifecycle', () => {
+    it('loads the sales list once on initial render', async () => {
+      render(<Sales />);
+
+      await waitFor(() => expect(mockSalesList).toHaveBeenCalled());
+
+      expect(mockSalesList).toHaveBeenCalledTimes(1);
+    });
+
+    it('reloads the list and summary for a date change without reloading hampers', async () => {
+      render(<Sales />);
+
+      await waitFor(() => expect(screen.getByText(/Chocolate Lovers/)).toBeInTheDocument());
+      const startDateInput = document.querySelector('input[type="date"]');
+      expect(startDateInput).not.toBeNull();
+      fireEvent.change(startDateInput!, { target: { value: '2026-08-01' } });
+
+      await waitFor(() => {
+        expect(mockSalesList).toHaveBeenCalledTimes(2);
+        expect(mockSalesSummary).toHaveBeenCalledTimes(2);
+      });
+      expect(mockHampersList).toHaveBeenCalledTimes(1);
+    });
+
+    it('changes only the list query when moving to page two', async () => {
+      mockSalesList.mockResolvedValue(listResponse(sampleSales, 51));
+      render(<Sales />);
+
+      await waitFor(() => expect(screen.getByRole('button', { name: '2' })).toBeInTheDocument());
+      await userEvent.click(screen.getByRole('button', { name: '2' }));
+
+      await waitFor(() => expect(mockSalesList).toHaveBeenCalledTimes(2));
+      expect(mockSalesSummary).toHaveBeenCalledTimes(1);
+      expect(mockSalesList.mock.calls[1]?.[0]).toEqual(expect.objectContaining({ page: 2 }));
+    });
+
+    it('retains the previous row and announces updates while page two is pending', async () => {
+      let resolvePageTwo: ((value: ReturnType<typeof listResponse>) => void) | undefined;
+      mockSalesList.mockImplementation((params) => {
+        if (params?.page === 2) {
+          return new Promise((resolve) => {
+            resolvePageTwo = resolve;
+          });
+        }
+        return Promise.resolve(listResponse(sampleSales, 51));
+      });
+      render(<Sales />);
+
+      await waitFor(() => expect(screen.getByText(/Chocolate Lovers/)).toBeInTheDocument());
+      await userEvent.click(screen.getByRole('button', { name: '2' }));
+
+      expect(screen.getByText(/Chocolate Lovers/)).toBeInTheDocument();
+      expect(screen.getByRole('status')).toHaveTextContent('Updating results…');
+
+      resolvePageTwo?.(listResponse([], 51, 2));
+      await waitFor(() => expect(screen.queryByRole('status')).not.toBeInTheDocument());
+    });
+
+    it('keeps old rows and exposes Retry when the current page request rejects', async () => {
+      mockSalesList.mockImplementation((params) => {
+        if (params?.page === 2) return Promise.reject(new Error('Page failed'));
+        return Promise.resolve(listResponse(sampleSales, 51));
+      });
+      render(<Sales />);
+
+      await waitFor(() => expect(screen.getByText(/Chocolate Lovers/)).toBeInTheDocument());
+      await userEvent.click(screen.getByRole('button', { name: '2' }));
+
+      await waitFor(() => expect(screen.getByRole('button', { name: /retry/i })).toBeInTheDocument());
+      expect(screen.getByText(/Chocolate Lovers/)).toBeInTheDocument();
+      expect(screen.getByRole('alert')).toHaveTextContent('Page failed');
+    });
+
+    it('does not let an earlier filter response overwrite the latest response', async () => {
+      const saleA = { ...sampleSales[0], id: 'sale-a', etsyOrderId: 'order-a' };
+      const saleB = { ...sampleSales[0], id: 'sale-b', etsyOrderId: 'order-b' };
+      let resolveA: ((value: ReturnType<typeof listResponse>) => void) | undefined;
+      let resolveB: ((value: ReturnType<typeof listResponse>) => void) | undefined;
+      mockSalesList.mockImplementation((params) => {
+        if (params?.startDate === '2026-08-01') {
+          return new Promise((resolve) => {
+            resolveA = resolve;
+          });
+        }
+        if (params?.startDate === '2026-08-02') {
+          return new Promise((resolve) => {
+            resolveB = resolve;
+          });
+        }
+        return Promise.resolve(listResponse(sampleSales));
+      });
+      render(<Sales />);
+
+      await waitFor(() => expect(screen.getByText(/Chocolate Lovers/)).toBeInTheDocument());
+      const startDateInput = document.querySelector('input[type="date"]');
+      expect(startDateInput).not.toBeNull();
+      fireEvent.change(startDateInput!, { target: { value: '2026-08-01' } });
+      fireEvent.change(startDateInput!, { target: { value: '2026-08-02' } });
+
+      await waitFor(() => expect(mockSalesList).toHaveBeenCalledTimes(3));
+      resolveB?.(listResponse([saleB]));
+      await waitFor(() => expect(mockSalesList).toHaveBeenCalledTimes(3));
+      resolveA?.(listResponse([saleA]));
+
+      await waitFor(() => expect(screen.getByText(/#order-b/)).toBeInTheDocument());
+      expect(screen.queryByText(/#order-a/)).not.toBeInTheDocument();
+    });
+
+    it('replaces Load More with a visible result range', async () => {
+      mockSalesList.mockResolvedValue(listResponse(sampleSales, 51));
+      render(<Sales />);
+
+      await waitFor(() => expect(screen.getByText('Showing 1–25 of 51')).toBeInTheDocument());
+
+      expect(screen.queryByRole('button', { name: /load more/i })).not.toBeInTheDocument();
     });
   });
 

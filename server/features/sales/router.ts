@@ -6,9 +6,20 @@ import { allocateStockForRequirement, allocateStockForVariantRequirement, type A
 import { calculateEtsyFees, calculatePackagingOverhead } from '../../lib/sales/fees'
 import { buildSalesWhereClause } from '../../lib/sales/filters'
 import { groupSalesByChannel, groupSalesByHamper } from '../../lib/sales/grouping'
-import { salesCreateBodySchema, salesPreviewBodySchema } from '#contracts/routes/sales'
+import { buildPaginationMeta, toPrismaPagination } from '../../lib/pagination'
+import {
+  salesCreateBodySchema,
+  salesListQuerySchema,
+  salesPreviewBodySchema,
+} from '#contracts/routes/sales'
 
 const router = Router()
+
+const salesSortFields = {
+  saleDate: 'saleDate',
+  grossRevenue: 'grossRevenue',
+  margin: 'margin',
+} as const
 
 export function getEtsyFeeReconciliationStatus(
   saleChannel: string,
@@ -412,11 +423,13 @@ router.post('/', async (req, res) => {
 // GET all sales
 router.get('/', async (req, res) => {
   try {
-    const { limit = '50', offset = '0', startDate, endDate, search } = req.query
+    const query = salesListQuerySchema.parse(req.query)
+    const { skip, take } = toPrismaPagination(query)
+    const sortField = salesSortFields[query.sort]
 
-    const where = buildSalesWhereClause({ startDate, endDate, search })
+    const where = buildSalesWhereClause(query)
 
-    const [sales, total] = await Promise.all([
+    const [items, totalItems] = await Promise.all([
       prisma.sale.findMany({
         where,
         include: {
@@ -433,15 +446,18 @@ router.get('/', async (req, res) => {
             },
           },
         },
-        orderBy: { saleDate: 'desc' },
-        take: Number(limit),
-        skip: Number(offset),
+        orderBy: [{ [sortField]: query.direction }, { id: query.direction }],
+        take,
+        skip,
       }),
       prisma.sale.count({ where }),
     ])
 
-    res.json({ sales, total })
+    res.json({ items, pagination: buildPaginationMeta(query, totalItems) })
   } catch (error) {
+    if (error instanceof z.ZodError) {
+      return res.status(400).json({ error: 'Validation failed', details: error.errors })
+    }
     console.error('Error fetching sales:', error)
     res.status(500).json({ error: 'Failed to fetch sales' })
   }

@@ -9,9 +9,12 @@ import {
   type SalePreviewResponse,
   type SaleResponse,
   type SalesCreateBody,
+  type SalesListQuery,
+  type SalesSort as ContractSalesSort,
   type SalesMarginAnalyticsResponse,
   type SalesPreviewBody,
   type SalesSummaryResponse,
+  type SortDirection as ContractSortDirection,
 } from '#contracts/routes/sales'
 
 export type SaleChannel = ContractSaleChannel
@@ -30,16 +33,16 @@ export type SaleCreateData = SalesCreateBody
 
 export type MarginAnalytics = SalesMarginAnalyticsResponse
 export type SalesSummary = SalesSummaryResponse
+export type SalesSort = ContractSalesSort
+export type SortDirection = ContractSortDirection
 
 export const sales = {
-  list: (params?: { limit?: number; offset?: number; startDate?: string; endDate?: string; search?: string }) => {
+  list: (params: SalesListQuery = {}, options?: Pick<RequestInit, 'signal'>) => {
     const query = new URLSearchParams()
-    if (params?.limit) query.set('limit', String(params.limit))
-    if (params?.offset) query.set('offset', String(params.offset))
-    if (params?.startDate) query.set('startDate', params.startDate)
-    if (params?.endDate) query.set('endDate', params.endDate)
-    if (params?.search) query.set('search', params.search)
-    return requestWithSchema(`/sales?${query.toString()}`, salesListResponseSchema)
+    for (const [key, value] of Object.entries(params)) {
+      if (value !== undefined && value !== '') query.set(key, String(value))
+    }
+    return requestWithSchema(`/sales?${query}`, salesListResponseSchema, options)
   },
   get: (id: string) => requestWithSchema(`/sales/${id}`, saleResponseSchema),
   preview: (data: SalesPreviewBody) =>

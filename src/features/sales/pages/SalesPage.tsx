@@ -1,16 +1,18 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect } from 'react'
 import { useDateSearchFilter } from '../../../components/filters/DateSearchFilter'
+import { usePaginationSearchParams } from '../../../hooks/usePaginationSearchParams'
+import { usePaginatedList } from '../../../hooks/usePaginatedList'
 import {
   sales,
   hampers,
   inventory,
   settings,
-  Sale,
   SalePreview,
   Hamper,
   CategoryLot,
   SaleChannel,
-  SalesSummary,
+  type SalesSort,
+  type SortDirection,
   type PostageTier,
 } from '../../../lib/api'
 import SalesListView from '../components/SalesListView'
@@ -21,10 +23,7 @@ import type { LotOverride, SaleLineInput } from '../types'
 type ViewMode = 'list' | 'record'
 
 export default function Sales() {
-  const [saleList, setSaleList] = useState<Sale[]>([])
   const [hamperList, setHamperList] = useState<Hamper[]>([])
-  const [loading, setLoading] = useState(true)
-  const [loadingMore, setLoadingMore] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [viewMode, setViewMode] = useState<ViewMode>('list')
   const [expandedId, setExpandedId] = useState<string | null>(null)
@@ -32,7 +31,8 @@ export default function Sales() {
 
   // Summary and filter state
   const [showSummary, setShowSummary] = useState(false)
-  const [summary, setSummary] = useState<SalesSummary | null>(null)
+  const [sort, setSort] = useState<SalesSort>('saleDate')
+  const [direction, setDirection] = useState<SortDirection>('desc')
 
   // Date and search filter state
   const {
@@ -40,13 +40,43 @@ export default function Sales() {
     endDate,
     searchQuery,
     debouncedSearchQuery,
-    setStartDate,
-    setEndDate,
-    setSearchQuery,
+    setStartDate: updateStartDate,
+    setEndDate: updateEndDate,
+    setSearchQuery: updateSearchQuery,
   } = useDateSearchFilter()
 
-  const [totalSales, setTotalSales] = useState(0)
-  const PAGE_SIZE = 20
+  const { page, pageSize, setPage, setPageSize, resetPage } = usePaginationSearchParams()
+
+  const listParams = {
+    page,
+    pageSize,
+    startDate: startDate || undefined,
+    endDate: endDate || undefined,
+    search: debouncedSearchQuery || undefined,
+    sort,
+    direction,
+  }
+  const listState = usePaginatedList({
+    queryKey: JSON.stringify(listParams),
+    load: (signal) => sales.list(listParams, { signal }),
+  })
+  const summaryState = usePaginatedList({
+    queryKey: JSON.stringify({ startDate, endDate, search: debouncedSearchQuery }),
+    load: () => sales.summary({
+      startDate: startDate || undefined,
+      endDate: endDate || undefined,
+      search: debouncedSearchQuery || undefined,
+    }),
+  })
+
+  const saleList = listState.data?.items ?? []
+  const pagination = listState.data?.pagination ?? {
+    page,
+    pageSize,
+    totalItems: 0,
+    totalPages: 0,
+  }
+  const summary = summaryState.data
 
   // Record sale state
   const [lines, setLines] = useState<SaleLineInput[]>([{ quantity: 1 }])
@@ -70,64 +100,23 @@ export default function Sales() {
   const [lotsLoading, setLotsLoading] = useState(false)
   const [overrides, setOverrides] = useState<Record<string, LotOverride[]>>({})
 
-  const loadData = async (isInitialLoad = false) => {
-    try {
-      // Only show full loading state on initial page load, not on filter changes
-      if (isInitialLoad) {
-        setLoading(true)
-      }
-      const params: { limit?: number; offset?: number; startDate?: string; endDate?: string; search?: string } = {
-        limit: PAGE_SIZE,
-        offset: 0,
-      }
-      if (startDate) params.startDate = startDate
-      if (endDate) params.endDate = endDate
-      if (debouncedSearchQuery) params.search = debouncedSearchQuery
-
-      const [salesData, hampersData, summaryData] = await Promise.all([
-        sales.list(params),
-        hampers.list(),
-        sales.summary({ startDate: startDate || undefined, endDate: endDate || undefined, search: debouncedSearchQuery || undefined }),
-      ])
-      setSaleList(salesData.sales)
-      setTotalSales(salesData.total)
-      setHamperList(hampersData)
-      setSummary(summaryData)
-      setError(null)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load data')
-    } finally {
-      setLoading(false)
-    }
+  const loadData = () => {
+    listState.retry()
+    summaryState.retry()
   }
 
-  const loadMore = async () => {
-    try {
-      setLoadingMore(true)
-      const params: { limit?: number; offset?: number; startDate?: string; endDate?: string; search?: string } = {
-        limit: PAGE_SIZE,
-        offset: saleList.length,
-      }
-      if (startDate) params.startDate = startDate
-      if (endDate) params.endDate = endDate
-      if (debouncedSearchQuery) params.search = debouncedSearchQuery
-
-      const result = await sales.list(params)
-      setSaleList([...saleList, ...result.sales])
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load more sales')
-    } finally {
-      setLoadingMore(false)
-    }
-  }
-
-  // Track if this is the first render to show loading state only initially
-  const isFirstRender = useRef(true)
-
+  // Load hampers once for the record-sale reference data.
   useEffect(() => {
-    // Initial load - show loading indicator
-    loadData(true)
-    isFirstRender.current = false
+    let active = true
+    hampers.list().then((nextHampers) => {
+      if (active) setHamperList(nextHampers)
+    }).catch((err: unknown) => {
+      if (active) setError(err instanceof Error ? err.message : 'Failed to load hampers')
+    })
+
+    return () => {
+      active = false
+    }
   }, [])
 
   // Load postage tiers on mount and set default cost
@@ -140,12 +129,42 @@ export default function Sales() {
     }).catch(() => {})
   }, [])
 
-  // Re-fetch when filters change (no loading indicator - data updates in place)
+  // Keep a valid page after a create/delete refresh empties the current page.
   useEffect(() => {
-    if (!isFirstRender.current) {
-      loadData(false)
+    if (
+      listState.data
+      && listState.data.items.length === 0
+      && listState.data.pagination.totalItems > 0
+      && page > 1
+    ) {
+      setPage(Math.max(1, page - 1))
     }
-  }, [startDate, endDate, debouncedSearchQuery])
+  }, [listState.data, page, setPage])
+
+  const setStartDate = (value: string) => {
+    resetPage()
+    updateStartDate(value)
+  }
+
+  const setEndDate = (value: string) => {
+    resetPage()
+    updateEndDate(value)
+  }
+
+  const setSearchQuery = (value: string) => {
+    resetPage()
+    updateSearchQuery(value)
+  }
+
+  const setSalesSort = (value: SalesSort) => {
+    resetPage()
+    setSort(value)
+  }
+
+  const setSalesDirection = (value: SortDirection) => {
+    resetPage()
+    setDirection(value)
+  }
 
   // Load preview when lines change
   useEffect(() => {
@@ -351,7 +370,7 @@ export default function Sales() {
         allocationOverrides: Object.keys(allocationOverrides).length > 0 ? allocationOverrides : undefined,
       })
       handleCancel()
-      await loadData()
+      loadData()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to record sale')
     } finally {
@@ -363,7 +382,7 @@ export default function Sales() {
     setExpandedId(expandedId === id ? null : id)
   }
 
-  if (loading && saleList.length === 0) {
+  if (listState.isInitialLoading) {
     return <div className="text-center py-8 text-gray-500">Loading...</div>
   }
 
@@ -412,10 +431,10 @@ export default function Sales() {
   return (
     <SalesListView
       saleList={saleList}
-      totalSales={totalSales}
-      loading={loading}
-      loadingMore={loadingMore}
-      error={error}
+      pagination={pagination}
+      isUpdating={listState.isUpdating}
+      listError={listState.error ?? error}
+      onRetry={listState.retry}
       showEtsyOrdersPanel={showEtsyOrdersPanel}
       setShowEtsyOrdersPanel={setShowEtsyOrdersPanel}
       showSummary={showSummary}
@@ -427,11 +446,16 @@ export default function Sales() {
       setStartDate={setStartDate}
       setEndDate={setEndDate}
       setSearchQuery={setSearchQuery}
+      sort={sort}
+      direction={direction}
+      setSort={setSalesSort}
+      setDirection={setSalesDirection}
       expandedId={expandedId}
       handleExpand={handleExpand}
       setViewMode={setViewMode}
       loadData={loadData}
-      loadMore={loadMore}
+      onPageChange={setPage}
+      onPageSizeChange={setPageSize}
     />
   )
 }

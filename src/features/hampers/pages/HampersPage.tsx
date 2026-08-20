@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 import {
   categories,
@@ -11,6 +11,8 @@ import {
   type HamperVariantCreateData,
 } from '../../../lib/api'
 import { useDebounce } from '../../../hooks/useDebounce'
+import { usePaginatedList } from '../../../hooks/usePaginatedList'
+import { usePaginationSearchParams } from '../../../hooks/usePaginationSearchParams'
 import HamperForm from '../components/HamperForm'
 import HampersHeader from '../components/HampersHeader'
 import HampersListView from '../components/HampersListView'
@@ -20,9 +22,7 @@ import { isEtsyEnabled } from '../utils'
 
 export default function Hampers() {
   const formRef = useRef<HTMLFormElement | null>(null)
-  const [hamperList, setHamperList] = useState<Hamper[]>([])
   const [categoryList, setCategoryList] = useState<Category[]>([])
-  const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [showForm, setShowForm] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
@@ -44,26 +44,38 @@ export default function Hampers() {
     () => localStorage.getItem('hampers-hide-etsy-hidden') !== 'false'
   )
   const debouncedSearch = useDebounce(searchQuery, 300)
-
-  const loadData = async () => {
-    try {
-      setLoading(true)
-      const [hampersData, catsData] = await Promise.all([
-        hampers.list(),
-        categories.list(),
-      ])
-      setHamperList(hampersData)
-      setCategoryList(catsData)
-      setError(null)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load data')
-    } finally {
-      setLoading(false)
-    }
+  const { page, pageSize, setPage, setPageSize, resetPage } = usePaginationSearchParams()
+  const listParams = {
+    page,
+    pageSize,
+    search: debouncedSearch.trim() || undefined,
+    hideEtsyHidden,
+    sort: sortBy,
   }
+  const listState = usePaginatedList({
+    queryKey: JSON.stringify(listParams),
+    load: (signal) => hampers.list(listParams, { signal }),
+  })
+  const hamperList = listState.data?.items ?? []
+  const pagination = listState.data?.pagination ?? {
+    page,
+    pageSize,
+    totalItems: 0,
+    totalPages: 0,
+  }
+  const loadData = listState.retry
 
   useEffect(() => {
-    void loadData()
+    let active = true
+    categories.list().then((nextCategories) => {
+      if (active) setCategoryList(nextCategories)
+    }).catch((err: unknown) => {
+      if (active) setError(err instanceof Error ? err.message : 'Failed to load categories')
+    })
+
+    return () => {
+      active = false
+    }
   }, [])
 
   useEffect(() => {
@@ -79,66 +91,31 @@ export default function Hampers() {
     formRef.current?.scrollIntoView?.({ behavior: 'smooth', block: 'start' })
   }, [showForm, editingId])
 
-  const sortedHampers = useMemo(() => {
-    let filtered = hideEtsyHidden
-      ? hamperList
-          .filter((hamper) => isEtsyEnabled(hamper.etsyIsEnabled))
-          .map((hamper) => {
-            if (!hamper.hasVariants || !hamper.variantAvailability) return hamper
-            return {
-              ...hamper,
-              variantAvailability: hamper.variantAvailability.filter((variant) =>
-                isEtsyEnabled(variant.etsyIsEnabled)
-              ),
-            }
-          })
-          .filter((hamper) =>
-            !hamper.hasVariants ||
-            !hamper.variantAvailability ||
-            hamper.variantAvailability.length > 0
-          )
-      : hamperList
-
-    if (debouncedSearch.trim()) {
-      const query = debouncedSearch.toLowerCase()
-      filtered = filtered.filter((h) => h.name.toLowerCase().includes(query))
+  useEffect(() => {
+    if (
+      listState.data
+      && listState.data.items.length === 0
+      && listState.data.pagination.totalItems > 0
+      && page > listState.data.pagination.totalPages
+    ) {
+      setPage(Math.max(1, listState.data.pagination.totalPages))
     }
+  }, [listState.data, page, setPage])
 
-    const sorted = [...filtered]
-    switch (sortBy) {
-      case 'canmake-desc':
-        sorted.sort((a, b) => b.canMake - a.canMake)
-        break
-      case 'canmake-asc':
-        sorted.sort((a, b) => a.canMake - b.canMake)
-        break
-      case 'name-asc':
-        sorted.sort((a, b) => a.name.localeCompare(b.name))
-        break
-      case 'name-desc':
-        sorted.sort((a, b) => b.name.localeCompare(a.name))
-        break
-      case 'price-asc':
-        sorted.sort((a, b) => Number(a.sellingPrice) - Number(b.sellingPrice))
-        break
-      case 'price-desc':
-        sorted.sort((a, b) => Number(b.sellingPrice) - Number(a.sellingPrice))
-        break
-      case 'reqs-asc':
-        sorted.sort((a, b) => a.requirements.length - b.requirements.length)
-        break
-      case 'reqs-desc':
-        sorted.sort((a, b) => b.requirements.length - a.requirements.length)
-        break
-      case 'date-desc':
-        sorted.sort((a, b) => new Date(b.createdAt ?? 0).getTime() - new Date(a.createdAt ?? 0).getTime())
-        break
-      case 'date-asc':
-        sorted.sort((a, b) => new Date(a.createdAt ?? 0).getTime() - new Date(b.createdAt ?? 0).getTime())
-        break
-    }
-    return sorted
-  }, [hamperList, sortBy, debouncedSearch, hideEtsyHidden])
+  const setSearch = (value: string) => {
+    resetPage()
+    setSearchQuery(value)
+  }
+
+  const setHideHidden = (value: boolean) => {
+    resetPage()
+    setHideEtsyHidden(value)
+  }
+
+  const setSort = (value: HamperSortOption) => {
+    resetPage()
+    setSortBy(value)
+  }
 
   const handleExpand = async (id: string) => {
     if (expandedId === id) {
@@ -197,7 +174,7 @@ export default function Hampers() {
       setShowForm(false)
       setEditingId(null)
       setFormData(emptyHamperForm)
-      await loadData()
+      loadData()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to save hamper')
     } finally {
@@ -244,7 +221,7 @@ export default function Hampers() {
     if (!confirm('Delete this hamper?')) return
     try {
       await hampers.delete(id)
-      await loadData()
+      loadData()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to delete hamper')
     }
@@ -278,7 +255,7 @@ export default function Hampers() {
       setShowVariantForm(false)
       setEditingVariantId(null)
       setVariantFormData(emptyVariantForm)
-      await loadData()
+      loadData()
     } catch (err) {
       setError(err instanceof Error ? err.message : `Failed to ${editingVariantId ? 'update' : 'add'} variant`)
     } finally {
@@ -310,7 +287,7 @@ export default function Hampers() {
       await hamperVariants.delete(editingId, variantId)
       const detail = await hampers.get(editingId)
       setEditingVariants(detail.variants || [])
-      await loadData()
+      loadData()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to delete variant')
     } finally {
@@ -318,7 +295,7 @@ export default function Hampers() {
     }
   }
 
-  if (loading && hamperList.length === 0) {
+  if (listState.isInitialLoading) {
     return <div className="text-center py-8 text-gray-500">Loading...</div>
   }
 
@@ -358,19 +335,25 @@ export default function Hampers() {
         />
       ) : (
         <HampersListView
-          sortedHampers={sortedHampers}
+          hamperList={hamperList}
+          pagination={pagination}
+          isUpdating={listState.isUpdating}
+          listError={listState.error}
+          onRetry={listState.retry}
           debouncedSearch={debouncedSearch}
           searchQuery={searchQuery}
-          setSearchQuery={setSearchQuery}
+          setSearchQuery={setSearch}
           hideEtsyHidden={hideEtsyHidden}
-          setHideEtsyHidden={setHideEtsyHidden}
+          setHideEtsyHidden={setHideHidden}
           sortBy={sortBy}
-          setSortBy={setSortBy}
+          setSortBy={setSort}
           expandedId={expandedId}
           expandedDetail={expandedDetail}
           handleExpand={handleExpand}
           handleEdit={handleEdit}
           handleDelete={handleDelete}
+          onPageChange={setPage}
+          onPageSizeChange={setPageSize}
         />
       )}
     </div>

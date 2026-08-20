@@ -59,12 +59,41 @@ describe('hampers API', () => {
   };
 
   describe('list', () => {
-    it('calls request with correct endpoint', async () => {
-      mockRequestWithSchema.mockResolvedValue([sampleHamper]);
+    it('calls request with the shared pagination query and envelope', async () => {
+      mockRequestWithSchema.mockResolvedValue({
+        items: [sampleHamper],
+        pagination: { page: 2, pageSize: 25, totalItems: 26, totalPages: 2 },
+      });
 
-      await hampers.list();
+      await hampers.list({
+        page: 2,
+        pageSize: 25,
+        search: 'chocolate',
+        hideEtsyHidden: true,
+        sort: 'name-asc',
+      });
 
-      expect(mockRequestWithSchema).toHaveBeenCalledWith('/hampers', hampersListResponseSchema);
+      expect(mockRequestWithSchema).toHaveBeenCalledWith(
+        '/hampers?page=2&pageSize=25&search=chocolate&hideEtsyHidden=true&sort=name-asc',
+        hampersListResponseSchema,
+        undefined,
+      );
+    });
+
+    it('forwards an abort signal to the list request', async () => {
+      mockRequestWithSchema.mockResolvedValue({
+        items: [],
+        pagination: { page: 1, pageSize: 25, totalItems: 0, totalPages: 0 },
+      });
+      const signal = new AbortController().signal;
+
+      await hampers.list({ page: 1, pageSize: 25 }, { signal });
+
+      expect(mockRequestWithSchema).toHaveBeenCalledWith(
+        '/hampers?page=1&pageSize=25',
+        hampersListResponseSchema,
+        { signal },
+      );
     });
   });
 

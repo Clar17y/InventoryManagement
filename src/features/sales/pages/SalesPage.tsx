@@ -108,8 +108,8 @@ export default function Sales() {
   // Load hampers once for the record-sale reference data.
   useEffect(() => {
     let active = true
-    hampers.list().then((nextHampers) => {
-      if (active) setHamperList(nextHampers)
+    hampers.list({ page: 1, pageSize: 100, hideEtsyHidden: false, sort: 'name-asc' }).then((response) => {
+      if (active) setHamperList(response.items)
     }).catch((err: unknown) => {
       if (active) setError(err instanceof Error ? err.message : 'Failed to load hampers')
     })

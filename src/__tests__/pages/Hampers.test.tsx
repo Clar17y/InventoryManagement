@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { screen, waitFor } from '@testing-library/react';
+import { fireEvent, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { render } from '../utils/test-utils';
 
@@ -101,10 +101,26 @@ describe('Hampers', () => {
     ],
   };
 
+  const listResponse = (
+    items: any[] = sampleHampers,
+    totalItems = items.length,
+    page = 1,
+    pageSize: 25 | 50 | 100 = 25,
+  ) => ({
+    items,
+    pagination: {
+      page,
+      pageSize,
+      totalItems,
+      totalPages: totalItems === 0 ? 0 : Math.ceil(totalItems / pageSize),
+    },
+  });
+
   beforeEach(() => {
     vi.clearAllMocks();
     localStorage.clear();
-    mockHampersList.mockResolvedValue(sampleHampers as any);
+    window.history.pushState({}, '', '/');
+    mockHampersList.mockResolvedValue(listResponse() as any);
     mockHampersGet.mockResolvedValue(sampleHamperDetail as any);
     mockCategoriesList.mockResolvedValue(sampleCategories as any);
     mockProductsList.mockResolvedValue({
@@ -118,9 +134,10 @@ describe('Hampers', () => {
   });
 
   describe('loading state', () => {
-    it('shows loading message initially', () => {
+    it('shows loading message initially', async () => {
       render(<Hampers />);
       expect(screen.getByText('Loading...')).toBeInTheDocument();
+      await waitFor(() => expect(screen.queryByText('Loading...')).not.toBeInTheDocument());
     });
 
     it('hides loading after data loads', async () => {
@@ -170,7 +187,7 @@ describe('Hampers', () => {
     });
 
     it('shows empty state when no hampers', async () => {
-      mockHampersList.mockResolvedValue([]);
+      mockHampersList.mockResolvedValue(listResponse([], 0) as any);
       render(<Hampers />);
       await waitFor(() => {
         expect(screen.getByText('No hampers defined yet')).toBeInTheDocument();
@@ -179,8 +196,7 @@ describe('Hampers', () => {
 
     it('hides Etsy-disabled hampers and variants by default with a toggle to show them', async () => {
       const user = userEvent.setup();
-      mockHampersList.mockResolvedValue([
-        {
+      const variantHamper = {
           id: 'ham-visible-variants',
           name: 'Variant Hamper',
           sellingPrice: 42,
@@ -211,8 +227,8 @@ describe('Hampers', () => {
               canMake: 1,
             },
           ],
-        },
-        {
+        };
+      const hiddenHamper = {
           id: 'ham-hidden',
           name: 'Hidden Etsy Hamper',
           sellingPrice: 30,
@@ -223,8 +239,17 @@ describe('Hampers', () => {
           createdAt: '2024-01-04T00:00:00Z',
           requirements: [],
           canMake: 4,
-        },
-      ] as any);
+        };
+      mockHampersList.mockImplementation((params) => Promise.resolve(listResponse(
+        params?.hideEtsyHidden === false
+          ? [variantHamper, hiddenHamper]
+          : [{
+              ...variantHamper,
+              variantAvailability: variantHamper.variantAvailability.filter(
+                (variant) => variant.etsyIsEnabled,
+              ),
+            }],
+      )) as any);
 
       render(<Hampers />);
 
@@ -240,8 +265,10 @@ describe('Hampers', () => {
 
       await user.click(toggle);
 
-      expect(screen.getByText(/Squirrel Medium Suitcase: 1/)).toBeInTheDocument();
-      expect(screen.getByText('Hidden Etsy Hamper')).toBeInTheDocument();
+      await waitFor(() => {
+        expect(screen.getByText(/Squirrel Medium Suitcase: 1/)).toBeInTheDocument();
+        expect(screen.getByText('Hidden Etsy Hamper')).toBeInTheDocument();
+      });
     });
   });
 
@@ -256,7 +283,7 @@ describe('Hampers', () => {
     it('sorts by can make by default', async () => {
       render(<Hampers />);
       await waitFor(() => {
-        const sortSelect = screen.getByRole('combobox');
+        const sortSelect = screen.getByRole('combobox', { name: 'Sort hampers' });
         expect(sortSelect).toHaveValue('canmake-desc');
       });
     });
@@ -385,7 +412,7 @@ describe('Hampers', () => {
           product: { id: 'prod-drink', name: 'Legacy Drink' },
         }],
       };
-      mockHampersList.mockResolvedValue([variantHamper] as any);
+      mockHampersList.mockResolvedValue(listResponse([variantHamper]) as any);
       mockHampersGet.mockResolvedValue({ ...variantHamper, variants: [existingVariant] } as any);
       mockHamperVariantUpdate.mockResolvedValue(existingVariant as any);
 
@@ -455,7 +482,7 @@ describe('Hampers', () => {
       });
 
       try {
-        mockHampersList.mockResolvedValue([
+        mockHampersList.mockResolvedValue(listResponse([
           {
             id: 'ham-mock-1',
             name: 'Mock Imported Hamper',
@@ -467,7 +494,7 @@ describe('Hampers', () => {
             requirements: [],
             canMake: 0,
           },
-        ] as any);
+        ]) as any);
 
         render(<Hampers />);
 
@@ -507,7 +534,7 @@ describe('Hampers', () => {
         canMake: 0,
       } as any);
 
-      mockHampersList.mockResolvedValue([
+      mockHampersList.mockResolvedValue(listResponse([
         {
           id: 'ham-clear-1',
           name: 'Clearable Hamper',
@@ -521,7 +548,7 @@ describe('Hampers', () => {
           ],
           canMake: 0,
         },
-      ] as any);
+      ]) as any);
 
       render(<Hampers />);
 
@@ -554,6 +581,134 @@ describe('Hampers', () => {
       await waitFor(() => {
         expect(screen.getByRole('button', { name: /etsy sync/i })).toBeInTheDocument();
       });
+    });
+  });
+
+  describe('pagination and request lifecycle', () => {
+    it('loads the first page once and does not load the complete product catalogue', async () => {
+      render(<Hampers />);
+
+      await waitFor(() => expect(screen.getByText('Chocolate Lovers')).toBeInTheDocument());
+
+      expect(mockHampersList).toHaveBeenCalledTimes(1);
+      expect(mockProductsList).not.toHaveBeenCalled();
+      expect(mockProductsListAll).not.toHaveBeenCalled();
+    });
+
+    it('changes only the hamper page query when moving to page two', async () => {
+      mockHampersList.mockResolvedValue(listResponse(sampleHampers, 51) as any);
+      render(<Hampers />);
+
+      await waitFor(() => expect(screen.getByRole('button', { name: '2' })).toBeInTheDocument());
+      await userEvent.click(screen.getByRole('button', { name: '2' }));
+
+      await waitFor(() => expect(mockHampersList).toHaveBeenCalledTimes(2));
+      expect(mockHampersList.mock.calls[1]?.[0]).toEqual(expect.objectContaining({ page: 2 }));
+      expect(mockCategoriesList).toHaveBeenCalledTimes(1);
+    });
+
+    it('retains the previous rows and announces updates while a new page is pending', async () => {
+      let resolvePageTwo: ((value: ReturnType<typeof listResponse>) => void) | undefined;
+      mockHampersList.mockImplementation((params) => {
+        if (params?.page === 2) {
+          return new Promise((resolve) => {
+            resolvePageTwo = resolve;
+          });
+        }
+        return Promise.resolve(listResponse(sampleHampers, 51) as any);
+      });
+      render(<Hampers />);
+
+      await waitFor(() => expect(screen.getByText('Chocolate Lovers')).toBeInTheDocument());
+      await userEvent.click(screen.getByRole('button', { name: '2' }));
+
+      expect(screen.getByText('Chocolate Lovers')).toBeInTheDocument();
+      expect(screen.getByRole('status')).toHaveTextContent('Updating results…');
+
+      resolvePageTwo?.(listResponse([], 51, 2));
+      await waitFor(() => expect(screen.queryByRole('status')).not.toBeInTheDocument());
+    });
+
+    it('keeps old rows and exposes Retry when the current page fails', async () => {
+      let pageTwoAttempts = 0;
+      mockHampersList.mockImplementation((params) => {
+        if (params?.page === 2) {
+          pageTwoAttempts += 1;
+          return pageTwoAttempts === 1
+            ? Promise.reject(new Error('Page failed'))
+            : Promise.resolve(listResponse(sampleHampers, 51, 2));
+        }
+        return Promise.resolve(listResponse(sampleHampers, 51));
+      });
+      render(<Hampers />);
+
+      await waitFor(() => expect(screen.getByText('Chocolate Lovers')).toBeInTheDocument());
+      await userEvent.click(screen.getByRole('button', { name: '2' }));
+
+      await waitFor(() => expect(screen.getByRole('button', { name: /retry/i })).toBeInTheDocument());
+      expect(screen.getByText('Chocolate Lovers')).toBeInTheDocument();
+      expect(screen.getByRole('alert')).toHaveTextContent('Page failed');
+
+      await userEvent.click(screen.getByRole('button', { name: /retry/i }));
+      await waitFor(() => expect(pageTwoAttempts).toBe(2));
+      expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    });
+
+    it('ignores an earlier filter response after a later response settles', async () => {
+      const hamperA = { ...sampleHampers[0], id: 'ham-a', name: 'Older response' };
+      const hamperB = { ...sampleHampers[0], id: 'ham-b', name: 'Latest response' };
+      let resolveA: ((value: ReturnType<typeof listResponse>) => void) | undefined;
+      let resolveB: ((value: ReturnType<typeof listResponse>) => void) | undefined;
+      mockHampersList.mockImplementation((params) => {
+        if (params?.search === 'older') {
+          return new Promise((resolve) => { resolveA = resolve; });
+        }
+        if (params?.search === 'latest') {
+          return new Promise((resolve) => { resolveB = resolve; });
+        }
+        return Promise.resolve(listResponse(sampleHampers));
+      });
+      render(<Hampers />);
+
+      await waitFor(() => expect(screen.getByText('Chocolate Lovers')).toBeInTheDocument());
+      const search = screen.getByPlaceholderText('Search hampers...');
+      fireEvent.change(search, { target: { value: 'older' } });
+      await waitFor(() => expect(mockHampersList).toHaveBeenCalledTimes(2));
+      fireEvent.change(search, { target: { value: 'latest' } });
+
+      await waitFor(() => expect(mockHampersList).toHaveBeenCalledTimes(3));
+      resolveB?.(listResponse([hamperB]));
+      await waitFor(() => expect(screen.getByText('Latest response')).toBeInTheDocument());
+      resolveA?.(listResponse([hamperA]));
+
+      await waitFor(() => expect(screen.getByText('Latest response')).toBeInTheDocument());
+      expect(screen.queryByText('Older response')).not.toBeInTheDocument();
+    });
+
+    it('resets the URL page when filters or page size change', async () => {
+      window.history.pushState({}, '', '/?page=3&pageSize=50');
+      mockHampersList.mockResolvedValue(listResponse(sampleHampers, 101, 3, 50) as any);
+      render(<Hampers />);
+
+      await waitFor(() => expect(screen.getByText('Chocolate Lovers')).toBeInTheDocument());
+      const search = screen.getByPlaceholderText('Search hampers...');
+      fireEvent.change(search, { target: { value: 'chocolate' } });
+      await waitFor(() => expect(mockHampersList.mock.calls.some(([params]) => params?.page === 1)).toBe(true));
+
+      const pageSize = screen.getByRole('combobox', { name: 'Rows per page' });
+      await userEvent.selectOptions(pageSize, '100');
+      await waitFor(() => {
+      const lastCall = mockHampersList.mock.calls[mockHampersList.mock.calls.length - 1]?.[0];
+        expect(lastCall).toEqual(expect.objectContaining({ page: 1, pageSize: 100 }));
+      });
+    });
+
+    it('replaces Load More with the visible result range', async () => {
+      mockHampersList.mockResolvedValue(listResponse(sampleHampers, 51) as any);
+      render(<Hampers />);
+
+      await waitFor(() => expect(screen.getByText('Showing 1–25 of 51')).toBeInTheDocument());
+      expect(screen.queryByRole('button', { name: /load more/i })).not.toBeInTheDocument();
     });
   });
 

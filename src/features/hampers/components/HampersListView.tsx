@@ -7,6 +7,9 @@ import {
   TrashIcon,
   XMarkIcon,
 } from '@heroicons/react/24/outline'
+import type { PageSize, PaginationMeta } from '#contracts/http/pagination'
+import PaginationControls from '../../../components/ui/PaginationControls'
+import UpdatingResults from '../../../components/ui/UpdatingResults'
 import type { Hamper, HamperDetail, HamperVariantAvailability } from '../../../lib/api'
 import { formatCurrency } from '../../../lib/formatting'
 import { HAMPER_SORT_OPTIONS } from '../constants'
@@ -14,7 +17,11 @@ import type { HamperSortOption } from '../types'
 import { formatAvailability, getAvailabilityColor, getDisplayAvailability, isEtsyEnabled } from '../utils'
 
 export default function HampersListView({
-  sortedHampers,
+  hamperList,
+  pagination,
+  isUpdating,
+  listError,
+  onRetry,
   debouncedSearch,
   searchQuery,
   setSearchQuery,
@@ -27,8 +34,14 @@ export default function HampersListView({
   handleExpand,
   handleEdit,
   handleDelete,
+  onPageChange,
+  onPageSizeChange,
 }: {
-  sortedHampers: Hamper[]
+  hamperList: Hamper[]
+  pagination: PaginationMeta
+  isUpdating: boolean
+  listError: string | null
+  onRetry: () => void
   debouncedSearch: string
   searchQuery: string
   setSearchQuery: (value: string) => void
@@ -41,6 +54,8 @@ export default function HampersListView({
   handleExpand: (id: string) => void
   handleEdit: (hamper: Hamper) => void
   handleDelete: (id: string) => void
+  onPageChange: (page: number) => void
+  onPageSizeChange: (pageSize: PageSize) => void
 }) {
   const [selectedVariantId, setSelectedVariantId] = useState<string | null>(null)
   const visibleExpandedVariants =
@@ -89,6 +104,7 @@ export default function HampersListView({
         <div className="flex items-center gap-2">
           <span className="text-sm text-gray-500">Sort:</span>
           <select
+            aria-label="Sort hampers"
             value={sortBy}
             onChange={(e) => setSortBy(e.target.value as HamperSortOption)}
             className="px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
@@ -102,23 +118,24 @@ export default function HampersListView({
         </div>
       </div>
 
-      {sortedHampers.length === 0 ? (
-        <div className="card text-gray-500 text-center py-12">
-          {debouncedSearch ? (
-            <>
-              <p className="mb-4">No hampers match "{debouncedSearch}"</p>
-              <p className="text-sm">Try a different search term</p>
-            </>
-          ) : (
-            <>
-              <p className="mb-4">No hampers defined yet</p>
-              <p className="text-sm">Create your first hamper to start tracking availability</p>
-            </>
-          )}
-        </div>
-      ) : (
-        <div className="space-y-3">
-          {sortedHampers.map((hamper) => (
+      <UpdatingResults updating={isUpdating} error={listError} onRetry={onRetry}>
+        {hamperList.length === 0 ? (
+          <div className="card text-gray-500 text-center py-12">
+            {debouncedSearch ? (
+              <>
+                <p className="mb-4">No hampers match "{debouncedSearch}"</p>
+                <p className="text-sm">Try a different search term</p>
+              </>
+            ) : (
+              <>
+                <p className="mb-4">No hampers defined yet</p>
+                <p className="text-sm">Create your first hamper to start tracking availability</p>
+              </>
+            )}
+          </div>
+        ) : (
+          <div className="space-y-3">
+          {hamperList.map((hamper) => (
             <div key={hamper.id} className="card">
             {/* Row 1: Full-width name with edit/delete buttons */}
             <div className="flex items-start justify-between gap-2">
@@ -346,7 +363,17 @@ export default function HampersListView({
             )}
             </div>
           ))}
-        </div>
+          </div>
+        )}
+      </UpdatingResults>
+
+      {pagination.totalItems > 0 && (
+        <PaginationControls
+          {...pagination}
+          loading={isUpdating}
+          onPageChange={onPageChange}
+          onPageSizeChange={onPageSizeChange}
+        />
       )}
     </>
   )

@@ -157,7 +157,10 @@ describe('Sales', () => {
     window.history.pushState({}, '', '/');
     mockSalesList.mockResolvedValue(listResponse());
     mockSalesSummary.mockResolvedValue(sampleSummary);
-    mockHampersList.mockResolvedValue(sampleHampers as any);
+    mockHampersList.mockResolvedValue({
+      items: sampleHampers,
+      pagination: { page: 1, pageSize: 100, totalItems: sampleHampers.length, totalPages: 1 },
+    } as any);
     mockSalesPreview.mockResolvedValue(samplePreview as any);
     mockEtsyGetStatus.mockResolvedValue({ connected: false });
     mockGetPostageTiers.mockResolvedValue([]);

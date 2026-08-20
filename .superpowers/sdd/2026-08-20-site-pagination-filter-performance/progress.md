@@ -22,4 +22,4 @@ Tasks:
 - Task 8: complete (commits 26206c8..88aabe1, review clean)
 - Task 9: fix round 1/5 (2 addressed, 0 open — complete Sales lookup and executable SQL/query-bound evidence; commits a19c087..cbc94e8)
 - Task 9: complete (commits 88aabe1..cbc94e8, review clean)
-- Task 10: complete (audit, legacy-shape scan, full automated verification, and safe laptop browser shell check)
+- Task 10: automated audit complete; authenticated laptop browser verification limited by the absence of a safe non-production authenticated runtime

@@ -134,7 +134,7 @@ export default function Expenses() {
       setFormData(emptyForm)
       loadData()
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to save expense')
+      setError(err instanceof Error ? `Failed to save expense: ${err.message}` : 'Failed to save expense')
     } finally {
       setSaving(false)
     }
@@ -161,7 +161,7 @@ export default function Expenses() {
       await expenses.delete(id)
       loadData()
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to delete expense')
+      setError(err instanceof Error ? `Failed to delete expense: ${err.message}` : 'Failed to delete expense')
     }
   }
 
@@ -194,7 +194,16 @@ export default function Expenses() {
       />
 
       {error && (
-        <div className="alert-danger">{error}</div>
+        <div role="alert" className="alert-danger">{error}</div>
+      )}
+
+      {showSummary && summaryState.error && (
+        <div role="alert" className="alert-danger flex items-center justify-between gap-3">
+          <span>Failed to load expense summary: {summaryState.error}</span>
+          <button type="button" onClick={summaryState.retry} className="font-medium underline">
+            Retry summary
+          </button>
+        </div>
       )}
 
       {showSummary && summary && (
@@ -249,7 +258,7 @@ export default function Expenses() {
         expenseList={expenseList}
         pagination={pagination}
         isUpdating={listState.isUpdating}
-        listError={listState.error ?? error}
+        listError={listState.error}
         onRetry={listState.retry}
         onEdit={handleEdit}
         onDelete={handleDelete}

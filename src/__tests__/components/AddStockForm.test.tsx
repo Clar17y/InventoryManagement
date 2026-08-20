@@ -6,6 +6,7 @@ import { render } from '../utils/test-utils';
 vi.mock('../../lib/api', () => ({
   products: {
     list: vi.fn(),
+    listAll: vi.fn(),
     getByBarcode: vi.fn(),
     create: vi.fn(),
     addBarcode: vi.fn(),
@@ -31,7 +32,7 @@ vi.mock('../../components/scanner/BarcodeScanner', () => ({
 import AddStockForm from '../../components/inventory/AddStockForm';
 import { products, categories, inventory } from '../../lib/api';
 
-const mockProductsList = vi.mocked(products.list);
+const mockProductsList = vi.mocked(products.listAll);
 const mockGetByBarcode = vi.mocked(products.getByBarcode);
 const mockCategoriesList = vi.mocked(categories.list);
 const mockAddLot = vi.mocked(inventory.addLot);
@@ -155,6 +156,25 @@ describe('AddStockForm', () => {
       await waitFor(() => {
         expect(screen.getByText('No products found')).toBeInTheDocument();
       });
+    });
+
+    it('searches products beyond the first 100 compatibility results', async () => {
+      const allProducts = Array.from({ length: 101 }, (_, index) => ({
+        ...sampleProducts[0]!,
+        id: `prod-${index + 1}`,
+        name: `Chocolate ${index + 1}`,
+      }));
+      mockProductsList.mockResolvedValue({
+        items: allProducts,
+        pagination: { page: 1, pageSize: 100, totalItems: 101, totalPages: 2 },
+      } as any);
+      const user = userEvent.setup();
+
+      render(<AddStockForm onSuccess={mockOnSuccess} onClose={mockOnClose} />);
+      const searchInput = await screen.findByPlaceholderText('Search products...');
+      await user.type(searchInput, 'Chocolate 101');
+
+      expect(await screen.findByText('Chocolate 101')).toBeInTheDocument();
     });
 
     it('selects product when clicked', async () => {

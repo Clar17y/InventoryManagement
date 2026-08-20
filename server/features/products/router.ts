@@ -25,7 +25,10 @@ router.get('/', async (req, res) => {
       isActive: true,
       ...(query.categoryId ? { categoryId: query.categoryId } : {}),
       ...(query.search ? {
-        name: { contains: query.search, mode: 'insensitive' },
+        OR: [
+          { name: { contains: query.search, mode: 'insensitive' } },
+          { category: { name: { contains: query.search, mode: 'insensitive' } } },
+        ],
       } : {}),
     }
     const sortField = productsSortFields[query.sort]

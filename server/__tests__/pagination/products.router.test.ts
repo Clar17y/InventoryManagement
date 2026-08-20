@@ -90,7 +90,10 @@ describe('products pagination router', () => {
       where: {
         isActive: true,
         categoryId,
-        name: { contains: 'tea', mode: 'insensitive' },
+      OR: [
+        { name: { contains: 'tea', mode: 'insensitive' } },
+        { category: { name: { contains: 'tea', mode: 'insensitive' } } },
+      ],
       },
       include: {
         category: true,
@@ -113,7 +116,10 @@ describe('products pagination router', () => {
       where: {
         isActive: true,
         categoryId,
-        name: { contains: 'tea', mode: 'insensitive' },
+        OR: [
+          { name: { contains: 'tea', mode: 'insensitive' } },
+          { category: { name: { contains: 'tea', mode: 'insensitive' } } },
+        ],
       },
     })
   })

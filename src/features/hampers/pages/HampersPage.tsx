@@ -54,7 +54,7 @@ export default function Hampers() {
       const [hampersData, catsData, prodsData] = await Promise.all([
         hampers.list(),
         categories.list(),
-        products.list({ page: 1, pageSize: 100 }),
+        products.listAll(),
       ])
       setHamperList(hampersData)
       setCategoryList(catsData)

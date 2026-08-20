@@ -93,7 +93,7 @@ export default function AddStockForm({ onSuccess, onClose }: AddStockFormProps) 
     setIsLoading(true)
     try {
       const [productsData, categoriesData] = await Promise.all([
-        products.list({ page: 1, pageSize: 100 }),
+        products.listAll(),
         categories.list(),
       ])
       setAllProducts(productsData.items)
@@ -213,7 +213,7 @@ export default function AddStockForm({ onSuccess, onClose }: AddStockFormProps) 
     try {
       await products.addBarcode(product.id, scannedBarcode)
 
-      const updatedProducts = await products.list({ page: 1, pageSize: 100 })
+      const updatedProducts = await products.listAll()
       setAllProducts(updatedProducts.items)
 
       const updatedProduct = updatedProducts.items.find((p) => p.id === product.id)

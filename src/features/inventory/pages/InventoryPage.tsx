@@ -53,7 +53,7 @@ export default function Inventory() {
     setIsLoading(true)
     try {
       const [data, lowStock, expiring] = await Promise.all([
-        products.list({ page: 1, pageSize: 100 }),
+        products.listAll(),
         inventory.lowStock(),
         inventory.expiring(30),
       ])

@@ -18,6 +18,7 @@ vi.mock('../../lib/api', () => ({
   },
   products: {
     list: vi.fn(),
+    listAll: vi.fn(),
   },
   hamperVariants: {
     list: vi.fn(),
@@ -35,7 +36,7 @@ import { hampers, categories, products } from '../../lib/api';
   const mockHampersUpdate = vi.mocked(hampers.update);
   const mockHampersDelete = vi.mocked(hampers.delete);
   const mockCategoriesList = vi.mocked(categories.list);
-  const mockProductsList = vi.mocked(products.list);
+  const mockProductsList = vi.mocked(products.listAll);
 
 describe('Hampers', () => {
   const sampleCategories = [
@@ -337,6 +338,35 @@ describe('Hampers', () => {
       await user.click(screen.getByRole('checkbox', { name: /add chocolates/i }));
 
       expect(screen.getByRole('checkbox', { name: /remove chocolates/i })).toBeInTheDocument();
+    });
+
+    it('makes compatibility products beyond the first 100 available to variant forms', async () => {
+      const user = userEvent.setup();
+      const allProducts = Array.from({ length: 101 }, (_, index) => ({
+        id: `prod-${index + 1}`,
+        name: `Chocolate ${index + 1}`,
+        categoryId: 'cat-1',
+      }));
+      mockProductsList.mockResolvedValue({
+        items: allProducts,
+        pagination: { page: 1, pageSize: 100, totalItems: 101, totalPages: 2 },
+      } as any);
+      const variantHamper = {
+        ...sampleHampers[0],
+        id: 'ham-variants',
+        name: 'Variant Chocolate Hamper',
+        hasVariants: true,
+      };
+      mockHampersList.mockResolvedValue([variantHamper] as any);
+      mockHampersGet.mockResolvedValue({ ...variantHamper, variants: [] } as any);
+
+      render(<Hampers />);
+      await waitFor(() => expect(screen.getByText('Variant Chocolate Hamper')).toBeInTheDocument());
+      await user.click(screen.getByRole('button', { name: 'Edit hamper Variant Chocolate Hamper' }));
+      await waitFor(() => expect(screen.getByRole('button', { name: '+ Add Variant' })).toBeInTheDocument());
+      await user.click(screen.getByRole('button', { name: '+ Add Variant' }));
+
+      expect(screen.getByRole('option', { name: 'Chocolate 101' })).toBeInTheDocument();
     });
   });
 

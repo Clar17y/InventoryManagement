@@ -16,6 +16,7 @@ vi.mock('../../lib/api', () => ({
   },
   products: {
     list: vi.fn(),
+    listAll: vi.fn(),
   },
 }));
 
@@ -25,7 +26,7 @@ import { categories, products } from '../../lib/api';
 const mockList = vi.mocked(categories.list);
 const mockCreate = vi.mocked(categories.create);
 const mockDelete = vi.mocked(categories.delete);
-const mockProductsList = vi.mocked(products.list);
+const mockProductsList = vi.mocked(products.listAll);
 
 describe('Categories', () => {
   const sampleCategories = [
@@ -122,6 +123,24 @@ describe('Categories', () => {
       await waitFor(() => {
         expect(screen.getByText('No categories yet')).toBeInTheDocument();
       });
+    });
+
+    it('renders the complete compatibility product set beyond the first 100 items', async () => {
+      const allProducts = Array.from({ length: 101 }, (_, index) => ({
+        id: `prod-${index + 1}`,
+        name: `Chocolate ${index + 1}`,
+        categoryId: 'cat-1',
+        unit: 'pcs',
+        totalStock: 0,
+      }));
+      mockProductsList.mockResolvedValue({
+        items: allProducts,
+        pagination: { page: 1, pageSize: 100, totalItems: 101, totalPages: 2 },
+      } as any);
+
+      render(<Categories />);
+
+      await waitFor(() => expect(screen.getByText('101 products • FIFO')).toBeInTheDocument());
     });
   });
 

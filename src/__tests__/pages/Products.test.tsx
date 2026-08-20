@@ -31,7 +31,10 @@ const mockProductsList = vi.mocked(products.list);
 const mockProductsCreate = vi.mocked(products.create);
 const mockCategoriesList = vi.mocked(categories.list);
 const mockProductsDelete = vi.mocked(products.delete);
+const mockProductsAddBarcode = vi.mocked(products.addBarcode);
+const mockProductsRemoveBarcode = vi.mocked(products.removeBarcode);
 const mockSuppliersList = vi.mocked(suppliers.list);
+const mockGetProductSuppliers = vi.mocked(suppliers.getProductSuppliers);
 const mockSetProductSuppliers = vi.mocked(suppliers.setProductSuppliers);
 
 describe('Products', () => {
@@ -90,6 +93,7 @@ describe('Products', () => {
     mockProductsList.mockResolvedValue(listResponse() as any);
     mockCategoriesList.mockResolvedValue(sampleCategories as any);
     mockSuppliersList.mockResolvedValue([]);
+    mockGetProductSuppliers.mockResolvedValue([]);
   });
 
   afterEach(() => {
@@ -208,6 +212,30 @@ describe('Products', () => {
       );
     });
 
+    it('keeps explicit category filtering while sending search for name-or-category matching', async () => {
+      vi.useFakeTimers();
+      render(<Products />);
+
+      await act(async () => {
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+
+      fireEvent.change(screen.getAllByRole('combobox')[0]!, { target: { value: 'cat-2' } });
+      fireEvent.change(screen.getByPlaceholderText('Search products...'), { target: { value: 'chocolate' } });
+
+      await act(async () => {
+        vi.advanceTimersByTime(400);
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+
+      expect(mockProductsList).toHaveBeenLastCalledWith(
+        expect.objectContaining({ page: 1, categoryId: 'cat-2', search: 'chocolate' }),
+        expect.objectContaining({ signal: expect.any(AbortSignal) }),
+      );
+    });
+
     it('resets page for sort, direction, and page-size changes', async () => {
       const user = userEvent.setup();
       window.history.pushState({}, '', '/products?page=3&pageSize=25');
@@ -312,6 +340,44 @@ describe('Products', () => {
       expect(mockProductsList.mock.calls[2]?.[0]).toEqual(expect.objectContaining({ page: 1, pageSize: 25 }));
       await waitFor(() => expect(screen.getByText('Orange Juice')).toBeInTheDocument());
     });
+
+    it('aborts the first request and ignores its late response after a newer query starts', async () => {
+      const user = userEvent.setup();
+      let resolveFirst!: (value: ReturnType<typeof listResponse>) => void;
+      let resolveSecond!: (value: ReturnType<typeof listResponse>) => void;
+      const firstResponse = new Promise<ReturnType<typeof listResponse>>((resolve) => { resolveFirst = resolve; });
+      const secondResponse = new Promise<ReturnType<typeof listResponse>>((resolve) => { resolveSecond = resolve; });
+      const signals: AbortSignal[] = [];
+
+      render(<Products />);
+      await waitFor(() => expect(screen.getByText('Dark Chocolate Bar')).toBeInTheDocument());
+
+      mockProductsList.mockReset();
+      mockProductsList.mockImplementation((_params, options) => {
+        signals.push(options?.signal as AbortSignal);
+        return (signals.length === 1 ? firstResponse : secondResponse) as any;
+      });
+
+      await user.selectOptions(screen.getAllByRole('combobox')[0]!, 'cat-2');
+      await waitFor(() => expect(mockProductsList).toHaveBeenCalledTimes(1));
+      await user.click(screen.getByRole('button', { name: 'Sort descending' }));
+      await waitFor(() => expect(mockProductsList).toHaveBeenCalledTimes(2));
+      expect(signals[0]?.aborted).toBe(true);
+
+      const newerProduct = { ...sampleProducts[1]!, id: 'prod-new', name: 'Newer category result' };
+      await act(async () => {
+        resolveSecond(listResponse([newerProduct]));
+        await secondResponse;
+      });
+      await waitFor(() => expect(screen.getByText('Newer category result')).toBeInTheDocument());
+
+      await act(async () => {
+        resolveFirst(listResponse(sampleProducts));
+        await firstResponse;
+      });
+      expect(screen.getByText('Newer category result')).toBeInTheDocument();
+      expect(screen.queryByText('Dark Chocolate Bar')).not.toBeInTheDocument();
+    });
   });
 
   describe('add product', () => {
@@ -367,6 +433,37 @@ describe('Products', () => {
       await waitFor(() => {
         expect(mockProductsDelete).toHaveBeenCalled();
       });
+    });
+  });
+
+  describe('barcode management', () => {
+    it('updates the open form immediately after adding a barcode', async () => {
+      const user = userEvent.setup();
+      mockProductsAddBarcode.mockResolvedValue({ id: 'bar-2', barcode: '9876543210987' } as any);
+
+      render(<Products />);
+      await waitFor(() => expect(screen.getByText('Dark Chocolate Bar')).toBeInTheDocument());
+      await user.click(screen.getByRole('button', { name: 'Edit product Dark Chocolate Bar' }));
+      await user.type(screen.getByPlaceholderText('Enter barcode to add...'), '9876543210987');
+      const addBarcodeButton = screen.getAllByRole('button', { name: 'Add' }).slice(-1)[0]!;
+      await user.click(addBarcodeButton);
+
+      await waitFor(() => expect(mockProductsAddBarcode).toHaveBeenCalledWith('prod-1', '9876543210987'));
+      expect(screen.getByText('9876543210987')).toBeInTheDocument();
+    });
+
+    it('updates the open form immediately after removing a barcode', async () => {
+      const user = userEvent.setup();
+      mockProductsRemoveBarcode.mockResolvedValue(undefined);
+
+      render(<Products />);
+      await waitFor(() => expect(screen.getByText('Dark Chocolate Bar')).toBeInTheDocument());
+      await user.click(screen.getByRole('button', { name: 'Edit product Dark Chocolate Bar' }));
+      await user.click(screen.getByTitle('Remove barcode'));
+
+      await waitFor(() => expect(mockProductsRemoveBarcode).toHaveBeenCalledWith('prod-1', 'bar-1'));
+      expect(screen.queryByText('1234567890123')).not.toBeInTheDocument();
+      expect(screen.getByText('No barcodes linked to this product')).toBeInTheDocument();
     });
   });
 

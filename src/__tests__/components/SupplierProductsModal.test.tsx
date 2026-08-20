@@ -22,6 +22,7 @@ const mockSetSupplierProducts = vi.fn().mockResolvedValue(['p1', 'p3']);
 vi.mock('../../lib/api', () => ({
   products: {
     list: (...args: unknown[]) => mockListProducts(...args),
+    listAll: (...args: unknown[]) => mockListProducts(...args),
   },
   suppliers: {
     getSupplierProducts: (...args: unknown[]) => mockGetSupplierProducts(...args),
@@ -70,6 +71,23 @@ describe('SupplierProductsModal', () => {
     expect(screen.getByText('Vanilla Candle')).toBeInTheDocument();
     expect(screen.getByText('Rose Candle')).toBeInTheDocument();
     expect(screen.getByText('Hand Cream')).toBeInTheDocument();
+  });
+
+  it('loads products beyond the first 100 compatibility results', async () => {
+    const allProducts = Array.from({ length: 101 }, (_, index) => ({
+      id: `p-${index + 1}`,
+      name: `Product ${index + 1}`,
+      category: { name: 'Candles' },
+      categoryId: 'c1',
+    }));
+    mockListProducts.mockResolvedValue({
+      items: allProducts,
+      pagination: { page: 1, pageSize: 100, totalItems: 101, totalPages: 2 },
+    });
+
+    render(<SupplierProductsModal supplier={supplier} onClose={onClose} />);
+
+    expect(await screen.findByText('Product 101')).toBeInTheDocument();
   });
 
   it('pre-selects products already linked to supplier', async () => {

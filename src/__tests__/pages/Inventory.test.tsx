@@ -15,6 +15,7 @@ vi.mock('../../lib/api', () => ({
   },
   products: {
     list: vi.fn(),
+    listAll: vi.fn(),
   },
 }));
 
@@ -25,7 +26,7 @@ const mockLots = vi.mocked(inventory.lots);
 const mockLowStock = vi.mocked(inventory.lowStock);
 const mockExpiring = vi.mocked(inventory.expiring);
 const mockDeleteLot = vi.mocked(inventory.deleteLot);
-const mockProductsList = vi.mocked(products.list);
+const mockProductsList = vi.mocked(products.listAll);
 
 describe('Inventory', () => {
   const sampleCategories = [
@@ -122,6 +123,22 @@ describe('Inventory', () => {
   it('renders products after loading', async () => {
     render(<Inventory />);
     expect(await screen.findByText('Dark Chocolate')).toBeInTheDocument();
+  });
+
+  it('renders a compatibility product beyond the first 100 items', async () => {
+    const allProducts = Array.from({ length: 101 }, (_, index) => ({
+      ...sampleProducts[0]!,
+      id: `prod-${index + 1}`,
+      name: `Chocolate ${index + 1}`,
+    }));
+    mockProductsList.mockResolvedValue({
+      items: allProducts,
+      pagination: { page: 1, pageSize: 100, totalItems: 101, totalPages: 2 },
+    } as any);
+
+    render(<Inventory />);
+
+    expect(await screen.findByText('Chocolate 101')).toBeInTheDocument();
   });
 
   it('shows Add Stock button', () => {

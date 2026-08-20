@@ -211,7 +211,16 @@ export default function Products() {
     setAddingBarcode(true)
     setError(null)
     try {
-      await products.addBarcode(editingId, newBarcode.trim())
+      const addedBarcode = await products.addBarcode(editingId, newBarcode.trim())
+      setEditingProduct((current) => {
+        if (!current) return current
+        const barcodes = [...(current.barcodes ?? []), addedBarcode]
+        return {
+          ...current,
+          barcode: current.barcode ?? addedBarcode.barcode,
+          barcodes,
+        }
+      })
       setNewBarcode('')
       reloadProducts()
     } catch (err) {
@@ -226,6 +235,15 @@ export default function Products() {
 
     try {
       await products.removeBarcode(editingId, barcodeId)
+      setEditingProduct((current) => {
+        if (!current?.barcodes) return current
+        const barcodes = current.barcodes.filter((barcode) => barcode.id !== barcodeId)
+        return {
+          ...current,
+          barcode: barcodes[0]?.barcode ?? null,
+          barcodes,
+        }
+      })
       reloadProducts()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to remove barcode')

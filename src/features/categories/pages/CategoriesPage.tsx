@@ -32,7 +32,7 @@ export default function Categories() {
       setLoading(true)
       const [cats, prods] = await Promise.all([
         categories.list(),
-        products.list({ page: 1, pageSize: 100 }),
+        products.listAll(),
       ])
       setCategoryList(cats)
       setProductList(prods.items)

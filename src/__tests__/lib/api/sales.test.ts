@@ -103,6 +103,27 @@ describe('sales API', () => {
       expect(salesListResponseSchema.parse(sampleListResponse)).toEqual(sampleListResponse);
     });
 
+    it('decodes manually verified Etsy fees in a paginated margin-sorted response', () => {
+      const query = {
+        page: 1,
+        pageSize: 25,
+        sort: 'margin',
+        direction: 'asc',
+      } as const;
+      const manuallyVerifiedSale = {
+        ...sampleSale,
+        etsyFeeReconciliationSource: 'MANUAL',
+        etsyFeeReconciliationStatus: 'MANUALLY_VERIFIED',
+      };
+      const response = {
+        items: [manuallyVerifiedSale],
+        pagination: { page: 1, pageSize: 25 as const, totalItems: 1, totalPages: 1 },
+      };
+
+      expect(salesListQuerySchema.parse(query)).toEqual(query);
+      expect(salesListResponseSchema.parse(response)).toEqual(response);
+    });
+
     it('forwards the shared query and abort signal to the request', async () => {
       mockRequestWithSchema.mockResolvedValue(sampleListResponse);
       const signal = new AbortController().signal;

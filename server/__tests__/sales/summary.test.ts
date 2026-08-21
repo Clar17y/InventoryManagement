@@ -138,7 +138,7 @@ describe('sales summary aggregation', () => {
         AND: [
           where,
           { saleChannel: 'etsy' },
-          { etsyFeeReconciliationStatus: { notIn: ['STATEMENT_VERIFIED', 'NOT_APPLICABLE'] } },
+          { etsyFeeReconciliationStatus: { in: ['PENDING', 'PAYMENT_SYNCED', 'MANUAL_REVIEW'] } },
         ],
       },
     })

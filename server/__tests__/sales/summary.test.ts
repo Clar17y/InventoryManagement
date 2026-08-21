@@ -160,4 +160,60 @@ describe('sales summary aggregation', () => {
     expect(result.byHamper).toEqual([{ name: 'Custom basket', count: 2, revenue: 15 }])
     expect(mockPrisma.hamper.findMany).not.toHaveBeenCalled()
   })
+
+  it('keeps distinct Hampers separate when they share a display name', async () => {
+    mockPrisma.saleLine.groupBy.mockResolvedValue([
+      {
+        hamperId: 'hamper-1',
+        description: null,
+        unitPrice: new Prisma.Decimal('20.00'),
+        _sum: { quantity: 1 },
+      },
+      {
+        hamperId: 'hamper-2',
+        description: null,
+        unitPrice: new Prisma.Decimal('25.00'),
+        _sum: { quantity: 2 },
+      },
+    ])
+    mockPrisma.hamper.findMany.mockResolvedValue([
+      { id: 'hamper-1', name: 'Gift Hamper' },
+      { id: 'hamper-2', name: 'Gift Hamper' },
+    ])
+
+    const result = await getSalesSummary({})
+
+    expect(result.byHamper).toEqual([
+      { name: 'Gift Hamper', count: 2, revenue: 50 },
+      { name: 'Gift Hamper', count: 1, revenue: 20 },
+    ])
+  })
+
+  it('sorts hamper summaries by quantity count before revenue', async () => {
+    mockPrisma.saleLine.groupBy.mockResolvedValue([
+      {
+        hamperId: 'high-value',
+        description: null,
+        unitPrice: new Prisma.Decimal('100.00'),
+        _sum: { quantity: 1 },
+      },
+      {
+        hamperId: 'high-volume',
+        description: null,
+        unitPrice: new Prisma.Decimal('10.00'),
+        _sum: { quantity: 3 },
+      },
+    ])
+    mockPrisma.hamper.findMany.mockResolvedValue([
+      { id: 'high-value', name: 'High Value' },
+      { id: 'high-volume', name: 'High Volume' },
+    ])
+
+    const result = await getSalesSummary({})
+
+    expect(result.byHamper).toEqual([
+      { name: 'High Volume', count: 3, revenue: 30 },
+      { name: 'High Value', count: 1, revenue: 100 },
+    ])
+  })
 })

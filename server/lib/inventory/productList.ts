@@ -7,31 +7,43 @@ import type {
 } from '#contracts/routes/inventory'
 import { buildPaginationMeta, toPrismaPagination } from '../pagination'
 
-const inventoryProductInclude = {
-  category: true,
-  lots: {
-    where: { remaining: { gt: 0 } },
-    select: { remaining: true },
-  },
-  costs: {
-    where: {
-      effectiveFrom: { lte: new Date() },
-      OR: [{ effectiveTo: null }, { effectiveTo: { gt: new Date() } }],
+const inventoryProductSelect = {
+  id: true,
+  name: true,
+  categoryId: true,
+  unit: true,
+  lowStockThreshold: true,
+  isActive: true,
+  createdAt: true,
+  updatedAt: true,
+  category: {
+    select: {
+      id: true,
+      name: true,
+      description: true,
+      pickRule: true,
+      isActive: true,
+      createdAt: true,
+      updatedAt: true,
     },
-    take: 1,
-    orderBy: { effectiveFrom: 'desc' as const },
   },
-} satisfies Prisma.ProductInclude
+} satisfies Prisma.ProductSelect
 
 type InventoryProductHydration = Prisma.ProductGetPayload<{
-  include: typeof inventoryProductInclude
+  select: typeof inventoryProductSelect
 }>
 
 type InventoryProductListDb = Pick<PrismaClient, '$queryRaw'> & {
   product: Pick<PrismaClient['product'], 'findMany'>
 }
 
-type PageRow = { id: string; totalItems: number | bigint }
+type PageRow = {
+  id: string
+  remaining: Prisma.Decimal | number | string
+  lotCount: number | bigint
+  currentCost: Prisma.Decimal | number | string | null
+  totalItems: number | bigint
+}
 type CountRow = { totalItems: number | bigint }
 
 // ComponentCategory has no sortOrder column, so category order starts with its
@@ -109,9 +121,9 @@ function stockCte(query: ParsedInventoryProductsQuery): Prisma.Sql {
   `
 }
 
-function mapInventoryProduct(product: InventoryProductHydration): InventoryProduct {
-  const totalRemaining = product.lots.reduce((sum, lot) => sum + Number(lot.remaining), 0)
-  const lotCount = product.lots.length
+function mapInventoryProduct(product: InventoryProductHydration, pageRow: PageRow): InventoryProduct {
+  const totalRemaining = Number(pageRow.remaining)
+  const lotCount = Number(pageRow.lotCount)
 
   return {
     id: product.id,
@@ -130,7 +142,9 @@ function mapInventoryProduct(product: InventoryProductHydration): InventoryProdu
     totalStock: product.unit === 'units' ? totalRemaining : lotCount,
     totalRemaining,
     lotCount,
-    currentCost: product.costs[0] ? Number(product.costs[0].unitCost) : null,
+    currentCost: pageRow.currentCost === null || pageRow.currentCost === undefined
+      ? null
+      : Number(pageRow.currentCost),
   }
 }
 
@@ -143,7 +157,12 @@ export async function listInventoryProducts(
   const orderBy = inventoryOrderBy[query.sort ?? 'category']
   const pageRows = await db.$queryRaw<PageRow[]>(Prisma.sql`
     ${cte}
-    SELECT stock.id, COUNT(*) OVER()::integer AS "totalItems"
+    SELECT
+      stock.id,
+      stock.remaining,
+      stock."lotCount",
+      stock."currentCost",
+      COUNT(*) OVER()::integer AS "totalItems"
     FROM filtered stock
     JOIN "ComponentCategory" c ON c.id = stock."categoryId"
     ORDER BY ${orderBy}
@@ -164,12 +183,14 @@ export async function listInventoryProducts(
   const ids = pageRows.map((row) => row.id)
   const products = await db.product.findMany({
     where: { id: { in: ids } },
-    include: inventoryProductInclude,
+    select: inventoryProductSelect,
   }) as InventoryProductHydration[]
   const productsById = new Map(products.map((product) => [product.id, product]))
+  const pageRowsById = new Map(pageRows.map((row) => [row.id, row]))
   const items = ids.flatMap((id) => {
     const product = productsById.get(id)
-    return product ? [mapInventoryProduct(product)] : []
+    const pageRow = pageRowsById.get(id)
+    return product && pageRow ? [mapInventoryProduct(product, pageRow)] : []
   })
   const totalItems = Number(pageRows[0]!.totalItems)
 

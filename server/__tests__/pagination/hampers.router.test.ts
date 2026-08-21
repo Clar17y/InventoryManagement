@@ -70,7 +70,7 @@ beforeEach(() => {
   vi.clearAllMocks()
   mockPrisma.hamper.findMany.mockResolvedValue([hamper])
   mockPrisma.hamper.count.mockResolvedValue(51)
-  mockPrisma.$queryRaw.mockResolvedValue([{ id: hamper.id }])
+  mockPrisma.$queryRaw.mockResolvedValue([{ id: hamper.id, totalItems: 51 }])
   mockPrisma.hamperRequirement.findMany.mockResolvedValue([])
   mockPrisma.hamperVariant.findMany.mockResolvedValue([])
   mockPrisma.hamperVariantMapping.findMany.mockResolvedValue([])
@@ -119,6 +119,7 @@ describe('hampers pagination router', () => {
           mappings: mockPrisma.hamperVariantMapping.findMany.mock.calls.length,
           products: mockPrisma.product.findMany.mock.calls.length,
           lots: mockPrisma.inventoryLot.groupBy.mock.calls.length,
+          availabilityAggregates: mockPrisma.$queryRaw.mock.calls.length,
         },
       }
     }
@@ -132,8 +133,9 @@ describe('hampers pagination router', () => {
         requirements: 1,
         variants: 1,
         mappings: 1,
-        products: 1,
-        lots: 1,
+        products: 0,
+        lots: 0,
+        availabilityAggregates: 0,
       },
     })
     await expect(run(100)).resolves.toEqual({
@@ -145,8 +147,9 @@ describe('hampers pagination router', () => {
         requirements: 1,
         variants: 1,
         mappings: 1,
-        products: 1,
-        lots: 1,
+        products: 0,
+        lots: 0,
+        availabilityAggregates: 0,
       },
     })
   })
@@ -255,8 +258,8 @@ describe('hampers pagination router', () => {
     expect(mockPrisma.hamperRequirement.findMany).toHaveBeenCalledTimes(1)
     expect(mockPrisma.hamperVariant.findMany).toHaveBeenCalledTimes(1)
     expect(mockPrisma.hamperVariantMapping.findMany).toHaveBeenCalledTimes(1)
-    expect(mockPrisma.product.findMany).toHaveBeenCalledTimes(1)
-    expect(mockPrisma.inventoryLot.groupBy).toHaveBeenCalledTimes(1)
+    expect(mockPrisma.product.findMany).not.toHaveBeenCalled()
+    expect(mockPrisma.inventoryLot.groupBy).not.toHaveBeenCalled()
   })
 
   it.each(['canmake-desc', 'canmake-asc'] as const)(
@@ -279,6 +282,38 @@ describe('hampers pagination router', () => {
       }))
     },
   )
+
+  it('uses the availability window total without a redundant count on a non-empty page', async () => {
+    mockPrisma.hamper.count.mockResolvedValue(999)
+    mockPrisma.$queryRaw.mockResolvedValue([{ id: hamper.id, totalItems: 51 }])
+
+    const result = await listHampers({
+      page: 1,
+      pageSize: 25,
+      hideEtsyHidden: false,
+      sort: 'canmake-desc',
+    })
+
+    expect(result.items).toHaveLength(1)
+    expect(result.totalItems).toBe(51)
+    expect(mockPrisma.hamper.count).not.toHaveBeenCalled()
+  })
+
+  it('falls back to a count when an availability page is empty', async () => {
+    mockPrisma.hamper.count.mockResolvedValue(51)
+    mockPrisma.$queryRaw.mockResolvedValue([])
+
+    const result = await listHampers({
+      page: 3,
+      pageSize: 25,
+      hideEtsyHidden: false,
+      sort: 'canmake-desc',
+    })
+
+    expect(result.items).toEqual([])
+    expect(result.totalItems).toBe(51)
+    expect(mockPrisma.hamper.count).toHaveBeenCalledTimes(1)
+  })
 
   it('applies search and exact Etsy visibility semantics to totals and variant summaries', async () => {
     mockPrisma.hamperVariant.findMany.mockResolvedValue([

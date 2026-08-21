@@ -25,4 +25,5 @@ Tasks:
 - Task 10: automated audit complete; authenticated laptop browser verification limited by the absence of a safe non-production authenticated runtime
 - Final simplify pass: complete (commit 9bb5c34; request-loop, duplicate-query, cancellation, and no-op URL work removed)
 - Whole-branch review: fix round 1/5 complete (zero-stock Inventory regression fixed in 0d2f0ad; scoped re-review approved)
-- Final verification: automated gates pass at 0d2f0ad; final docs-only whitespace/count update pending exact-candidate confirmation
+- Final verification: automated gates passed at b5314d3 before the requested final review
+- Requested simplify follow-up: in progress (Sales summary identity/order restored; Product/Inventory relation hydration bounded; Hamper category stock aggregated and computed count reused)

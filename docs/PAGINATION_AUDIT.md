@@ -16,8 +16,8 @@ No representative local application database was used, so route milliseconds wer
 | Sales history | Numbered, URL-backed | 25 / 100 | Server: date, search, sort | Current page plus matching count; page tests retain rows, reject stale results, retry, and restore URL state. Summary uses aggregate/group queries and never loads matching Sale rows. | — |
 | Record Sale Hamper lookup | Numbered, local lazy lookup | 25 / 100 | Server: search and visibility | No request until opened; tests reach results beyond 100 and keep the Sales URL unchanged. | — |
 | Expenses | Numbered, URL-backed | 25 / 100 | Server: category, dates, search, sort | Current page plus count. Monthly/category/totals summary uses grouped SQL/aggregate queries and never loads all matching expenses. | — |
-| Products | Numbered, URL-backed | 25 / 100 | Server: category, product/category-name search, sort | Bounded `findMany` plus identical `count`; only current-page rows render. Abort/stale and mutation-refresh paths are covered. | — |
-| Inventory | Numbered, URL-backed | 25 / 100 | Server before paging: category, search, low-stock, nine sorts | PostgreSQL CTE selects ordered page IDs and total before one detail hydration; tests cover all sorts, empty-page metadata, retained rows, and URL history. | — |
+| Products | Numbered, URL-backed | 25 / 100 | Server: category, product/category-name search, sort | Bounded scalar `findMany` plus identical `count` and one page-scoped SQL stock/cost/barcode aggregate; no lot or cost relation rows are hydrated. Only current-page rows render. | — |
+| Inventory | Numbered, URL-backed | 25 / 100 | Server before paging: category, search, low-stock, nine sorts | PostgreSQL CTE selects ordered page rows, totals, stock, lot count, and cost before scalar Product/category hydration; no lot or cost relation rows are hydrated. Tests cover all sorts, zero stock, empty-page metadata, retained rows, and URL history. | — |
 | Hampers | Numbered, URL-backed | 25 / 100 | Server: search, Etsy visibility, ten sorts | Fixed seven calls for both 25- and 100-item ordinary-sort fixtures: one detailed page read, count, and five batched availability inputs. Computed availability sorts use one selection/count CTE, one hydration read, and the same five inputs. The actual CTE runs in PGlite to prove visibility, global order, totals, and pages. | — |
 | Categories product expansion | Numbered, local and lazy | 25 / 100 | Server: expanded category and search | Initial category load makes no product request; only the expanded category fetches a bounded product page. | — |
 | Add Stock product selection | Numbered, local and lazy | 25 / 100 | Server: product search/category | Current-page results remain visible while updating; barcode lookup can select a product outside the current page. | — |
@@ -33,9 +33,9 @@ No representative local application database was used, so route milliseconds wer
 |---|---|---:|---:|---:|---|
 | Sales | `Sales.test.tsx`; `pagination/sales.router.test.ts` | 1 initial; 2 after a page change; 3 in the stale-filter sequence | 1 client item; route returns 1 of 51 | 1 sample sale row | `findMany` and `count` arguments verified; exact call totals are not asserted |
 | Expenses | `Expenses.test.tsx`; `pagination/expenses.router.test.ts` | 3 in the stale-filter sequence | 2 client items; route returns 1 of 101 | 2 expense descriptions | `findMany` and `count` arguments verified; exact call totals are not asserted |
-| Products | `Products.test.tsx`; `pagination/products.router.test.ts` | 2 across page refresh; 3 in retry/mutation flow | 2 initial, then 1; route returns 25 of 51 | 2 initial product rows, then 1 | `findMany` and `count` arguments verified; exact call totals are not asserted |
-| Inventory | `Inventory.test.tsx`; `inventory/productList.test.ts` | 2 for an out-of-range fallback | 0 then 1; service fixture returns 2 | 1 final-page product | Normal page: 1 raw page query + 1 hydration query. Empty page: 2 raw queries + 0 hydration queries |
-| Hampers | `Hampers.test.tsx`; `pagination/hampers.router.test.ts` | 1 initial; 2 after a page change; 3 in the stale-filter sequence | 2 client items; server fixtures return 25 and 100 | Existing row remains rendered while updating | Fixed 7 calls at both fixture sizes: 1 Hamper read, 1 count, and 1 each for requirements, variants, mappings, products, and lots |
+| Products | `Products.test.tsx`; `pagination/products.router.test.ts` | 2 across page refresh; 3 in retry/mutation flow | 2 initial, then 1; route returns 25 of 51 | 2 initial product rows, then 1 | 1 bounded Product read, 1 count, and 1 page-ID-scoped SQL aggregate; test rejects lot/cost/barcode relation hydration |
+| Inventory | `Inventory.test.tsx`; `inventory/productList.test.ts` | 2 for an out-of-range fallback | 0 then 1; service fixture returns 2 | 1 final-page product | Normal page: 1 raw page/stock query + 1 scalar hydration query. Empty page: 2 raw queries + 0 hydration queries. A 100-row executable fixture rejects lot/cost relation hydration |
+| Hampers | `Hampers.test.tsx`; `pagination/hampers.router.test.ts` | 1 initial; 2 after a page change; 3 in the stale-filter sequence | 2 client items; server fixtures return 25 and 100 | Existing row remains rendered while updating | Fixed 7 calls at both fixture sizes: page, count, requirements, variants, mappings, category-stock aggregate, and mapped-product aggregate. No full-category Product hydration |
 | Categories | `Categories.test.tsx` | 0 product requests before expansion; page 1 and 2 parameters verified | 5 expanded items of 30 | Returned nested products render; exact row count is not asserted | N/A — client mock; no focused category-route Prisma test |
 | Supplier settings | `SupplierProductsModal.test.tsx` | Page 1 and 2 parameters verified; exact total is not asserted | 2 then 1 | 3 names across pages; saved ID union is exactly 3 | N/A — client mock |
 | Shopping List | `ShoppingList.test.tsx` | Supplier argument verified; exact total is not asserted | 2 suppliers and 2 low-stock items | 2 product names | N/A — intentionally unpaginated supplier action |
@@ -58,9 +58,9 @@ Remaining `limit`/`offset`, `.sales`, `.expenses`, and `Load More` matches are i
 ## Automated evidence
 
 - Focused pagination client suite: 18 files, 301 tests passed.
-- Focused pagination server suite: 12 files, 57 tests passed.
+- Focused pagination server suite: 12 files, 63 tests passed.
 - Full client suite: 43 files, 627 tests passed.
-- Full server suite: 30 files, 284 tests passed.
+- Full server suite: 30 files, 288 tests passed.
 - Client and server TypeScript checks passed.
 - Production build passed.
 - Focused ESLint over pagination contracts, routes, services, hooks, controls, and pages passed.

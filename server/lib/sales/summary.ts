@@ -75,15 +75,18 @@ export function mapSalesSummary({
   for (const group of lineGroups) {
     const count = group._sum.quantity ?? 0
     const revenue = Number(group.unitPrice) * count
+    const key = group.hamperId
+      ? `hamper:${group.hamperId}`
+      : `bespoke:${group.description}`
     const name = group.hamperId
       ? hamperNames.get(group.hamperId) ?? group.description ?? 'Bespoke Item'
       : group.description ?? 'Bespoke Item'
-    const existing = byHamper.get(name)
+    const existing = byHamper.get(key)
     if (existing) {
       existing.count += count
       existing.revenue += revenue
     } else {
-      byHamper.set(name, { name, count, revenue })
+      byHamper.set(key, { name, count, revenue })
     }
   }
 
@@ -99,7 +102,7 @@ export function mapSalesSummary({
       totalMargin: asNumber(totals._sum.margin),
     },
     byChannel,
-    byHamper: [...byHamper.values()].sort((left, right) => right.revenue - left.revenue),
+    byHamper: [...byHamper.values()].sort((left, right) => right.count - left.count),
   }
 }
 

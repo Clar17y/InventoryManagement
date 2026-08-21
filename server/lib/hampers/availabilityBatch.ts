@@ -1,3 +1,4 @@
+import { Prisma } from '@prisma/client'
 import { prisma } from '../prisma'
 
 export interface AvailabilityInputs {
@@ -18,6 +19,7 @@ export interface AvailabilityInputs {
   }>
   mappings: Array<{ variantId: string; categoryId: string; productId: string }>
   productIdsByCategory: Map<string, string[]>
+  categoryStockByCategory?: Map<string, number>
   remainingByProductId: Map<string, number>
 }
 
@@ -77,6 +79,13 @@ export function availabilityInputsFromLoadedHamper(
     productIdsByCategorySets.set(requirement.categoryId, productIds)
   }
 
+  const categoryStockByCategory = new Map(
+    [...productIdsByCategorySets].map(([categoryId, productIds]) => [
+      categoryId,
+      [...productIds].reduce((total, productId) => total + (remainingByProductId.get(productId) ?? 0), 0),
+    ]),
+  )
+
   return {
     requirements: hamper.requirements.map((requirement) => ({
       hamperId: hamper.id,
@@ -101,8 +110,44 @@ export function availabilityInputsFromLoadedHamper(
     productIdsByCategory: new Map(
       [...productIdsByCategorySets].map(([categoryId, productIds]) => [categoryId, [...productIds]]),
     ),
+    categoryStockByCategory,
     remainingByProductId,
   }
+}
+
+type CategoryStockRow = { categoryId: string; stock: unknown }
+type MappedProductStockRow = { productId: string; stock: unknown }
+
+function buildCategoryStockSql(categoryIds: string[]): Prisma.Sql {
+  return Prisma.sql`
+    SELECT p."categoryId" AS "categoryId",
+           COALESCE(SUM(l."remaining"), 0) AS "stock"
+    FROM "Product" p
+    LEFT JOIN "InventoryLot" l
+      ON l."productId" = p."id"
+     AND l."remaining" > 0
+    WHERE p."isActive" = TRUE
+      AND p."categoryId" IN (${Prisma.join(categoryIds)})
+    GROUP BY p."categoryId"
+  `
+}
+
+function buildMappedProductStockSql(
+  categoryIds: string[],
+  productIds: string[],
+): Prisma.Sql {
+  return Prisma.sql`
+    SELECT p."id" AS "productId",
+           COALESCE(SUM(l."remaining"), 0) AS "stock"
+    FROM "Product" p
+    LEFT JOIN "InventoryLot" l
+      ON l."productId" = p."id"
+     AND l."remaining" > 0
+    WHERE p."isActive" = TRUE
+      AND p."categoryId" IN (${Prisma.join(categoryIds)})
+      AND p."id" IN (${Prisma.join(productIds)})
+    GROUP BY p."id"
+  `
 }
 
 export async function loadAvailabilityInputs(hamperIds: string[]): Promise<AvailabilityInputs> {
@@ -128,34 +173,22 @@ export async function loadAvailabilityInputs(hamperIds: string[]): Promise<Avail
   const variantIds = variants.map((variant) => variant.id)
   const categoryIds = [...new Set(requirements.map((requirement) => requirement.categoryId))]
 
-  const [mappings, products] = await Promise.all([
+  const [mappings, categoryStockRows] = await Promise.all([
     prisma.hamperVariantMapping.findMany({
       where: { variantId: { in: variantIds } },
       select: { variantId: true, categoryId: true, productId: true },
     }),
-    prisma.product.findMany({
-      where: { isActive: true, categoryId: { in: categoryIds } },
-      select: { id: true, categoryId: true },
-    }),
+    categoryIds.length > 0
+      ? prisma.$queryRaw<CategoryStockRow[]>(buildCategoryStockSql(categoryIds))
+      : Promise.resolve([] as CategoryStockRow[]),
   ])
 
-  const productIds = products.map((product) => product.id)
-  const stock = await prisma.inventoryLot.groupBy({
-    by: ['productId'],
-    where: { productId: { in: productIds }, remaining: { gt: 0 } },
-    _sum: { remaining: true },
-  })
-
-  const productIdsByCategory = new Map<string, string[]>()
-  for (const product of products) {
-    const categoryProducts = productIdsByCategory.get(product.categoryId) ?? []
-    categoryProducts.push(product.id)
-    productIdsByCategory.set(product.categoryId, categoryProducts)
-  }
-
-  const remainingByProductId = new Map(
-    stock.map((row) => [row.productId, toNumber(row._sum.remaining)] as const),
-  )
+  const mappedProductIds = [...new Set(mappings.map((mapping) => mapping.productId))]
+  const mappedStockRows = categoryIds.length > 0 && mappedProductIds.length > 0
+    ? await prisma.$queryRaw<MappedProductStockRow[]>(
+      buildMappedProductStockSql(categoryIds, mappedProductIds),
+    )
+    : []
 
   return {
     requirements: requirements.map((requirement) => ({
@@ -174,12 +207,21 @@ export async function loadAvailabilityInputs(hamperIds: string[]): Promise<Avail
       indicativeQuantity: variant.indicativeQuantity,
     })),
     mappings,
-    productIdsByCategory,
-    remainingByProductId,
+    productIdsByCategory: new Map(),
+    categoryStockByCategory: new Map(
+      categoryStockRows.map((row) => [row.categoryId, toNumber(row.stock)] as const),
+    ),
+    remainingByProductId: new Map(
+      mappedStockRows.map((row) => [row.productId, toNumber(row.stock)] as const),
+    ),
   }
 }
 
 function categoryStock(inputs: AvailabilityInputs, categoryId: string): number {
+  if (inputs.categoryStockByCategory) {
+    return inputs.categoryStockByCategory.get(categoryId) ?? 0
+  }
+
   return (inputs.productIdsByCategory.get(categoryId) ?? []).reduce(
     (total, productId) => total + (inputs.remainingByProductId.get(productId) ?? 0),
     0,

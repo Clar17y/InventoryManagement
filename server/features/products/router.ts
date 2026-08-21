@@ -16,6 +16,85 @@ const productsSortFields = {
   createdAt: 'createdAt',
 } as const
 
+const productListSelect = {
+  id: true,
+  name: true,
+  categoryId: true,
+  unit: true,
+  lowStockThreshold: true,
+  isActive: true,
+  createdAt: true,
+  updatedAt: true,
+  category: {
+    select: {
+      id: true,
+      name: true,
+      description: true,
+      pickRule: true,
+      isActive: true,
+      createdAt: true,
+      updatedAt: true,
+    },
+  },
+} satisfies Prisma.ProductSelect
+
+type ProductListBarcode = { id: string; barcode: string }
+type ProductListAggregate = {
+  productId: string
+  totalRemaining: Prisma.Decimal | number | string
+  lotCount: number | bigint
+  currentCost: Prisma.Decimal | number | string | null
+  primaryBarcode: string | null
+  barcodes: ProductListBarcode[] | null
+}
+
+async function loadProductListAggregates(productIds: string[]): Promise<ProductListAggregate[]> {
+  if (productIds.length === 0) return []
+
+  return prisma.$queryRaw<ProductListAggregate[]>(Prisma.sql`
+    WITH page_products AS (
+      SELECT p.id
+      FROM "Product" p
+      WHERE p.id IN (${Prisma.join(productIds)})
+    ), stock AS (
+      SELECT l."productId",
+        COALESCE(SUM(l.remaining), 0) AS "totalRemaining",
+        COUNT(*)::integer AS "lotCount"
+      FROM "InventoryLot" l
+      JOIN page_products page ON page.id = l."productId"
+      WHERE l.remaining > 0
+      GROUP BY l."productId"
+    ), barcode_summary AS (
+      SELECT b."productId",
+        json_agg(
+          json_build_object('id', b.id, 'barcode', b.barcode)
+          ORDER BY b."createdAt" ASC, b.id ASC
+        ) AS barcodes,
+        (array_agg(b.barcode ORDER BY b."createdAt" ASC, b.id ASC))[1] AS "primaryBarcode"
+      FROM "ProductBarcode" b
+      JOIN page_products page ON page.id = b."productId"
+      GROUP BY b."productId"
+    )
+    SELECT page.id AS "productId",
+      COALESCE(stock."totalRemaining", 0) AS "totalRemaining",
+      COALESCE(stock."lotCount", 0) AS "lotCount",
+      current_cost."unitCost" AS "currentCost",
+      COALESCE(barcode_summary.barcodes, '[]'::json) AS barcodes,
+      barcode_summary."primaryBarcode"
+    FROM page_products page
+    LEFT JOIN stock ON stock."productId" = page.id
+    LEFT JOIN LATERAL (
+      SELECT pc."unitCost"
+      FROM "ProductCost" pc
+      WHERE pc."productId" = page.id
+        AND pc."effectiveTo" IS NULL
+      ORDER BY pc."effectiveFrom" DESC, pc.id DESC
+      LIMIT 1
+    ) current_cost ON true
+    LEFT JOIN barcode_summary ON barcode_summary."productId" = page.id
+  `)
+}
+
 // GET products with stock levels
 router.get('/', async (req, res) => {
   try {
@@ -36,21 +115,7 @@ router.get('/', async (req, res) => {
     const [products, totalItems] = await Promise.all([
       prisma.product.findMany({
         where,
-        include: {
-          category: true,
-          barcodes: {
-            select: { id: true, barcode: true },
-          },
-          lots: {
-            where: { remaining: { gt: 0 } },
-            select: { remaining: true, unitCost: true },
-          },
-          costs: {
-            where: { effectiveTo: null },
-            take: 1,
-            orderBy: { effectiveFrom: 'desc' },
-          },
-        },
+        select: productListSelect,
         orderBy: [{ [sortField]: query.direction }, { id: query.direction }],
         skip,
         take,
@@ -58,26 +123,27 @@ router.get('/', async (req, res) => {
       prisma.product.count({ where }),
     ])
 
+    const aggregates = await loadProductListAggregates(products.map((product) => product.id))
+    const aggregatesById = new Map(aggregates.map((aggregate) => [aggregate.productId, aggregate]))
+
     // Calculate total stock for each product
     // For "units" products: sum the remaining quantity
     // For continuous products (metres, grams, etc.): count number of lots
     const productsWithStock = products.map((product) => {
-      const totalRemaining = product.lots.reduce(
-        (sum, lot) => sum + Number(lot.remaining),
-        0
-      )
-      const lotCount = product.lots.length
+      const aggregate = aggregatesById.get(product.id)
+      const totalRemaining = Number(aggregate?.totalRemaining ?? 0)
+      const lotCount = Number(aggregate?.lotCount ?? 0)
 
       // For non-unit products, totalStock = number of lots
       // For unit products, totalStock = sum of remaining quantities
       const totalStock = product.unit === 'units' ? totalRemaining : lotCount
 
-      const currentCost = product.costs[0]?.unitCost || null
-      // Return first barcode as primary for backward compatibility
-      const primaryBarcode = product.barcodes[0]?.barcode || null
+      const currentCost = aggregate?.currentCost ?? null
+      const barcodes = aggregate?.barcodes ?? []
       return {
         ...product,
-        barcode: primaryBarcode, // Backward compatibility
+        barcodes,
+        barcode: aggregate?.primaryBarcode ?? null, // Backward compatibility
         totalStock,
         totalRemaining, // Always include the actual remaining quantity
         lotCount,

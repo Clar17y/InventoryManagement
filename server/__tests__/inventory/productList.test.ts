@@ -105,8 +105,8 @@ describe('listInventoryProducts', () => {
     const firstId = `c${'2'.repeat(24)}`
     const secondId = `c${'3'.repeat(24)}`
     queryRaw.mockResolvedValue([
-      { id: firstId, totalItems: 52 },
-      { id: secondId, totalItems: 52 },
+      { id: firstId, remaining: 3, lotCount: 1, currentCost: 1.25, totalItems: 52 },
+      { id: secondId, remaining: 3, lotCount: 1, currentCost: 1.25, totalItems: 52 },
     ])
     findMany.mockResolvedValue([
       product(secondId, 'Second'),
@@ -237,6 +237,110 @@ describe('listInventoryProducts', () => {
       }
       expect(queryRaw).toHaveBeenCalledTimes(2)
       expect(findMany).toHaveBeenCalledTimes(2)
+    } finally {
+      await pglite.close()
+    }
+  })
+
+  it('uses CTE stock projections and scalar-only hydration for a 100-product page', async () => {
+    const pglite = new PGlite()
+    try {
+      const productRows = Array.from({ length: 100 }, (_, index) => {
+        const id = `p${String(index + 1).padStart(24, '0')}`
+        return `('${id}', 'Product ${index + 1}', 'units', '${categoryId}', 5, TRUE, '2000-01-01T00:00:00Z', '2000-01-01T00:00:00Z')`
+      }).join(',\n')
+      const lotRows = Array.from({ length: 100 }, (_, index) => {
+        const productId = `p${String(index + 1).padStart(24, '0')}`
+        return `('lot-a-${index}', '${productId}', 1), ('lot-b-${index}', '${productId}', 2)`
+      }).join(',\n')
+      const costRows = Array.from({ length: 100 }, (_, index) => {
+        const productId = `p${String(index + 1).padStart(24, '0')}`
+        return `('cost-${index}', '${productId}', 4.5, '2000-01-01T00:00:00Z', NULL)`
+      }).join(',\n')
+
+      await pglite.exec(`
+        CREATE TABLE "ComponentCategory" (
+          "id" TEXT PRIMARY KEY,
+          "name" TEXT NOT NULL,
+          "description" TEXT,
+          "pickRule" TEXT NOT NULL,
+          "isActive" BOOLEAN NOT NULL,
+          "createdAt" TIMESTAMP NOT NULL,
+          "updatedAt" TIMESTAMP NOT NULL
+        );
+        CREATE TABLE "Product" (
+          "id" TEXT PRIMARY KEY,
+          "name" TEXT NOT NULL,
+          "unit" TEXT NOT NULL,
+          "categoryId" TEXT NOT NULL,
+          "lowStockThreshold" INTEGER NOT NULL,
+          "isActive" BOOLEAN NOT NULL,
+          "createdAt" TIMESTAMP NOT NULL,
+          "updatedAt" TIMESTAMP NOT NULL
+        );
+        CREATE TABLE "InventoryLot" (
+          "id" TEXT PRIMARY KEY,
+          "productId" TEXT NOT NULL,
+          "remaining" NUMERIC NOT NULL
+        );
+        CREATE TABLE "ProductCost" (
+          "id" TEXT PRIMARY KEY,
+          "productId" TEXT NOT NULL,
+          "unitCost" NUMERIC NOT NULL,
+          "effectiveFrom" TIMESTAMP NOT NULL,
+          "effectiveTo" TIMESTAMP
+        );
+        INSERT INTO "ComponentCategory" ("id", "name", "description", "pickRule", "isActive", "createdAt", "updatedAt")
+        VALUES ('${categoryId}', 'Chocolate', NULL, 'FIFO', TRUE, '2000-01-01T00:00:00Z', '2000-01-01T00:00:00Z');
+        INSERT INTO "Product" ("id", "name", "unit", "categoryId", "lowStockThreshold", "isActive", "createdAt", "updatedAt")
+        VALUES ${productRows};
+        INSERT INTO "InventoryLot" ("id", "productId", "remaining")
+        VALUES ${lotRows};
+        INSERT INTO "ProductCost" ("id", "productId", "unitCost", "effectiveFrom", "effectiveTo")
+        VALUES ${costRows};
+      `)
+
+      const hydratedProducts = Array.from({ length: 100 }, (_, index) => {
+        const id = `p${String(index + 1).padStart(24, '0')}`
+        return {
+          ...product(id, `Product ${index + 1}`),
+          lots: [{ remaining: new Prisma.Decimal(999) }],
+          costs: [{ unitCost: new Prisma.Decimal(999) }],
+        }
+      }).reverse()
+      const queryRaw = vi.fn(async (statement: Prisma.Sql) => {
+        const result = await pglite.query(
+          toParameterizedSql(statement),
+          statement.values as unknown[],
+        )
+        return result.rows
+      })
+      const findMany = vi.fn().mockResolvedValue(hydratedProducts)
+      const db = { $queryRaw: queryRaw, product: { findMany } } as Parameters<typeof listInventoryProducts>[0]
+
+      const response = await listInventoryProducts(db, {
+        page: 1,
+        pageSize: 100,
+        lowStockOnly: false,
+        sort: 'name-asc',
+      })
+
+      expect(findMany).toHaveBeenCalledTimes(1)
+      const findManyArgs = findMany.mock.calls[0]![0]
+      expect(findManyArgs).not.toHaveProperty('include')
+      expect(findManyArgs).toHaveProperty('select')
+      expect(findManyArgs.select).not.toHaveProperty('lots')
+      expect(findManyArgs.select).not.toHaveProperty('costs')
+      expect(findManyArgs.select).toHaveProperty('category')
+      expect(findManyArgs.where.id.in).toHaveLength(100)
+
+      expect(response.items).toHaveLength(100)
+      expect(response.items.every((item) => (
+        item.totalRemaining === 3
+        && item.totalStock === 3
+        && item.lotCount === 2
+        && item.currentCost === 4.5
+      ))).toBe(true)
     } finally {
       await pglite.close()
     }

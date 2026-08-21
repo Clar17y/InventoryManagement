@@ -188,10 +188,12 @@ export async function listHampers(query: HampersListQuery): Promise<HampersListR
   const where = buildHampersWhere(normalized)
 
   if (isAvailabilitySort(normalized.sort)) {
-    const [selected, totalItems] = await Promise.all([
-      prisma.$queryRaw<Array<{ id: string }>>(availabilitySortSql(normalized, skip, take)),
-      prisma.hamper.count({ where }),
-    ])
+    const selected = await prisma.$queryRaw<Array<{ id: string; totalItems: number | bigint | string }>>(
+      availabilitySortSql(normalized, skip, take),
+    )
+    const totalItems = selected.length > 0
+      ? Number(selected[0].totalItems)
+      : await prisma.hamper.count({ where })
     const items = await hydrateHampers(
       selected.map((row) => row.id),
       normalized.hideEtsyHidden,

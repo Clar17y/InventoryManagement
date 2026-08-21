@@ -430,4 +430,111 @@ describe('listInventoryProducts', () => {
       await pglite.close()
     }
   })
+
+  it('keeps filtered stock totals global across pages and empty pages', async () => {
+    const pglite = new PGlite()
+    try {
+      const keptProducts = Array.from({ length: 26 }, (_, index) => ({
+        id: `keep-${index + 1}`,
+        name: `Keep ${index % 2 === 0 ? 'Units' : 'Bulk'} ${index + 1}`,
+        unit: index % 2 === 0 ? 'units' : 'boxes',
+      }))
+      const ignoredProduct = { id: 'ignore-1', name: 'Ignore Product', unit: 'units' }
+      const products = [...keptProducts, ignoredProduct]
+      const productRows = products.map((item) => (
+        `('${item.id}', '${item.name}', '${item.unit}', '${categoryId}', 5, TRUE, '2000-01-01T00:00:00Z', '2000-01-01T00:00:00Z')`
+      )).join(',\n')
+      const lotRows = keptProducts.flatMap((item, index) => (
+        item.unit === 'units'
+          ? [`('lot-${index}-a', '${item.id}', 2)`]
+          : [
+              `('lot-${index}-a', '${item.id}', 4)`,
+              `('lot-${index}-b', '${item.id}', 9)`,
+            ]
+      ))
+      lotRows.push(`('ignored-lot', '${ignoredProduct.id}', 100)`)
+
+      await pglite.exec(`
+        CREATE TABLE "ComponentCategory" (
+          "id" TEXT PRIMARY KEY,
+          "name" TEXT NOT NULL,
+          "description" TEXT,
+          "pickRule" TEXT NOT NULL,
+          "isActive" BOOLEAN NOT NULL,
+          "createdAt" TIMESTAMP NOT NULL,
+          "updatedAt" TIMESTAMP NOT NULL
+        );
+        CREATE TABLE "Product" (
+          "id" TEXT PRIMARY KEY,
+          "name" TEXT NOT NULL,
+          "unit" TEXT NOT NULL,
+          "categoryId" TEXT NOT NULL,
+          "lowStockThreshold" INTEGER NOT NULL,
+          "isActive" BOOLEAN NOT NULL,
+          "createdAt" TIMESTAMP NOT NULL,
+          "updatedAt" TIMESTAMP NOT NULL
+        );
+        CREATE TABLE "InventoryLot" (
+          "id" TEXT PRIMARY KEY,
+          "productId" TEXT NOT NULL,
+          "remaining" NUMERIC NOT NULL
+        );
+        CREATE TABLE "ProductCost" (
+          "id" TEXT PRIMARY KEY,
+          "productId" TEXT NOT NULL,
+          "unitCost" NUMERIC NOT NULL,
+          "effectiveFrom" TIMESTAMP NOT NULL,
+          "effectiveTo" TIMESTAMP
+        );
+        INSERT INTO "ComponentCategory" ("id", "name", "description", "pickRule", "isActive", "createdAt", "updatedAt")
+        VALUES ('${categoryId}', 'Chocolate', NULL, 'FIFO', TRUE, '2000-01-01T00:00:00Z', '2000-01-01T00:00:00Z');
+        INSERT INTO "Product" ("id", "name", "unit", "categoryId", "lowStockThreshold", "isActive", "createdAt", "updatedAt")
+        VALUES ${productRows};
+        INSERT INTO "InventoryLot" ("id", "productId", "remaining")
+        VALUES ${lotRows.join(',\n')};
+      `)
+
+      const hydratedProducts = new Map(products.map((item) => [item.id, product(item.id, item.name, item.unit)]))
+      const queryRaw = vi.fn(async (statement: Prisma.Sql) => {
+        const result = await pglite.query(
+          toParameterizedSql(statement),
+          statement.values as unknown[],
+        )
+        return result.rows
+      })
+      const findMany = vi.fn(async (args: { where: { id: { in: string[] } } }) => (
+        args.where.id.in.flatMap((id) => {
+          const hydrated = hydratedProducts.get(id)
+          return hydrated ? [hydrated] : []
+        })
+      ))
+      const db = { $queryRaw: queryRaw, product: { findMany } } as Parameters<typeof listInventoryProducts>[0]
+      const query = {
+        pageSize: 25 as const,
+        search: 'Keep',
+        lowStockOnly: false,
+        sort: 'name-asc' as const,
+      }
+
+      const firstPage = await listInventoryProducts(db, { ...query, page: 1 })
+      const secondPage = await listInventoryProducts(db, { ...query, page: 2 })
+      const emptyPage = await listInventoryProducts(db, { ...query, page: 3 })
+
+      expect(firstPage.items).toHaveLength(25)
+      expect(secondPage.items).toHaveLength(1)
+      expect(firstPage.totals).toEqual({ totalUnitItems: 26, totalLots: 26 })
+      expect(secondPage.totals).toEqual(firstPage.totals)
+      expect(emptyPage).toMatchObject({
+        items: [],
+        pagination: { page: 3, pageSize: 25, totalItems: 26, totalPages: 2 },
+        totals: { totalUnitItems: 26, totalLots: 26 },
+      })
+      expect(queryRaw.mock.calls).toHaveLength(4)
+      expect(queryRaw.mock.calls.every(([statement]) => (
+        (statement as Prisma.Sql).values.includes('%Keep%')
+      ))).toBe(true)
+    } finally {
+      await pglite.close()
+    }
+  })
 })

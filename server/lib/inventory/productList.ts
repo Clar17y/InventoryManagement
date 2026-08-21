@@ -43,8 +43,14 @@ type PageRow = {
   lotCount: number | bigint
   currentCost: Prisma.Decimal | number | string | null
   totalItems: number | bigint
+  totalUnitItems: Prisma.Decimal | number | string
+  totalLots: number | bigint
 }
-type CountRow = { totalItems: number | bigint }
+type CountRow = {
+  totalItems: number | bigint
+  totalUnitItems: Prisma.Decimal | number | string | null
+  totalLots: number | bigint | null
+}
 
 // ComponentCategory has no sortOrder column, so category order starts with its
 // stable name and then uses product name/id tie-breakers.
@@ -162,7 +168,9 @@ export async function listInventoryProducts(
       stock.remaining,
       stock."lotCount",
       stock."currentCost",
-      COUNT(*) OVER()::integer AS "totalItems"
+      COUNT(*) OVER()::integer AS "totalItems",
+      SUM(CASE WHEN stock.unit = 'units' THEN stock.remaining ELSE 0 END) OVER() AS "totalUnitItems",
+      SUM(CASE WHEN stock.unit = 'units' THEN 0 ELSE stock."lotCount" END) OVER()::integer AS "totalLots"
     FROM filtered stock
     JOIN "ComponentCategory" c ON c.id = stock."categoryId"
     ORDER BY ${orderBy}
@@ -173,11 +181,22 @@ export async function listInventoryProducts(
   if (pageRows.length === 0) {
     const countRows = await db.$queryRaw<CountRow[]>(Prisma.sql`
       ${cte}
-      SELECT COUNT(*)::integer AS "totalItems"
+      SELECT
+        COUNT(*)::integer AS "totalItems",
+        COALESCE(SUM(CASE WHEN unit = 'units' THEN remaining ELSE 0 END), 0) AS "totalUnitItems",
+        COALESCE(SUM(CASE WHEN unit = 'units' THEN 0 ELSE "lotCount" END), 0)::integer AS "totalLots"
       FROM filtered
     `)
-    const totalItems = Number(countRows[0]?.totalItems ?? 0)
-    return { items: [], pagination: buildPaginationMeta(query, totalItems) }
+    const countRow = countRows[0]
+    const totalItems = Number(countRow?.totalItems ?? 0)
+    return {
+      items: [],
+      pagination: buildPaginationMeta(query, totalItems),
+      totals: {
+        totalUnitItems: Number(countRow?.totalUnitItems ?? 0),
+        totalLots: Number(countRow?.totalLots ?? 0),
+      },
+    }
   }
 
   const ids = pageRows.map((row) => row.id)
@@ -193,6 +212,12 @@ export async function listInventoryProducts(
     return product && pageRow ? [mapInventoryProduct(product, pageRow)] : []
   })
   const totalItems = Number(pageRows[0]!.totalItems)
+  const totalUnitItems = Number(pageRows[0]!.totalUnitItems ?? 0)
+  const totalLots = Number(pageRows[0]!.totalLots ?? 0)
 
-  return { items, pagination: buildPaginationMeta(query, totalItems) }
+  return {
+    items,
+    pagination: buildPaginationMeta(query, totalItems),
+    totals: { totalUnitItems, totalLots },
+  }
 }

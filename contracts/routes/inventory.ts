@@ -73,7 +73,14 @@ export const inventoryProductSchema = inventoryLowStockProductSchema.extend({
   currentCost: z.number().finite().nonnegative().nullable(),
 })
 
-export const inventoryProductsResponseSchema = paginatedResponseSchema(inventoryProductSchema)
+export const inventoryProductsTotalsSchema = z.object({
+  totalUnitItems: z.number().finite().nonnegative(),
+  totalLots: z.number().int().nonnegative(),
+})
+
+export const inventoryProductsResponseSchema = paginatedResponseSchema(inventoryProductSchema).extend({
+  totals: inventoryProductsTotalsSchema,
+})
 
 export const inventoryExpiringResponseSchema = z.array(inventoryLotSchema)
 
@@ -92,5 +99,6 @@ export type InventorySort = z.infer<typeof inventorySortSchema>
 export type InventoryProductsQuery = z.input<typeof inventoryProductsQuerySchema>
 export type ParsedInventoryProductsQuery = z.infer<typeof inventoryProductsQuerySchema>
 export type InventoryProduct = z.infer<typeof inventoryProductSchema>
+export type InventoryProductsTotals = z.infer<typeof inventoryProductsTotalsSchema>
 export type InventoryProductsResponse = z.infer<typeof inventoryProductsResponseSchema>
 export type InventoryExpiringResponse = z.infer<typeof inventoryExpiringResponseSchema>

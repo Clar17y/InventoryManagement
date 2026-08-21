@@ -61,10 +61,20 @@ describe('inventory API', () => {
   });
 
   describe('list', () => {
+    it('requires full-result inventory totals in the response contract', () => {
+      const result = inventoryProductsResponseSchema.safeParse({
+        items: [],
+        pagination: { page: 1, pageSize: 25, totalItems: 0, totalPages: 0 },
+      })
+
+      expect(result.success).toBe(false)
+    })
+
     it('sends paging, filters, sort, and the abort signal to the inventory products endpoint', async () => {
       const response = {
         items: [],
         pagination: { page: 2, pageSize: 50 as const, totalItems: 0, totalPages: 0 },
+        totals: { totalUnitItems: 0, totalLots: 0 },
       };
       const controller = new AbortController();
       mockRequestWithSchema.mockResolvedValue(response);
@@ -90,6 +100,7 @@ describe('inventory API', () => {
       mockRequestWithSchema.mockResolvedValue({
         items: [],
         pagination: { page: 1, pageSize: 25, totalItems: 0, totalPages: 0 },
+        totals: { totalUnitItems: 0, totalLots: 0 },
       });
 
       await inventory.list({ page: 1, pageSize: 25, search: '' });

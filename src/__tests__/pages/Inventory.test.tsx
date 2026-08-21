@@ -140,6 +140,7 @@ describe('Inventory', () => {
         lotCount: product.unit === 'units' ? 1 : product.lotCount ?? 0,
       })),
       pagination: { page: 1, pageSize: 25, totalItems: sampleProducts.length, totalPages: 1 },
+      totals: { totalUnitItems: 28, totalLots: 0 },
     });
     mockLots.mockResolvedValue(sampleLots);
     mockLowStock.mockResolvedValue([sampleLowStock]);
@@ -182,6 +183,7 @@ describe('Inventory', () => {
           lotCount: 1,
         })),
         pagination: { page: 1, pageSize: 25, totalItems: 51, totalPages: 3 },
+        totals: { totalUnitItems: 28, totalLots: 0 },
       })
       .mockImplementationOnce(() => new Promise((resolve) => { resolveNext = resolve; }));
     const user = userEvent.setup();
@@ -196,6 +198,7 @@ describe('Inventory', () => {
       resolveNext!({
         items: [],
         pagination: { page: 2, pageSize: 25, totalItems: 51, totalPages: 3 },
+        totals: { totalUnitItems: 28, totalLots: 0 },
       });
     });
   });
@@ -209,6 +212,7 @@ describe('Inventory', () => {
     mockInventoryList.mockResolvedValueOnce({
       items: [currentPageProduct],
       pagination: { page: 2, pageSize: 25, totalItems: 51, totalPages: 3 },
+      totals: { totalUnitItems: 25, totalLots: 0 },
     });
     window.history.pushState({}, '', '/inventory?page=2&sort=category');
 
@@ -226,10 +230,12 @@ describe('Inventory', () => {
       .mockResolvedValueOnce({
         items: [],
         pagination: { page: 999, pageSize: 25, totalItems: 51, totalPages: 3 },
+        totals: { totalUnitItems: 0, totalLots: 0 },
       })
       .mockResolvedValueOnce({
         items: [sampleProducts[0]!],
         pagination: { page: 3, pageSize: 25, totalItems: 51, totalPages: 3 },
+        totals: { totalUnitItems: 25, totalLots: 0 },
       });
 
     render(<Inventory />);
@@ -271,6 +277,7 @@ describe('Inventory', () => {
     mockInventoryList.mockResolvedValue({
       items: allProducts,
       pagination: { page: 1, pageSize: 100, totalItems: 101, totalPages: 2 },
+      totals: { totalUnitItems: 2525, totalLots: 0 },
     } as any);
 
     render(<Inventory />);
@@ -299,6 +306,21 @@ describe('Inventory', () => {
     const expiringCard = screen.getByText('Expiring').closest('.card') as HTMLElement | null;
     expect(expiringCard).not.toBeNull();
     expect(within(expiringCard!).getByText('0')).toBeInTheDocument();
+  });
+
+  it('uses full filtered-result stock totals instead of the current page subtotal', async () => {
+    mockInventoryList.mockResolvedValueOnce({
+      items: [sampleProducts[0]!],
+      pagination: { page: 2, pageSize: 25, totalItems: 51, totalPages: 3 },
+      totals: { totalUnitItems: 100, totalLots: 4 },
+    });
+    window.history.pushState({}, '', '/inventory?page=2');
+
+    render(<Inventory />);
+
+    await screen.findByText('Dark Chocolate');
+    expect(screen.getByText('100 items + 4 bulk lots')).toBeInTheDocument();
+    expect(screen.queryByText('25 items + 0 bulk lots')).not.toBeInTheDocument();
   });
 
   it('loads lots when a product is expanded', async () => {
@@ -360,6 +382,7 @@ describe('Inventory', () => {
       mockInventoryList.mockResolvedValueOnce({
         items: [{ ...sampleProducts[1]!, totalRemaining: 3, lotCount: 1 }],
         pagination: { page: 1, pageSize: 25, totalItems: 1, totalPages: 1 },
+        totals: { totalUnitItems: 3, totalLots: 0 },
       });
       window.history.pushState({}, '', '/inventory?filter=low-stock');
 

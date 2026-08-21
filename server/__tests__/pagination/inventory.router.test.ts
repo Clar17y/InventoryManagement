@@ -42,6 +42,7 @@ describe('inventory products pagination router', () => {
     const serviceResponse = {
       items: [],
       pagination: { page: 2, pageSize: 50 as const, totalItems: 83, totalPages: 2 },
+      totals: { totalUnitItems: 123, totalLots: 7 },
     }
     mockListInventoryProducts.mockResolvedValue(serviceResponse)
     const baseUrl = await startServer()

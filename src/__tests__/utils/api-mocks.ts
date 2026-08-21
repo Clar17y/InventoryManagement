@@ -45,7 +45,10 @@ const emptyPaginatedResponse = <T>(): PaginatedResponse<T> => ({
 });
 
 export const emptyProductsListResponse: ProductsListResponse = emptyPaginatedResponse<Product>();
-export const emptyInventoryProductsResponse: InventoryProductsResponse = emptyPaginatedResponse<InventoryProductsResponse['items'][number]>();
+export const emptyInventoryProductsResponse: InventoryProductsResponse = {
+  ...emptyPaginatedResponse<InventoryProductsResponse['items'][number]>(),
+  totals: { totalUnitItems: 0, totalLots: 0 },
+};
 export const emptyHampersListResponse: HampersListResponse = emptyPaginatedResponse<Hamper>();
 export const emptySalesListResponse: SalesListResponse = emptyPaginatedResponse<Sale>();
 export const emptyExpensesListResponse: ExpenseListResponse = emptyPaginatedResponse<BusinessExpense>();

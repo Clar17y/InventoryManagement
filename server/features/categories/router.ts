@@ -15,7 +15,8 @@ router.get('/', async (_, res) => {
     const categories = await prisma.componentCategory.findMany({
       where: { isActive: true },
       include: {
-        _count: { select: { products: true } },
+        // Count only active products so the badge matches the soft-delete-filtered list.
+        _count: { select: { products: { where: { isActive: true } } } },
       },
       orderBy: { name: 'asc' },
     })

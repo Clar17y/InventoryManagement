@@ -243,14 +243,10 @@ export default function Inventory() {
     return grouped
   }, [productList])
 
-  // Stock totals describe the visible page; the product count comes from the server-filtered total.
+  // Stock totals describe the complete server-filtered result, not just the visible page.
   const totalProducts = pagination.totalItems
-  const totalUnitItems = productList
-    .filter(p => p.unit === 'units')
-    .reduce((sum, p) => sum + (p.totalStock ?? 0), 0)
-  const totalLots = productList
-    .filter(p => p.unit !== 'units')
-    .reduce((sum, p) => sum + (p.lotCount ?? 0), 0)
+  const totalUnitItems = listState.data?.totals?.totalUnitItems ?? 0
+  const totalLots = listState.data?.totals?.totalLots ?? 0
 
   return (
     <div className="space-y-2">

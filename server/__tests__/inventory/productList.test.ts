@@ -6,12 +6,12 @@ import type { InventoryProductsQuery } from '#contracts/routes/inventory'
 
 const categoryId = `c${'1'.repeat(24)}`
 
-function product(id: string, name: string) {
+function product(id: string, name: string, unit = 'units') {
   return {
     id,
     name,
     categoryId,
-    unit: 'units',
+    unit,
     lowStockThreshold: 5,
     isActive: true,
     createdAt: new Date('2026-08-20T00:00:00.000Z'),
@@ -140,8 +140,90 @@ describe('listInventoryProducts', () => {
     })
   })
 
+  it('returns full filtered-result stock totals instead of the current page subtotal', async () => {
+    const firstId = `c${'2'.repeat(24)}`
+    const secondId = `c${'3'.repeat(24)}`
+    queryRaw.mockResolvedValue([
+      {
+        id: firstId,
+        remaining: 4,
+        lotCount: 2,
+        currentCost: 1.25,
+        totalItems: 52,
+        totalUnitItems: 17,
+        totalLots: 9,
+      },
+      {
+        id: secondId,
+        remaining: 3,
+        lotCount: 1,
+        currentCost: 2.5,
+        totalItems: 52,
+        totalUnitItems: 17,
+        totalLots: 9,
+      },
+    ])
+    findMany.mockResolvedValue([
+      product(firstId, 'Units'),
+      product(secondId, 'Bulk', 'boxes'),
+    ])
+
+    const response = await listInventoryProducts(db, {
+      page: 2,
+      pageSize: 25,
+      lowStockOnly: false,
+      sort: 'category',
+    })
+
+    expect(response.items.map((item) => item.totalRemaining)).toEqual([4, 3])
+    expect(response).toMatchObject({
+      totals: { totalUnitItems: 17, totalLots: 9 },
+    })
+  })
+
+  it('returns aggregate totals produced by the active filter', async () => {
+    const productId = `c${'4'.repeat(24)}`
+    queryRaw.mockImplementation(async (statement: Prisma.Sql) => {
+      const text = sqlText(statement)
+      if (text.includes('SELECT stock.id')) {
+        const lowStockOnly = text.includes('stock."lowStockThreshold" > 0')
+        return [{
+          id: productId,
+          remaining: lowStockOnly ? 2 : 20,
+          lotCount: 1,
+          currentCost: 1.25,
+          totalItems: lowStockOnly ? 1 : 2,
+          totalUnitItems: lowStockOnly ? 2 : 25,
+          totalLots: lowStockOnly ? 1 : 4,
+        }]
+      }
+      return []
+    })
+    findMany.mockResolvedValue([product(productId, 'Filtered')])
+
+    const unfiltered = await listInventoryProducts(db, {
+      page: 1,
+      pageSize: 25,
+      lowStockOnly: false,
+      sort: 'stock-desc',
+    })
+    const lowStock = await listInventoryProducts(db, {
+      page: 1,
+      pageSize: 25,
+      lowStockOnly: true,
+      sort: 'stock-desc',
+    })
+
+    expect(unfiltered).toMatchObject({ totals: { totalUnitItems: 25, totalLots: 4 } })
+    expect(lowStock).toMatchObject({ totals: { totalUnitItems: 2, totalLots: 1 } })
+  })
+
   it('uses a count-only query for an empty out-of-range page with a fixed Prisma call count', async () => {
-    queryRaw.mockResolvedValueOnce([]).mockResolvedValueOnce([{ totalItems: 51 }])
+    queryRaw.mockResolvedValueOnce([]).mockResolvedValueOnce([{
+      totalItems: 51,
+      totalUnitItems: 0,
+      totalLots: 0,
+    }])
 
     const response = await listInventoryProducts(db, {
       page: 99,
@@ -156,6 +238,7 @@ describe('listInventoryProducts', () => {
     expect(response).toEqual({
       items: [],
       pagination: { page: 99, pageSize: 100, totalItems: 51, totalPages: 1 },
+      totals: { totalUnitItems: 0, totalLots: 0 },
     })
   })
 
@@ -234,6 +317,7 @@ describe('listInventoryProducts', () => {
           currentCost: null,
         })
         expect(response.pagination).toMatchObject({ totalItems: 1, totalPages: 1 })
+        expect(response).toMatchObject({ totals: { totalUnitItems: 0, totalLots: 0 } })
       }
       expect(queryRaw).toHaveBeenCalledTimes(2)
       expect(findMany).toHaveBeenCalledTimes(2)
@@ -341,6 +425,7 @@ describe('listInventoryProducts', () => {
         && item.lotCount === 2
         && item.currentCost === 4.5
       ))).toBe(true)
+      expect(response.totals).toEqual({ totalUnitItems: 300, totalLots: 0 })
     } finally {
       await pglite.close()
     }

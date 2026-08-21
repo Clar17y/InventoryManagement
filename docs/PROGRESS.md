@@ -331,6 +331,7 @@ npm run test:server:run   # Single run (server only)
 | 2026-08-20 | Codex + subagents | Task 10: Audit and verify the site pagination rollout | Done — browser limited | codex/site-pagination-filter-performance |
 | 2026-08-21 | Codex + subagents | Final simplify pass: bound relation reads and preserve summary semantics | Done | codex/site-pagination-filter-performance |
 | 2026-08-21 | Codex + subagents | Integrate latest origin/main and restore Prisma enum compatibility | Done | codex/site-pagination-filter-performance |
+| 2026-08-21 | Codex + subagents | PR #43 review follow-up: inventory totals and active category counts | In Progress | codex/site-pagination-filter-performance |
 | 2026-08-13 | Codex | Support real Etsy statements and clarify Payment checks | Done | codex/etsy-statement-payment-fixes |
 | 2026-08-13 | Codex | Simplify Etsy statement and Payment fixes | Done | codex/etsy-statement-payment-fixes |
 | 2026-08-13 | Codex | Support paired Etsy Offsite fee credits and refunds | Done | codex/etsy-offsite-credit-netting |

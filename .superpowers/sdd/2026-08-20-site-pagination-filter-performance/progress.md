@@ -26,4 +26,4 @@ Tasks:
 - Final simplify pass: complete (commit 9bb5c34; request-loop, duplicate-query, cancellation, and no-op URL work removed)
 - Whole-branch review: fix round 1/5 complete (zero-stock Inventory regression fixed in 0d2f0ad; scoped re-review approved)
 - Final verification: automated gates passed at b5314d3 before the requested final review
-- Requested simplify follow-up: independent code review approved the functional changes at 24bd373; final exact-candidate verification pending
+- Requested simplify follow-up: independent code review approved 24bd373; full exact-candidate verification passed at 3e171f7 (73 files / 917 tests), followed only by the required final progress-status update

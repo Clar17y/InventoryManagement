@@ -11,8 +11,10 @@ import {
   etsyFeeConfigsResponseSchema,
   packagingOverheadItemResponseSchema,
   packagingOverheadResponseSchema,
+  postageTierMutationResponseSchema,
   postageTierResponseSchema,
   postageTiersResponseSchema,
+  settingsAuditEntriesResponseSchema,
 } from '#contracts/routes/settings';
 import { settings, DashboardStats, EtsyFeeConfig, PackagingOverhead, PostageTier } from '../../../lib/api/settings';
 import { request, requestWithSchema } from '../../../lib/api/request';
@@ -148,6 +150,21 @@ describe('settings API', () => {
           '/settings/packaging-overhead',
           packagingOverheadResponseSchema
         );
+        expect(mockRequestWithSchema.mock.calls[0]?.[0]).not.toContain('?');
+      });
+
+      it('loads active and archived packaging overhead for Settings', async () => {
+        mockRequestWithSchema.mockResolvedValue({
+          overheads: [sampleOverhead],
+          totalPerOrder: 1.5,
+        });
+
+        await settings.getPackagingOverhead({ includeArchived: true });
+
+        expect(mockRequestWithSchema).toHaveBeenCalledWith(
+          '/settings/packaging-overhead?includeArchived=true',
+          packagingOverheadResponseSchema,
+        );
       });
 
       it('returns overheads and total', async () => {
@@ -223,6 +240,20 @@ describe('settings API', () => {
         });
       });
     });
+
+    describe('restorePackagingOverhead', () => {
+      it('calls request with POST to the restore endpoint', async () => {
+        mockRequestWithSchema.mockResolvedValue(sampleOverhead);
+
+        await settings.restorePackagingOverhead('pkg-1');
+
+        expect(mockRequestWithSchema).toHaveBeenCalledWith(
+          '/settings/packaging-overhead/pkg-1/restore',
+          packagingOverheadItemResponseSchema,
+          { method: 'POST' },
+        );
+      });
+    });
   });
 
   describe('Postage Tiers', () => {
@@ -245,6 +276,18 @@ describe('settings API', () => {
           '/settings/postage-tiers',
           postageTiersResponseSchema
         );
+        expect(mockRequestWithSchema.mock.calls[0]?.[0]).not.toContain('?');
+      });
+
+      it('loads active and archived postage tiers for Settings', async () => {
+        mockRequestWithSchema.mockResolvedValue([sampleTier]);
+
+        await settings.getPostageTiers({ includeArchived: true });
+
+        expect(mockRequestWithSchema).toHaveBeenCalledWith(
+          '/settings/postage-tiers?includeArchived=true',
+          postageTiersResponseSchema,
+        );
       });
 
       it('returns array of postage tiers', async () => {
@@ -259,20 +302,22 @@ describe('settings API', () => {
 
     describe('createPostageTier', () => {
       it('calls request with POST and tier data', async () => {
-        mockRequestWithSchema.mockResolvedValue(sampleTier);
+        const outcome = { item: sampleTier, outcome: 'created' as const };
+        mockRequestWithSchema.mockResolvedValue(outcome);
 
         const data = { etsyCharge: 5.00, actualCost: 5.05 };
 
-        await settings.createPostageTier(data);
+        const result = await settings.createPostageTier(data);
 
         expect(mockRequestWithSchema).toHaveBeenCalledWith(
           '/settings/postage-tiers',
-          postageTierResponseSchema,
+          postageTierMutationResponseSchema,
           {
             method: 'POST',
             body: JSON.stringify(data),
           }
         );
+        expect(result).toEqual(outcome);
       });
     });
 
@@ -303,6 +348,44 @@ describe('settings API', () => {
           method: 'DELETE',
         });
       });
+    });
+
+    describe('restorePostageTier', () => {
+      it('calls request with POST to the restore endpoint', async () => {
+        mockRequestWithSchema.mockResolvedValue(sampleTier);
+
+        await settings.restorePostageTier('pt-1');
+
+        expect(mockRequestWithSchema).toHaveBeenCalledWith(
+          '/settings/postage-tiers/pt-1/restore',
+          postageTierResponseSchema,
+          { method: 'POST' },
+        );
+      });
+    });
+  });
+
+  describe('Audit History', () => {
+    const auditEntry = {
+      id: 'audit-1',
+      settingType: 'POSTAGE_TIER' as const,
+      settingId: 'pt-1',
+      action: 'RESTORE' as const,
+      before: { actualCost: '5.05' },
+      after: { actualCost: '5.05', isActive: true },
+      createdAt: '2024-01-02T00:00:00Z',
+    };
+
+    it('loads audit history with the audit response schema', async () => {
+      mockRequestWithSchema.mockResolvedValue([auditEntry]);
+
+      const result = await settings.getAuditHistory();
+
+      expect(mockRequestWithSchema).toHaveBeenCalledWith(
+        '/settings/audit',
+        settingsAuditEntriesResponseSchema,
+      );
+      expect(result).toEqual([auditEntry]);
     });
   });
 });

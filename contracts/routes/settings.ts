@@ -1,6 +1,18 @@
 import { z } from 'zod'
 import { cuidSchema, decimalSchema } from '../http/primitives'
-import { etsyFeeConfigSchema, packagingOverheadSchema, postageTierSchema } from '../domain/settings'
+import {
+  etsyFeeConfigSchema,
+  packagingOverheadSchema,
+  postageTierSchema,
+  settingsAuditEntrySchema,
+} from '../domain/settings'
+
+const decimalSchemaFor = (precision: number, scale: number) => z.number().finite().nonnegative()
+  .refine((value) => value <= (10 ** (precision - scale)) - (10 ** -scale), `Must fit Decimal(${precision}, ${scale})`)
+  .refine((value) => Math.abs(value * (10 ** scale) - Math.round(value * (10 ** scale))) < 1e-8, `Must have at most ${scale} decimal places`)
+const moneySchema = decimalSchemaFor(10, 2)
+const fourDecimalMoneySchema = decimalSchemaFor(10, 4)
+const feeRateSchema = decimalSchemaFor(5, 4).refine((value) => value <= 1, 'Must be at most 1')
 
 export const dashboardStatsResponseSchema = z.object({
   products: z.number().int().nonnegative(),
@@ -23,13 +35,13 @@ export const dashboardStatsResponseSchema = z.object({
 export const etsyFeeConfigsResponseSchema = z.array(etsyFeeConfigSchema)
 
 export const etsyFeeCreateBodySchema = z.object({
-  name: z.string().min(1).max(100),
-  transactionFee: z.number().min(0).max(1),
-  regulatoryFee: z.number().min(0).max(1),
-  paymentFeePercent: z.number().min(0).max(1),
-  paymentFeeFixed: z.number().nonnegative(),
-  vatRate: z.number().min(0).max(1),
-  listingFee: z.number().nonnegative(),
+  name: z.string().trim().min(1).max(100),
+  transactionFee: feeRateSchema,
+  regulatoryFee: feeRateSchema,
+  paymentFeePercent: feeRateSchema,
+  paymentFeeFixed: moneySchema,
+  vatRate: feeRateSchema,
+  listingFee: moneySchema,
 })
 
 export const etsyFeeConfigResponseSchema = etsyFeeConfigSchema
@@ -38,8 +50,8 @@ export const etsyFeeConfigResponseSchema = etsyFeeConfigSchema
 export const packagingOverheadIdParamSchema = cuidSchema
 
 export const packagingOverheadCreateBodySchema = z.object({
-  name: z.string().min(1).max(100),
-  costPerOrder: z.number().nonnegative(),
+  name: z.string().trim().min(1).max(100),
+  costPerOrder: fourDecimalMoneySchema,
 })
 
 export const packagingOverheadUpdateBodySchema = packagingOverheadCreateBodySchema.partial()
@@ -54,15 +66,34 @@ export const packagingOverheadResponseSchema = z.object({
 // Postage tiers
 export const postageTiersResponseSchema = z.array(postageTierSchema)
 
-export const postageTierCreateBodySchema = z.object({
-  etsyCharge: z.number().nonnegative(),
-  actualCost: z.number().nonnegative(),
-  label: z.string().max(100).optional(),
+export const includeArchivedQuerySchema = z.object({
+  includeArchived: z.literal('true').optional().transform((value) => value === 'true'),
 })
 
-export const postageTierUpdateBodySchema = postageTierCreateBodySchema.partial()
+export const postageTierIdParamSchema = cuidSchema
+
+export const postageTierCreateBodySchema = z.object({
+  etsyCharge: moneySchema,
+  actualCost: moneySchema,
+  label: z.string().trim().max(100).transform((value) => value || undefined).optional(),
+})
+
+export const postageTierUpdateBodySchema = z.object({
+  etsyCharge: moneySchema.optional(),
+  actualCost: moneySchema.optional(),
+  label: z.string().trim().max(100).nullable().optional(),
+})
 
 export const postageTierResponseSchema = postageTierSchema
+
+export const settingsMutationOutcomeSchema = z.enum(['created', 'updated', 'restored'])
+
+export const postageTierMutationResponseSchema = z.object({
+  item: postageTierSchema,
+  outcome: settingsMutationOutcomeSchema,
+})
+
+export const settingsAuditEntriesResponseSchema = z.array(settingsAuditEntrySchema)
 
 export type DashboardStatsResponse = z.infer<typeof dashboardStatsResponseSchema>
 export type EtsyFeeConfigsResponse = z.infer<typeof etsyFeeConfigsResponseSchema>
@@ -77,3 +108,6 @@ export type PostageTiersResponse = z.infer<typeof postageTiersResponseSchema>
 export type PostageTierCreateBody = z.input<typeof postageTierCreateBodySchema>
 export type PostageTierUpdateBody = z.input<typeof postageTierUpdateBodySchema>
 export type PostageTierResponse = z.infer<typeof postageTierResponseSchema>
+export type IncludeArchivedQuery = z.infer<typeof includeArchivedQuerySchema>
+export type PostageTierMutationResponse = z.infer<typeof postageTierMutationResponseSchema>
+export type SettingsAuditEntriesResponse = z.infer<typeof settingsAuditEntriesResponseSchema>

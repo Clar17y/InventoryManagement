@@ -1,4 +1,8 @@
-import { Prisma } from '@prisma/client'
+import type { Prisma, EtsyFeeReconciliationStatus } from '@prisma/client'
+import type { SalesVerificationFilter } from '#contracts/routes/sales'
+import { NEEDS_VERIFICATION_STATUSES as UNRESOLVED_STATUSES } from '#contracts/domain/etsyFees'
+
+export const NEEDS_VERIFICATION_STATUSES: EtsyFeeReconciliationStatus[] = [...UNRESOLVED_STATUSES]
 
 const londonOffsetFormatter = new Intl.DateTimeFormat('en-GB', {
   timeZone: 'Europe/London',
@@ -61,10 +65,11 @@ export type SalesFilterQuery = {
   startDate?: string
   endDate?: string
   search?: string
+  verificationStatus?: SalesVerificationFilter
 }
 
 export function buildSalesWhereClause(query: SalesFilterQuery): Prisma.SaleWhereInput {
-  const { startDate, endDate, search } = query
+  const { startDate, endDate, search, verificationStatus } = query
   const where: Prisma.SaleWhereInput = {}
 
   if (startDate || endDate) {
@@ -91,6 +96,12 @@ export function buildSalesWhereClause(query: SalesFilterQuery): Prisma.SaleWhere
         },
       },
     ]
+  }
+
+  if (verificationStatus) {
+    where.etsyFeeReconciliationStatus = verificationStatus === 'needs_verification'
+      ? { in: NEEDS_VERIFICATION_STATUSES }
+      : verificationStatus
   }
 
   return where

@@ -1,10 +1,11 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { ClipboardDocumentIcon, ExclamationTriangleIcon } from '@heroicons/react/24/outline'
 import type { EtsyFeeReconciliationPreview, EtsyPaymentFeePreview } from '../../../lib/api'
 import { useEtsyFeeReconciliation } from '../hooks/useEtsyFeeReconciliation'
 
 interface EtsyFeeReconciliationPanelProps {
   onImportComplete: () => void
+  registerSummaryRefresh?: (refresh: (() => Promise<void>) | null) => void
 }
 
 function formatMoney(value: number): string {
@@ -20,11 +21,25 @@ function summaryFeeDelta(preview: EtsyFeeReconciliationPreview | EtsyPaymentFeeP
   return preview.summary.newFees - preview.summary.oldFees
 }
 
-function ReportSummary({ preview }: { preview: EtsyFeeReconciliationPreview | EtsyPaymentFeePreview }) {
+function validatedPaymentAggregateCount(preview: EtsyPaymentFeePreview): number {
+  return Math.max(0, preview.receiptIds.length - preview.failures.length)
+}
+
+function paymentTotalsAreReady(preview: EtsyPaymentFeePreview): boolean {
+  return preview.canApplyCanonicalFees && validatedPaymentAggregateCount(preview) > 0
+}
+
+function ReportSummary({
+  preview,
+  matchedLabel = 'Matched',
+}: {
+  preview: EtsyFeeReconciliationPreview | EtsyPaymentFeePreview
+  matchedLabel?: string
+}) {
   return (
     <div className="mt-3 rounded-lg border border-gray-200 bg-gray-50 p-3 text-sm">
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-        <div className="text-gray-500">Matched {preview.summary.matched}</div>
+        <div className="text-gray-500">{matchedLabel} {preview.summary.matched}</div>
         <div className="text-gray-500">Changed {preview.summary.changed}</div>
         <div className="text-gray-500">Unmatched {preview.summary.unmatched}</div>
         <div className="text-gray-500">Manual review {preview.summary.manualReview}</div>
@@ -85,17 +100,22 @@ function ReceiptReviewList({ preview }: { preview: EtsyFeeReconciliationPreview 
 }
 
 function PaymentReport({ preview }: { preview: EtsyPaymentFeePreview }) {
+  const validatedAggregates = validatedPaymentAggregateCount(preview)
+  const paymentTotalsReady = paymentTotalsAreReady(preview)
+
   return (
     <div className="mt-3">
       <div className="rounded-lg border border-blue-200 bg-blue-50 p-3 text-sm text-blue-900">
         <div className="font-medium">Aggregate Payment result (not itemized)</div>
-        {preview.canApplyCanonicalFees ? (
+        {paymentTotalsReady ? (
           <div className="mt-1">Validated Payment totals are ready to apply to canonical fees.</div>
         ) : (
           <div className="mt-1">Observe-only: Payment totals were checked, but profit was not changed.</div>
         )}
+        <div className="mt-1">Payment totals cannot verify Offsite Ads attribution.</div>
       </div>
-      <ReportSummary preview={preview} />
+      <ReportSummary preview={preview} matchedLabel="Local receipts" />
+      <div className="mt-3 text-sm text-gray-700">Validated aggregates {validatedAggregates}</div>
       {preview.failures.length > 0 && (
         <div className="mt-3 space-y-1 text-sm text-red-700">
           {preview.failures.map((failure) => (
@@ -108,13 +128,25 @@ function PaymentReport({ preview }: { preview: EtsyPaymentFeePreview }) {
   )
 }
 
-export default function EtsyFeeReconciliationPanel({ onImportComplete }: EtsyFeeReconciliationPanelProps) {
+export default function EtsyFeeReconciliationPanel({ onImportComplete, registerSummaryRefresh }: EtsyFeeReconciliationPanelProps) {
   const reconciliation = useEtsyFeeReconciliation({ onImportComplete })
+  const { loadSummary } = reconciliation
   const paymentBusy = reconciliation.paymentLoadingAction !== null
   const statementBusy = reconciliation.statementLoadingAction !== null
+  const paymentPreview = reconciliation.paymentPreview
+  const paymentCanApply = paymentPreview ? paymentTotalsAreReady(paymentPreview) : false
   const pendingCount = reconciliation.summary
     ? reconciliation.summary.PENDING + reconciliation.summary.PAYMENT_SYNCED + reconciliation.summary.MANUAL_REVIEW
     : 0
+
+  useEffect(() => {
+    if (!registerSummaryRefresh) return
+    const refresh = async () => {
+      await loadSummary()
+    }
+    registerSummaryRefresh(refresh)
+    return () => registerSummaryRefresh(null)
+  }, [loadSummary, registerSummaryRefresh])
 
   return (
     <section aria-labelledby="etsy-fee-reconciliation-title" className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
@@ -123,7 +155,7 @@ export default function EtsyFeeReconciliationPanel({ onImportComplete }: EtsyFee
           <h3 id="etsy-fee-reconciliation-title" className="text-base font-semibold text-gray-900">Etsy fee reconciliation</h3>
           <p className="mt-1 text-sm text-gray-600">Review Etsy Payment aggregates and statements before changing sale fees.</p>
         </div>
-        <button type="button" className="btn-secondary text-xs" onClick={() => void reconciliation.loadSummary()} disabled={reconciliation.summaryLoading}>
+        <button type="button" className="btn-secondary text-xs" onClick={() => void loadSummary()} disabled={reconciliation.summaryLoading}>
           Refresh status
         </button>
       </div>
@@ -140,10 +172,11 @@ export default function EtsyFeeReconciliationPanel({ onImportComplete }: EtsyFee
           <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm font-medium text-amber-900">
             {pendingCount.toLocaleString()} Etsy sales need statement verification
           </div>
-          <div className="grid grid-cols-2 gap-2 text-xs sm:grid-cols-5">
+          <div className="grid grid-cols-2 gap-2 text-xs sm:grid-cols-6">
             <div className="rounded border border-gray-200 p-2"><div className="text-gray-500">Pending</div><div className="font-semibold">{reconciliation.summary.PENDING}</div></div>
             <div className="rounded border border-gray-200 p-2"><div className="text-gray-500">Payment synced</div><div className="font-semibold">{reconciliation.summary.PAYMENT_SYNCED}</div></div>
             <div className="rounded border border-gray-200 p-2"><div className="text-gray-500">Statement verified</div><div className="font-semibold">{reconciliation.summary.STATEMENT_VERIFIED}</div></div>
+            <div className="rounded border border-gray-200 p-2"><div className="text-gray-500">Manually verified</div><div className="font-semibold">{reconciliation.summary.MANUALLY_VERIFIED}</div></div>
             <div className="rounded border border-gray-200 p-2"><div className="text-gray-500">Manual review</div><div className="font-semibold">{reconciliation.summary.MANUAL_REVIEW}</div></div>
             <div className="rounded border border-gray-200 p-2"><div className="text-gray-500">Not applicable</div><div className="font-semibold">{reconciliation.summary.NOT_APPLICABLE}</div></div>
           </div>
@@ -157,9 +190,16 @@ export default function EtsyFeeReconciliationPanel({ onImportComplete }: EtsyFee
           <button type="button" className="btn-secondary text-sm" onClick={() => void reconciliation.previewPaymentFees()} disabled={paymentBusy}>
             {reconciliation.paymentLoadingAction === 'preview' ? 'Checking…' : 'Check payment fees'}
           </button>
-          <button type="button" className="btn-primary text-sm" onClick={() => void reconciliation.applyPaymentFees()} disabled={!reconciliation.paymentPreview?.fingerprint || paymentBusy}>
-            {reconciliation.paymentLoadingAction === 'apply' ? 'Applying…' : 'Apply payment fee changes'}
-          </button>
+          {paymentCanApply && (
+            <button
+              type="button"
+              className="btn-primary text-sm"
+              onClick={() => void reconciliation.applyPaymentFees()}
+              disabled={!paymentPreview?.fingerprint || paymentBusy}
+            >
+              {reconciliation.paymentLoadingAction === 'apply' ? 'Applying…' : 'Apply payment fee changes'}
+            </button>
+          )}
         </div>
         {reconciliation.paymentError && (
           <div role="alert" className="alert-danger mt-3 flex items-start gap-2">
@@ -181,7 +221,7 @@ export default function EtsyFeeReconciliationPanel({ onImportComplete }: EtsyFee
 
       <div className="mt-4 border-t border-gray-200 pt-4">
         <h4 className="font-medium text-gray-900">Monthly statement</h4>
-        <p className="mt-1 text-xs text-gray-500">Upload a sanitized Etsy CSV. Raw CSV contents are only sent for the requested preview/apply and are never displayed.</p>
+        <p className="mt-1 text-xs text-gray-500">Upload the original Etsy statement CSV as downloaded. Do not resave or sanitize it. Raw CSV contents are only sent for the requested preview/apply and are never displayed.</p>
         <div className="mt-3 grid gap-3 sm:grid-cols-2">
           <label className="text-sm text-gray-700">
             Statement month

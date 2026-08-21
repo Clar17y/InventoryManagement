@@ -13,8 +13,11 @@ vi.mock('../../lib/api', () => ({
     createPackagingOverhead: vi.fn(),
     deletePackagingOverhead: vi.fn(),
     getPostageTiers: vi.fn(),
+    getAuditHistory: vi.fn(),
     createPostageTier: vi.fn(),
+    updatePostageTier: vi.fn(),
     deletePostageTier: vi.fn(),
+    restorePostageTier: vi.fn(),
   },
   etsy: {
     getAccounts: vi.fn(),
@@ -39,10 +42,21 @@ const mockGetPackagingOverhead = vi.mocked(settings.getPackagingOverhead);
 const mockCreatePackagingOverhead = vi.mocked(settings.createPackagingOverhead);
 const mockDeletePackagingOverhead = vi.mocked(settings.deletePackagingOverhead);
 const mockGetPostageTiers = vi.mocked(settings.getPostageTiers);
+const mockGetAuditHistory = vi.mocked(settings.getAuditHistory);
 const mockCreatePostageTier = vi.mocked(settings.createPostageTier);
+const mockUpdatePostageTier = vi.mocked(settings.updatePostageTier);
+const mockDeletePostageTier = vi.mocked(settings.deletePostageTier);
+const mockRestorePostageTier = vi.mocked(settings.restorePostageTier);
 const mockGetAccounts = vi.mocked(etsy.getAccounts);
 const mockSuppliersList = vi.mocked(suppliers.list);
 const mockSuppliersCreate = vi.mocked(suppliers.create);
+
+const renderSettingsAt = (search = '') => {
+  window.history.replaceState({}, '', `/settings${search}`);
+  return render(<Settings />);
+};
+
+const renderSettings = (section: string) => renderSettingsAt(`?section=${section}`);
 
 describe('Settings', () => {
   const sampleEtsyFee = {
@@ -66,6 +80,7 @@ describe('Settings', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    window.history.replaceState({}, '', '/settings');
     mockGetEtsyFees.mockResolvedValue([sampleEtsyFee] as any);
     mockGetPackagingOverhead.mockResolvedValue({
       overheads: [sampleOverhead],
@@ -73,6 +88,10 @@ describe('Settings', () => {
     } as any);
     mockGetAccounts.mockResolvedValue({ accounts: [] } as any);
     mockGetPostageTiers.mockResolvedValue([]);
+    mockGetAuditHistory.mockResolvedValue([]);
+    mockUpdatePostageTier.mockResolvedValue({} as any);
+    mockDeletePostageTier.mockResolvedValue(undefined);
+    mockRestorePostageTier.mockResolvedValue({} as any);
     mockSuppliersList.mockResolvedValue([]);
   });
 
@@ -116,23 +135,117 @@ describe('Settings', () => {
     });
   });
 
+  describe('section navigation boundaries', () => {
+    it('keeps every existing More link destination unchanged', async () => {
+      renderSettingsAt();
+
+      await waitFor(() => {
+        const expectedLinks = [
+          ['Sales', '/sales'],
+          ['Analytics', '/analytics'],
+          ['Shopping List', '/shopping-list'],
+          ['Categories', '/categories'],
+          ['Products', '/products'],
+          ['Business Expenses', '/expenses'],
+        ] as const;
+
+        for (const [name, destination] of expectedLinks) {
+          expect(screen.getByRole('link', { name: new RegExp(`^${name}\\b`, 'i') })).toHaveAttribute('href', destination);
+        }
+      });
+    });
+
+    it('starts on the Suppliers section when the URL requests it', async () => {
+      renderSettings('suppliers');
+
+      await waitFor(() => {
+        expect(screen.getByRole('heading', { name: 'Suppliers / Shops' })).toBeInTheDocument();
+        expect(screen.getByRole('tab', { name: 'Suppliers' })).toHaveAttribute('aria-selected', 'true');
+        expect(screen.queryByText('Postage Tiers')).not.toBeInTheDocument();
+      });
+    });
+
+    it('updates the URL and only renders the selected section panel', async () => {
+      const user = userEvent.setup();
+      renderSettingsAt('?section=postage&view=all');
+
+      await waitFor(() => {
+        expect(screen.getByText('Postage Tiers')).toBeInTheDocument();
+      });
+
+      await user.click(screen.getByRole('tab', { name: 'Packaging' }));
+
+      await waitFor(() => {
+        const search = new URLSearchParams(window.location.search);
+        expect(search.get('section')).toBe('packaging');
+        expect(search.get('view')).toBe('all');
+        expect(screen.getByText('Packaging Overhead')).toBeInTheDocument();
+        expect(screen.queryByText('Postage Tiers')).not.toBeInTheDocument();
+      });
+    });
+
+    it('falls back to Postage for an unknown URL section', async () => {
+      renderSettingsAt('?section=unknown');
+
+      await waitFor(() => {
+        expect(screen.getByRole('tab', { name: 'Postage' })).toHaveAttribute('aria-selected', 'true');
+        expect(screen.getByText('Postage Tiers')).toBeInTheDocument();
+      });
+    });
+
+    it('keeps Etsy Access Management outside the redesigned section panel', async () => {
+      renderSettingsAt();
+
+      await waitFor(() => {
+        const accessHeading = screen.getByRole('heading', { name: 'Etsy Access Management' });
+        const tablist = screen.getByRole('tablist');
+
+        expect(accessHeading.closest('[role="tabpanel"]')).toBeNull();
+        expect(tablist.compareDocumentPosition(accessHeading) & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(0);
+      });
+    });
+
+    it('loads audit history and only renders the selected audit panel', async () => {
+      mockGetAuditHistory.mockResolvedValue([{
+        id: 'clw5k3q2m0000abcde1234567',
+        settingType: 'POSTAGE_TIER',
+        settingId: 'clw5k3q2m0001abcde1234567',
+        action: 'RESTORE',
+        before: { label: 'Tracked' },
+        after: { label: 'Tracked' },
+        createdAt: '2026-08-19T12:00:00.000Z',
+      }] as any);
+
+      renderSettings('audit');
+
+      await waitFor(() => {
+        expect(mockGetAuditHistory).toHaveBeenCalledTimes(1);
+        expect(screen.getByText('Postage tier restored')).toBeInTheDocument();
+        expect(screen.queryByText('Postage Tiers')).not.toBeInTheDocument();
+        expect(screen.queryByText('Packaging Overhead')).not.toBeInTheDocument();
+        expect(screen.queryByText('Suppliers / Shops')).not.toBeInTheDocument();
+        expect(screen.getByRole('heading', { name: 'Etsy Access Management' })).toBeInTheDocument();
+      });
+    });
+  });
+
   describe('Etsy fees section', () => {
     it('displays Etsy Fees header', async () => {
-      render(<Settings />);
+      renderSettings('etsy-fees');
       await waitFor(() => {
-        expect(screen.getByText('Etsy Fees')).toBeInTheDocument();
+        expect(screen.getByRole('heading', { name: 'Etsy Fees' })).toBeInTheDocument();
       });
     });
 
     it('displays configured fee name', async () => {
-      render(<Settings />);
+      renderSettings('etsy-fees');
       await waitFor(() => {
         expect(screen.getByText('UK Etsy Fees 2024')).toBeInTheDocument();
       });
     });
 
     it('displays fee percentages', async () => {
-      render(<Settings />);
+      renderSettings('etsy-fees');
       await waitFor(() => {
         expect(screen.getByText('6.5%')).toBeInTheDocument(); // Transaction fee
         expect(screen.getByText('0.32%')).toBeInTheDocument(); // Regulatory fee
@@ -142,7 +255,7 @@ describe('Settings', () => {
     it('shows setup prompt when no fees configured', async () => {
       mockGetEtsyFees.mockResolvedValue([]);
 
-      render(<Settings />);
+      renderSettings('etsy-fees');
 
       await waitFor(() => {
         expect(screen.getByText(/no etsy fee configuration found/i)).toBeInTheDocument();
@@ -152,7 +265,7 @@ describe('Settings', () => {
     it('has button to use default fees when none configured', async () => {
       mockGetEtsyFees.mockResolvedValue([]);
 
-      render(<Settings />);
+      renderSettings('etsy-fees');
 
       await waitFor(() => {
         expect(screen.getByRole('button', { name: /use default uk etsy fees/i })).toBeInTheDocument();
@@ -164,7 +277,7 @@ describe('Settings', () => {
       mockGetEtsyFees.mockResolvedValue([]);
       mockCreateEtsyFees.mockResolvedValue(sampleEtsyFee as any);
 
-      render(<Settings />);
+      renderSettings('etsy-fees');
 
       await waitFor(() => {
         expect(screen.getByRole('button', { name: /use default uk etsy fees/i })).toBeInTheDocument();
@@ -180,28 +293,28 @@ describe('Settings', () => {
 
   describe('Packaging overhead section', () => {
     it('displays Packaging Overhead header', async () => {
-      render(<Settings />);
+      renderSettings('packaging');
       await waitFor(() => {
         expect(screen.getByText('Packaging Overhead')).toBeInTheDocument();
       });
     });
 
     it('displays existing overhead items', async () => {
-      render(<Settings />);
+      renderSettings('packaging');
       await waitFor(() => {
         expect(screen.getByText('Gift Box')).toBeInTheDocument();
       });
     });
 
     it('displays total per order', async () => {
-      render(<Settings />);
+      renderSettings('packaging');
       await waitFor(() => {
         expect(screen.getByText('Total per order')).toBeInTheDocument();
       });
     });
 
     it('has input for adding new overhead', async () => {
-      render(<Settings />);
+      renderSettings('packaging');
       await waitFor(() => {
         expect(screen.getByPlaceholderText('Item name (e.g., Tape)')).toBeInTheDocument();
         expect(screen.getByPlaceholderText('Cost')).toBeInTheDocument();
@@ -212,7 +325,7 @@ describe('Settings', () => {
       const user = userEvent.setup();
       mockCreatePackagingOverhead.mockResolvedValue(sampleOverhead as any);
 
-      render(<Settings />);
+      renderSettings('packaging');
 
       await waitFor(() => {
         expect(screen.getByPlaceholderText('Item name (e.g., Tape)')).toBeInTheDocument();
@@ -230,17 +343,44 @@ describe('Settings', () => {
       });
     });
 
-    it('calls deletePackagingOverhead when Remove clicked', async () => {
+    it('clears the add form when the post-create refresh fails', async () => {
+      const user = userEvent.setup();
+      mockCreatePackagingOverhead.mockResolvedValue(sampleOverhead as any);
+
+      renderSettings('packaging');
+
+      await waitFor(() => {
+        expect(screen.getByPlaceholderText('Item name (e.g., Tape)')).toBeInTheDocument();
+      });
+
+      // The create has already committed; a failed refresh must not be reported as a
+      // failed create, or the user retries and duplicates the row.
+      mockGetAuditHistory.mockRejectedValueOnce(new Error('Network error'));
+
+      await user.type(screen.getByPlaceholderText('Item name (e.g., Tape)'), 'Bubble Wrap');
+      await user.type(screen.getByPlaceholderText('Cost'), '0.50');
+      await user.click(screen.getAllByRole('button', { name: 'Add' })[0]!);
+
+      await waitFor(() => {
+        expect(mockCreatePackagingOverhead).toHaveBeenCalledTimes(1);
+      });
+      await waitFor(() => {
+        expect(screen.getByPlaceholderText('Item name (e.g., Tape)')).toHaveValue('');
+      });
+      expect(screen.getByPlaceholderText('Cost')).toHaveValue(null);
+    });
+
+    it('calls deletePackagingOverhead when Archive clicked', async () => {
       const user = userEvent.setup();
       mockDeletePackagingOverhead.mockResolvedValue(undefined);
 
-      render(<Settings />);
+      renderSettings('packaging');
 
       await waitFor(() => {
         expect(screen.getByText('Gift Box')).toBeInTheDocument();
       });
 
-      await user.click(screen.getByRole('button', { name: 'Remove' }));
+      await user.click(screen.getByRole('button', { name: 'Archive Gift Box overhead' }));
 
       await waitFor(() => {
         expect(mockDeletePackagingOverhead).toHaveBeenCalledWith('pkg-1');
@@ -259,16 +399,24 @@ describe('Settings', () => {
     };
 
     it('renders postage tiers section', async () => {
-      render(<Settings />);
+      renderSettings('postage');
       await waitFor(() => {
         expect(screen.getByText('Postage Tiers')).toBeInTheDocument();
+      });
+    });
+
+    it('loads active and archived postage tiers for the editor', async () => {
+      renderSettings('postage');
+
+      await waitFor(() => {
+        expect(mockGetPostageTiers).toHaveBeenCalledWith({ includeArchived: true });
       });
     });
 
     it('displays existing tiers', async () => {
       mockGetPostageTiers.mockResolvedValue([samplePostageTier] as any);
 
-      render(<Settings />);
+      renderSettings('postage');
 
       await waitFor(() => {
         expect(screen.getByText(/£5\.00/)).toBeInTheDocument();
@@ -278,9 +426,9 @@ describe('Settings', () => {
 
     it('can add a new postage tier', async () => {
       const user = userEvent.setup();
-      mockCreatePostageTier.mockResolvedValue(samplePostageTier as any);
+      mockCreatePostageTier.mockResolvedValue({ item: samplePostageTier, outcome: 'created' } as any);
 
-      render(<Settings />);
+      renderSettings('postage');
 
       await waitFor(() => {
         expect(screen.getByPlaceholderText('Etsy charge')).toBeInTheDocument();
@@ -289,17 +437,66 @@ describe('Settings', () => {
       await user.type(screen.getByPlaceholderText('Etsy charge'), '5.00');
       await user.type(screen.getByPlaceholderText('Actual cost'), '5.05');
 
-      // Find the Add button within the postage tiers section
-      const addButtons = screen.getAllByRole('button', { name: 'Add' });
-      // Postage tiers Add button is after packaging overhead Add button
-      await user.click(addButtons[1]!);
+      await user.click(screen.getByRole('button', { name: 'Add' }));
 
       await waitFor(() => {
         expect(mockCreatePostageTier).toHaveBeenCalledWith({
           etsyCharge: 5,
           actualCost: 5.05,
+          label: undefined,
         });
       });
+    });
+
+    it('reloads after postage save without showing the page-wide loading state', async () => {
+      const user = userEvent.setup();
+      mockGetPostageTiers.mockResolvedValue([samplePostageTier] as any);
+      mockUpdatePostageTier.mockResolvedValue(samplePostageTier as any);
+
+      renderSettings('postage');
+
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: 'Edit £5.00 tier' })).toBeInTheDocument();
+      });
+      await user.click(screen.getByRole('button', { name: 'Edit £5.00 tier' }));
+      await user.click(screen.getByRole('button', { name: 'Save £5.00 tier' }));
+
+      await waitFor(() => {
+        expect(mockUpdatePostageTier).toHaveBeenCalledWith('pt1', {
+          etsyCharge: 5,
+          actualCost: 5.05,
+          label: 'Standard',
+        });
+        expect(mockGetPostageTiers).toHaveBeenCalledTimes(2);
+      });
+      expect(screen.queryByText('Loading...')).not.toBeInTheDocument();
+    });
+
+    it('refreshes audit history after a postage mutation without page-wide loading', async () => {
+      const user = userEvent.setup();
+      const auditEntry = {
+        id: 'clw5k3q2m0000abcde1234567',
+        settingType: 'POSTAGE_TIER',
+        settingId: 'pt1',
+        action: 'UPDATE',
+        before: { label: 'Standard' },
+        after: { label: 'Express' },
+        createdAt: '2026-08-19T12:00:00.000Z',
+      };
+      mockGetPostageTiers.mockResolvedValue([samplePostageTier] as any);
+      mockUpdatePostageTier.mockResolvedValue(samplePostageTier as any);
+      mockGetAuditHistory.mockResolvedValueOnce([]).mockResolvedValueOnce([auditEntry] as any);
+
+      renderSettings('postage');
+
+      await waitFor(() => expect(screen.getByRole('button', { name: 'Edit £5.00 tier' })).toBeInTheDocument());
+      await user.click(screen.getByRole('button', { name: 'Edit £5.00 tier' }));
+      await user.click(screen.getByRole('button', { name: 'Save £5.00 tier' }));
+
+      await waitFor(() => expect(mockGetAuditHistory).toHaveBeenCalledTimes(2));
+      expect(screen.queryByText('Loading...')).not.toBeInTheDocument();
+      await user.click(screen.getByRole('tab', { name: 'Audit History' }));
+      expect(await screen.findByText('Postage tier updated')).toBeInTheDocument();
     });
   });
 
@@ -313,7 +510,7 @@ describe('Settings', () => {
     };
 
     it('renders suppliers section', async () => {
-      render(<Settings />);
+      renderSettings('suppliers');
       await waitFor(() => {
         expect(screen.getByText('Suppliers / Shops')).toBeInTheDocument();
       });
@@ -322,7 +519,7 @@ describe('Settings', () => {
     it('displays existing suppliers', async () => {
       mockSuppliersList.mockResolvedValue([sampleSupplier] as any);
 
-      render(<Settings />);
+      renderSettings('suppliers');
 
       await waitFor(() => {
         expect(screen.getByText('Home Bargains')).toBeInTheDocument();
@@ -333,7 +530,7 @@ describe('Settings', () => {
       const user = userEvent.setup();
       mockSuppliersCreate.mockResolvedValue(sampleSupplier as any);
 
-      render(<Settings />);
+      renderSettings('suppliers');
 
       await waitFor(() => {
         expect(screen.getByPlaceholderText('Shop name (e.g., Home Bargains)')).toBeInTheDocument();
@@ -341,10 +538,7 @@ describe('Settings', () => {
 
       await user.type(screen.getByPlaceholderText('Shop name (e.g., Home Bargains)'), 'Home Bargains');
 
-      // Find the Add button in the suppliers section
-      const addButtons = screen.getAllByRole('button', { name: 'Add' });
-      // Suppliers Add button is after packaging overhead and postage tiers Add buttons
-      await user.click(addButtons[2]!);
+      await user.click(screen.getByRole('button', { name: 'Add' }));
 
       await waitFor(() => {
         expect(mockSuppliersCreate).toHaveBeenCalledWith({ name: 'Home Bargains' });

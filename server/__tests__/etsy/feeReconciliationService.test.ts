@@ -27,6 +27,67 @@ const zeroFeeAttributedCsv = `Date,Type,Description,Info,Currency,Amount,Fees & 
 31 Jul 2025,Sale,Payment for Order #4137418052,,GBP,39.99,-4.00,35.99
 31 Jul 2025,Marketing,Marketing Fee for sale made through Offsite Ads Order #4137418052,,GBP,0,0,0`
 
+const decemberCreditCsv = `Date,Type,Description,Info,Currency,Amount,Fees & Taxes,Net
+2 Dec 2023,Marketing,Credit for Offsite Ads fee,Order #3102744549,GBP,0,1.53,1.53
+2 Dec 2023,Tax,Credit for VAT on Offsite Ads fee,Order #3102744549,GBP,0,0.31,0.31`
+
+function decemberInput(csv = decemberCreditCsv) {
+  return {
+    csv,
+    statementMonth: '2023-12',
+    fileName: 'etsy-statement-2023-12.csv',
+  }
+}
+
+function novemberVerifiedSale(
+  overrides: Partial<ReturnType<typeof sale>> = {},
+): ReturnType<typeof sale> {
+  return sale({
+    id: 'sale-3102744549',
+    etsyOrderId: '3102744549',
+    etsyFeesPence: 1200,
+    netRevenuePence: 4829,
+    marginPence: 3000,
+    previousOffsiteAdsFeePence: 723,
+    previousVatOnOffsiteAdsFeePence: 145,
+    offsiteAdsAttributed: true,
+    etsyFeeReconciliationSource: 'ETSY_STATEMENT',
+    etsyStatementImportId: 'november-import',
+    etsyStatementMonth: '2023-11',
+    status: 'STATEMENT_VERIFIED',
+    ...overrides,
+  })
+}
+
+function manuallyVerifiedSale(
+  overrides: Partial<ReturnType<typeof sale>> = {},
+): ReturnType<typeof sale> {
+  return sale({
+    id: 'manual-sale',
+    etsyOrderId: '4137418052',
+    etsyFeesPence: 640,
+    netRevenuePence: 3359,
+    marginPence: 1839,
+    previousOffsiteAdsFeePence: 200,
+    previousVatOnOffsiteAdsFeePence: 40,
+    offsiteAdsAttributed: true,
+    etsyFeeReconciliationSource: 'MANUAL',
+    etsyManualResolutionNote: 'Checked against Etsy exports',
+    status: 'MANUALLY_VERIFIED',
+    ...overrides,
+  })
+}
+
+function manuallyVerifiedCreditSale(
+  overrides: Partial<ReturnType<typeof sale>> = {},
+): ReturnType<typeof sale> {
+  return manuallyVerifiedSale({
+    id: 'manual-credit-sale',
+    etsyOrderId: '3102744549',
+    ...overrides,
+  })
+}
+
 function input(csv: string, allowStatementRevision = false) {
   return {
     csv,
@@ -65,6 +126,38 @@ describe('Etsy statement reconciliation service', () => {
       marginDeltaPence: -576,
     })
     expect(db.writeCount).toBe(0)
+  })
+
+  it('allows absolute statement evidence to supersede manual verification while preserving its note', async () => {
+    const db = createFeeDbFixture({ sales: [manuallyVerifiedSale()] })
+    const statement = input(attributedCsv)
+
+    const preview = await previewStatementReconciliation(statement, db)
+
+    expect(preview.changes[0]).toMatchObject({
+      oldStatus: 'MANUALLY_VERIFIED',
+      newStatus: 'STATEMENT_VERIFIED',
+      source: 'ETSY_STATEMENT',
+      oldFeesPence: 640,
+      newFeesPence: 976,
+      outcome: 'changed',
+    })
+    expect(db.writeCount).toBe(0)
+
+    const result = await applyStatementReconciliation({
+      ...statement,
+      fingerprint: preview.fingerprint,
+    }, db)
+
+    expect(result.applied).toBe(true)
+    expect(db.sales[0]).toMatchObject({
+      etsyFeesPence: 976,
+      netRevenuePence: 3023,
+      marginPence: 1503,
+      status: 'STATEMENT_VERIFIED',
+      etsyFeeReconciliationSource: 'ETSY_STATEMENT',
+      etsyManualResolutionNote: 'Checked against Etsy exports',
+    })
   })
 
   it('verifies a covered order with no Offsite Ads as an exact zero', async () => {
@@ -360,7 +453,249 @@ describe('Etsy statement reconciliation service', () => {
       statementImportId: first.statementImportId,
       summary: first.summary,
     })
+    expect(db.imports).toEqual([
+      expect.objectContaining({ statementMonth: '2025-07' }),
+    ])
+    expect(db.sales[0]).toMatchObject({
+      etsyStatementImportId: first.statementImportId,
+      etsyStatementMonth: '2025-07',
+    })
     expect(db.writeCount).toBe(writesAfterFirstApply)
+  })
+
+  it('subtracts a later statement credit from verified prior itemization', async () => {
+    const db = createFeeDbFixture({ sales: [novemberVerifiedSale()] })
+    const statement = decemberInput()
+
+    const preview = await previewStatementReconciliation(statement, db)
+
+    expect(preview.changes[0]).toMatchObject({
+      receiptId: '3102744549',
+      outcome: 'changed',
+      attributed: true,
+      offsiteAdsFeePence: 570,
+      vatOnOffsiteAdsFeePence: 114,
+      feeDeltaPence: -184,
+      newFeesPence: 1016,
+      marginDeltaPence: 184,
+    })
+
+    const result = await applyStatementReconciliation({
+      ...statement,
+      fingerprint: preview.fingerprint,
+    }, db)
+
+    expect(db.sales[0]).toMatchObject({
+      previousOffsiteAdsFeePence: 570,
+      previousVatOnOffsiteAdsFeePence: 114,
+      etsyFeesPence: 1016,
+      netRevenuePence: 5013,
+      marginPence: 3184,
+      status: 'STATEMENT_VERIFIED',
+      etsyFeeReconciliationSource: 'ETSY_STATEMENT',
+      offsiteAdsAttributed: true,
+      etsyStatementImportId: result.statementImportId,
+      etsyStatementMonth: '2023-12',
+    })
+  })
+
+  it('reports a credit against manual verification without inferring a prior statement or writing the Sale', async () => {
+    const db = createFeeDbFixture({ sales: [manuallyVerifiedCreditSale()] })
+    const statement = decemberInput()
+
+    const preview = await previewStatementReconciliation(statement, db)
+
+    expect(preview.changes[0]).toMatchObject({
+      oldStatus: 'MANUALLY_VERIFIED',
+      newStatus: 'MANUALLY_VERIFIED',
+      source: 'MANUAL',
+      outcome: 'unchanged',
+      oldFeesPence: 640,
+      newFeesPence: 640,
+    })
+    expect(db.writeCount).toBe(0)
+
+    const result = await applyStatementReconciliation({
+      ...statement,
+      fingerprint: preview.fingerprint,
+    }, db)
+
+    expect(result.applied).toBe(true)
+    expect(db.saleWriteCount).toBe(0)
+    expect(db.sales[0]).toMatchObject({
+      etsyFeesPence: 640,
+      netRevenuePence: 3359,
+      marginPence: 1839,
+      status: 'MANUALLY_VERIFIED',
+      etsyFeeReconciliationSource: 'MANUAL',
+      etsyManualResolutionNote: 'Checked against Etsy exports',
+      etsyStatementImportId: null,
+      etsyStatementMonth: null,
+    })
+  })
+
+  it.each([
+    ['prior statement verification is missing', { status: 'PENDING' as const }, 'Order 3102744549 needs manual review because its prior statement verification is missing'],
+    ['prior source is untrusted', { etsyFeeReconciliationSource: null }, 'Order 3102744549 needs manual review because its prior fee source is not an Etsy statement'],
+    ['prior itemization is incomplete', { previousVatOnOffsiteAdsFeePence: null }, 'Order 3102744549 needs manual review because its prior Offsite fee itemization is incomplete'],
+    ['prior statement month is unavailable', { etsyStatementImportId: null, etsyStatementMonth: null }, 'Order 3102744549 needs manual review because its prior statement month is unavailable'],
+    ['credit is not later than prior statement', { etsyStatementMonth: '2023-12' }, 'Order 3102744549 needs manual review because the credit statement is not later than its prior statement'],
+  ])('isolates an adjustment when %s', async (_label, overrides, message) => {
+    const db = createFeeDbFixture({ sales: [novemberVerifiedSale(overrides)] })
+
+    const preview = await previewStatementReconciliation(decemberInput(), db)
+
+    expect(preview.changes[0]).toMatchObject({
+      outcome: 'manual_review',
+      feeDeltaPence: 0,
+      marginDeltaPence: 0,
+      oldFeesPence: 1200,
+      newFeesPence: 1200,
+      message,
+    })
+  })
+
+  it.each([
+    ['fee over-credit', 800, 31, 'Order 3102744549 needs manual review because its Offsite fee credit exceeds the saved fee'],
+    ['VAT over-credit', 153, 200, 'Order 3102744549 needs manual review because its Offsite VAT credit exceeds the saved VAT'],
+    ['orphaned VAT', 723, 31, 'Order 3102744549 needs manual review because the credit would leave VAT without an Offsite fee'],
+  ])('isolates an unsafe %s', async (_label, feeCredit, vatCredit, message) => {
+    const csv = decemberCreditCsv
+      .replace('1.53,1.53', `${(feeCredit / 100).toFixed(2)},${(feeCredit / 100).toFixed(2)}`)
+      .replace('0.31,0.31', `${(vatCredit / 100).toFixed(2)},${(vatCredit / 100).toFixed(2)}`)
+    const db = createFeeDbFixture({ sales: [novemberVerifiedSale()] })
+
+    const preview = await previewStatementReconciliation(decemberInput(csv), db)
+
+    expect(preview.changes[0]).toMatchObject({
+      outcome: 'manual_review',
+      feeDeltaPence: 0,
+      marginDeltaPence: 0,
+      message,
+    })
+  })
+
+  it('isolates mixed current charges and earlier-period credits', async () => {
+    const csv = `Date,Type,Description,Info,Currency,Amount,Fees & Taxes,Net
+2 Dec 2023,Marketing,Fee for sale through Offsite Ads,Order #3102744549,GBP,0,-7.23,-7.23
+2 Dec 2023,Tax,Credit for VAT on Offsite Ads fee,Order #3102744549,GBP,0,0.31,0.31`
+    const db = createFeeDbFixture({ sales: [novemberVerifiedSale()] })
+
+    const preview = await previewStatementReconciliation(decemberInput(csv), db)
+
+    expect(preview.changes[0]).toMatchObject({
+      outcome: 'manual_review',
+      message: 'Order 3102744549 needs manual review because the statement mixes current charges with an earlier-period credit',
+    })
+  })
+
+  it('isolates a credit that has no saved component weight for multi-sale allocation', async () => {
+    const db = createFeeDbFixture({
+      sales: [
+        novemberVerifiedSale({
+          id: 's1',
+          etsyOrderId: '3102744549',
+          previousOffsiteAdsFeePence: 0,
+        }),
+        novemberVerifiedSale({
+          id: 's2',
+          etsyOrderId: '3102744549-1',
+          previousOffsiteAdsFeePence: 0,
+        }),
+      ],
+    })
+
+    const preview = await previewStatementReconciliation(decemberInput(), db)
+
+    expect(preview.changes[0]).toMatchObject({
+      outcome: 'manual_review',
+      feeDeltaPence: 0,
+      marginDeltaPence: 0,
+      message: 'Order 3102744549 needs manual review because the credit cannot be allocated across its saved itemization',
+    })
+  })
+
+  it('preserves money, evidence, Payment aggregates, source, and prior link for manual review while continuing other receipts', async () => {
+    const csv = `${decemberCreditCsv}
+3 Dec 2023,Sale,Payment for Order #3102744550,,GBP,50.00,-5.00,45.00
+3 Dec 2023,Marketing,Fee for sale through Offsite Ads,Order #3102744550,GBP,0,-5.00,-5.00
+3 Dec 2023,Tax,VAT on Offsite Ads fee,Order #3102744550,GBP,0,-1.00,-1.00`
+    const prior = novemberVerifiedSale({
+      etsyFeeReconciliationSource: null,
+      etsyPaymentGrossPence: 6029,
+      etsyPaymentFeesPence: 1200,
+      etsyPaymentNetPence: 4829,
+    })
+    const db = createFeeDbFixture({
+      sales: [prior, sale({ id: 'ordinary-sale', etsyOrderId: '3102744550' })],
+    })
+    const statement = decemberInput(csv)
+    const preview = await previewStatementReconciliation(statement, db)
+
+    await applyStatementReconciliation({ ...statement, fingerprint: preview.fingerprint }, db)
+
+    expect(db.sales[0]).toMatchObject({
+      etsyFeesPence: prior.etsyFeesPence,
+      netRevenuePence: prior.netRevenuePence,
+      marginPence: prior.marginPence,
+      previousOffsiteAdsFeePence: prior.previousOffsiteAdsFeePence,
+      previousVatOnOffsiteAdsFeePence: prior.previousVatOnOffsiteAdsFeePence,
+      offsiteAdsAttributed: prior.offsiteAdsAttributed,
+      etsyPaymentGrossPence: prior.etsyPaymentGrossPence,
+      etsyPaymentFeesPence: prior.etsyPaymentFeesPence,
+      etsyPaymentNetPence: prior.etsyPaymentNetPence,
+      etsyFeeReconciliationSource: null,
+      etsyStatementImportId: 'november-import',
+      etsyStatementMonth: '2023-11',
+      status: 'MANUAL_REVIEW',
+    })
+    expect(db.sales[1]).toMatchObject({
+      previousOffsiteAdsFeePence: 500,
+      previousVatOnOffsiteAdsFeePence: 100,
+      status: 'STATEMENT_VERIFIED',
+      etsyStatementMonth: '2023-12',
+    })
+  })
+
+  it('allocates later credits by saved component itemization rather than gross revenue', async () => {
+    const db = createFeeDbFixture({
+      sales: [
+        novemberVerifiedSale({ id: 's1', etsyOrderId: '3102744549', grossRevenuePence: 1000, previousOffsiteAdsFeePence: 500, previousVatOnOffsiteAdsFeePence: 100 }),
+        novemberVerifiedSale({ id: 's2', etsyOrderId: '3102744549-1', grossRevenuePence: 9000, previousOffsiteAdsFeePence: 223, previousVatOnOffsiteAdsFeePence: 45 }),
+      ],
+    })
+
+    const preview = await previewStatementReconciliation(decemberInput(), db)
+
+    expect(preview.changes[0]).toMatchObject({ offsiteAdsFeePence: 570, vatOnOffsiteAdsFeePence: 114 })
+    expect(preview.changes[0]?.allocations).toEqual([
+      expect.objectContaining({ saleId: 's1', offsiteAdsFeePence: 394, vatOnOffsiteAdsFeePence: 79 }),
+      expect.objectContaining({ saleId: 's2', offsiteAdsFeePence: 176, vatOnOffsiteAdsFeePence: 35 }),
+    ])
+  })
+
+  it('rejects a same-checksum apply submitted for a different month', async () => {
+    const db = createFeeDbFixture({
+      sales: [sale({ id: 's1', etsyOrderId: '4137418052' })],
+    })
+    const julyStatement = input(attributedCsv)
+    const julyPreview = await previewStatementReconciliation(julyStatement, db)
+    await applyStatementReconciliation({ ...julyStatement, fingerprint: julyPreview.fingerprint }, db)
+    const writesAfterJulyApply = db.writeCount
+    const augustStatement = {
+      ...input(attributedCsv),
+      statementMonth: '2025-08',
+      fileName: 'etsy-statement-2025-08.csv',
+      fingerprint: julyPreview.fingerprint,
+    }
+
+    const conflictingApply = applyStatementReconciliation(augustStatement, db)
+
+    await expect(conflictingApply).rejects.toBeInstanceOf(StatementReconciliationConflictError)
+    await expect(conflictingApply).rejects.toThrow(
+      'This statement file was already imported for 2025-07; it cannot be applied as 2025-08',
+    )
+    expect(db.writeCount).toBe(writesAfterJulyApply)
   })
 
   it('rejects an apply when the current sale state makes the preview stale', async () => {
@@ -374,6 +709,17 @@ describe('Etsy statement reconciliation service', () => {
     await expect(applyStatementReconciliation({ ...statement, fingerprint: preview.fingerprint }, db))
       .rejects.toBeInstanceOf(StatementReconciliationConflictError)
     expect(db.writeCount).toBe(0)
+  })
+
+  it('invalidates a statement preview when the manual resolution note changes', async () => {
+    const db = createFeeDbFixture({ sales: [manuallyVerifiedSale()] })
+    const statement = input(attributedCsv)
+    const preview = await previewStatementReconciliation(statement, db)
+    db.sales[0]!.etsyManualResolutionNote = 'Updated manual evidence'
+
+    await expect(applyStatementReconciliation({ ...statement, fingerprint: preview.fingerprint }, db))
+      .rejects.toBeInstanceOf(StatementReconciliationConflictError)
+    expect(db.saleWriteCount).toBe(0)
   })
 
   it('requires explicit permission before revising statement-verified evidence', async () => {
@@ -569,13 +915,18 @@ describe('Etsy statement reconciliation service', () => {
       newFeesPence: 1976,
       marginDeltaPence: -576,
     }
+    let statementImportSelect: unknown
     const fakePrisma = {
       etsyStatementImport: {
-        findUnique: async () => ({
-          id: 'statement-import-1',
-          checksum: 'checksum-1',
-          ...summary,
-        }),
+        findUnique: async ({ select }: { select: unknown }) => {
+          statementImportSelect = select
+          return {
+            id: 'statement-import-1',
+            checksum: 'checksum-1',
+            statementMonth: new Date('2023-11-01T00:00:00.000Z'),
+            ...summary,
+          }
+        },
       },
     } as unknown as PrismaClient
     const repository = createPrismaFeeReconciliationRepository(fakePrisma)
@@ -583,7 +934,56 @@ describe('Etsy statement reconciliation service', () => {
     await expect(repository.findStatementImportByChecksum('checksum-1')).resolves.toEqual({
       id: 'statement-import-1',
       checksum: 'checksum-1',
+      statementMonth: '2023-11',
       summary,
+    })
+    expect(statementImportSelect).toMatchObject({ statementMonth: true })
+  })
+
+  it('maps prior statement provenance from the Prisma sale adapter', async () => {
+    const money = (value: number) => ({ toNumber: () => value })
+    let saleSelect: unknown
+    const fakePrisma = {
+      sale: {
+        findMany: async ({ select }: { select: unknown }) => {
+          saleSelect = select
+          return [{
+            id: 's1',
+            etsyOrderId: '4137418052',
+            grossRevenue: money(39.99),
+            etsyFees: money(9.76),
+            netRevenue: money(30.23),
+            margin: money(16.23),
+            offsiteAdsFee: money(4.8),
+            vatOnOffsiteAdsFee: money(0.96),
+            etsyPaymentGross: null,
+            etsyPaymentFees: null,
+            etsyPaymentNet: null,
+            offsiteAdsAttributed: true,
+            etsyFeeReconciliationSource: 'ETSY_STATEMENT',
+            etsyFeeReconciliationStatus: 'STATEMENT_VERIFIED',
+            etsyStatementImportId: 'statement-import-2023-11',
+            etsyManualResolutionNote: 'Checked against Etsy exports',
+            etsyStatementImport: { statementMonth: new Date('2023-11-01T00:00:00.000Z') },
+            updatedAt: new Date('2023-12-01T00:00:00.000Z'),
+          }]
+        },
+      },
+    } as unknown as PrismaClient
+    const repository = createPrismaFeeReconciliationRepository(fakePrisma)
+
+    await expect(repository.listEtsySaleSnapshots()).resolves.toEqual([
+      expect.objectContaining({
+        id: 's1',
+        etsyStatementImportId: 'statement-import-2023-11',
+        etsyStatementMonth: '2023-11',
+        etsyManualResolutionNote: 'Checked against Etsy exports',
+      }),
+    ])
+    expect(saleSelect).toMatchObject({
+      etsyStatementImportId: true,
+      etsyManualResolutionNote: true,
+      etsyStatementImport: { select: { statementMonth: true } },
     })
   })
 
@@ -630,6 +1030,71 @@ describe('Etsy statement reconciliation service', () => {
 
     expect(results.filter((result) => result.applied)).toHaveLength(1)
     expect(results.filter((result) => result.duplicate)).toHaveLength(1)
+    expect(base.imports).toHaveLength(1)
+    expect(base.writeCount).toBe(3)
+  })
+
+  it('rejects a race-losing checksum apply submitted for a different month', async () => {
+    const base = createFeeDbFixture({
+      sales: [sale({ id: 's1', etsyOrderId: '4137418052' })],
+    })
+    const initialSales = await base.listEtsySaleSnapshots()
+    let preflightFinds = 0
+    let transactionCalls = 0
+    let resolveFirstTransactionStarted!: () => void
+    const firstTransactionStarted = new Promise<void>((resolve) => { resolveFirstTransactionStarted = resolve })
+    let releaseFirstTransaction!: () => void
+    const firstTransactionCanCommit = new Promise<void>((resolve) => { releaseFirstTransaction = resolve })
+    let resolveSecondTransactionAttempted!: () => void
+    const secondTransactionAttempted = new Promise<void>((resolve) => { resolveSecondTransactionAttempted = resolve })
+    let resolveCommitted!: () => void
+    const committed = new Promise<void>((resolve) => { resolveCommitted = resolve })
+    const raceDb: FeeReconciliationRepository = {
+      async listEtsySaleSnapshots() {
+        return initialSales.map((snapshot) => ({ ...snapshot }))
+      },
+      async findStatementImportByChecksum(checksum) {
+        preflightFinds += 1
+        if (preflightFinds <= 2) return null
+        await committed
+        return base.findStatementImportByChecksum(checksum)
+      },
+      async transaction(work) {
+        transactionCalls += 1
+        if (transactionCalls === 1) {
+          resolveFirstTransactionStarted()
+          await firstTransactionCanCommit
+          const result = await base.transaction(work)
+          resolveCommitted()
+          return result
+        }
+        resolveSecondTransactionAttempted()
+        throw Object.assign(new Error('checksum already exists'), {
+          code: 'P2002',
+          meta: { target: ['checksum'] },
+        })
+      },
+    }
+    const julyStatement = input(attributedCsv)
+    const augustStatement = {
+      ...input(attributedCsv),
+      statementMonth: '2025-08',
+      fileName: 'etsy-statement-2025-08.csv',
+    }
+    const julyPreview = await previewStatementReconciliation(julyStatement, base)
+    const augustPreview = await previewStatementReconciliation(augustStatement, base)
+
+    const julyApply = applyStatementReconciliation({ ...julyStatement, fingerprint: julyPreview.fingerprint }, raceDb)
+    await firstTransactionStarted
+    const augustApply = applyStatementReconciliation({ ...augustStatement, fingerprint: augustPreview.fingerprint }, raceDb)
+    await secondTransactionAttempted
+    releaseFirstTransaction()
+
+    await expect(julyApply).resolves.toMatchObject({ applied: true, duplicate: false })
+    await expect(augustApply).rejects.toBeInstanceOf(StatementReconciliationConflictError)
+    await expect(augustApply).rejects.toThrow(
+      'This statement file was already imported for 2025-07; it cannot be applied as 2025-08',
+    )
     expect(base.imports).toHaveLength(1)
     expect(base.writeCount).toBe(3)
   })

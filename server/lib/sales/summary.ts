@@ -1,6 +1,7 @@
 import { Prisma } from '@prisma/client'
 import type { SalesSummaryResponse } from '#contracts/routes/sales'
 import { prisma } from '../prisma'
+import { NEEDS_VERIFICATION_STATUSES } from './filters'
 
 type SummaryDecimal = Prisma.Decimal | number | null
 
@@ -136,7 +137,7 @@ export async function getSalesSummary(where: Prisma.SaleWhereInput): Promise<Sal
         AND: [
           where,
           { saleChannel: 'etsy' },
-          { etsyFeeReconciliationStatus: { notIn: ['STATEMENT_VERIFIED', 'NOT_APPLICABLE'] } },
+          { etsyFeeReconciliationStatus: { in: NEEDS_VERIFICATION_STATUSES } },
         ],
       },
     }),

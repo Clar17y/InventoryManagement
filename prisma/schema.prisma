@@ -28,12 +28,28 @@ enum EtsyFeeReconciliationStatus {
   PENDING
   PAYMENT_SYNCED
   STATEMENT_VERIFIED
+  MANUALLY_VERIFIED
   MANUAL_REVIEW
 }
 
 enum EtsyFeeReconciliationSource {
   ETSY_PAYMENT_API
   ETSY_STATEMENT
+  MANUAL
+}
+
+enum SettingsAuditType {
+  POSTAGE_TIER
+  PACKAGING_OVERHEAD
+  SUPPLIER
+  ETSY_FEE_CONFIG
+}
+
+enum SettingsAuditAction {
+  CREATE
+  UPDATE
+  ARCHIVE
+  RESTORE
 }
 
 model ComponentCategory {
@@ -214,6 +230,7 @@ model Sale {
   etsyFeeReconciliationSource EtsyFeeReconciliationSource?
   etsyFeeReconciledAt         DateTime?
   etsyStatementImportId       String?
+  etsyManualResolutionNote    String?
   etsyStatementImport         EtsyStatementImport?        @relation(fields: [etsyStatementImportId], references: [id])
 
   lines SaleLine[]
@@ -350,6 +367,19 @@ model Supplier {
   updatedAt DateTime @updatedAt
 
   products ProductSupplier[]
+}
+
+model SettingsAuditLog {
+  id          String              @id @default(cuid())
+  settingType SettingsAuditType
+  settingId   String
+  action      SettingsAuditAction
+  before      Json?
+  after       Json?
+  createdAt   DateTime            @default(now())
+
+  @@index([createdAt])
+  @@index([settingType, createdAt])
 }
 
 model ProductSupplier {

@@ -1,20 +1,51 @@
-import { Router } from 'express'
+import { Router, type Response } from 'express'
 import { z } from 'zod'
 import type { EtsyFeeReconciliationStatus } from '@prisma/client'
 import { prisma } from '../../lib/prisma'
 import { allocateStockForRequirement, allocateStockForVariantRequirement, type AllocationLine } from '../../lib/sales/allocation'
 import { calculateEtsyFees, calculatePackagingOverhead } from '../../lib/sales/fees'
-import { buildSalesWhereClause } from '../../lib/sales/filters'
+import { buildSalesWhereClause, NEEDS_VERIFICATION_STATUSES } from '../../lib/sales/filters'
 import { groupSalesByChannel, groupSalesByHamper } from '../../lib/sales/grouping'
 import { getSalesSummary } from '../../lib/sales/summary'
 import { buildPaginationMeta, toPrismaPagination } from '../../lib/pagination'
 import {
+  etsySaleResolutionApplyBodySchema,
+  etsySaleResolutionApplyResultSchema,
+  etsySaleResolutionPreviewBodySchema,
+  etsySaleResolutionPreviewSchema,
+  saleIdParamSchema,
   salesCreateBodySchema,
   salesListQuerySchema,
   salesPreviewBodySchema,
 } from '#contracts/routes/sales'
+import {
+  applyEtsySaleResolution,
+  createPrismaEtsySaleResolutionRepository,
+  EtsySaleResolutionConflictError,
+  EtsySaleResolutionNotFoundError,
+  EtsySaleResolutionValidationError,
+  previewEtsySaleResolution,
+} from '../../lib/sales/etsyResolutionService'
 
 const router = Router()
+const etsySaleResolutionRepository = createPrismaEtsySaleResolutionRepository(prisma)
+
+function sendEtsyResolutionError(res: Response, error: unknown, operation: string) {
+  if (error instanceof z.ZodError) {
+    return res.status(400).json({ error: 'Validation failed', details: error.errors })
+  }
+  if (error instanceof EtsySaleResolutionValidationError) {
+    return res.status(400).json({ error: error.message })
+  }
+  if (error instanceof EtsySaleResolutionNotFoundError) {
+    return res.status(404).json({ error: error.message })
+  }
+  if (error instanceof EtsySaleResolutionConflictError) {
+    return res.status(409).json({ error: error.message })
+  }
+  console.error(`Failed to ${operation} Etsy Sale resolution:`, error)
+  return res.status(500).json({ error: `Failed to ${operation} Etsy Sale resolution` })
+}
 
 const salesSortFields = {
   saleDate: 'saleDate',
@@ -467,9 +498,9 @@ router.get('/', async (req, res) => {
 // GET sales summary (like expenses summary)
 router.get('/summary', async (req, res) => {
   try {
-    const { startDate, endDate, search } = salesListQuerySchema.parse(req.query)
+    const { startDate, endDate, search, verificationStatus } = salesListQuerySchema.parse(req.query)
 
-    const where = buildSalesWhereClause({ startDate, endDate, search })
+    const where = buildSalesWhereClause({ startDate, endDate, search, verificationStatus })
     res.json(await getSalesSummary(where))
   } catch (error) {
     if (error instanceof z.ZodError) {
@@ -477,6 +508,36 @@ router.get('/summary', async (req, res) => {
     }
     console.error('Error fetching sales summary:', error)
     res.status(500).json({ error: 'Failed to fetch sales summary' })
+  }
+})
+
+// Preview a complete manual Etsy Sale resolution before applying it.
+router.post('/:id/etsy-resolution/preview', async (req, res) => {
+  try {
+    const saleId = saleIdParamSchema.parse(req.params.id)
+    const body = etsySaleResolutionPreviewBodySchema.parse(req.body)
+    const result = await previewEtsySaleResolution(
+      { saleId, resolution: body.resolution },
+      { db: etsySaleResolutionRepository },
+    )
+    return res.json(etsySaleResolutionPreviewSchema.parse(result))
+  } catch (error) {
+    return sendEtsyResolutionError(res, error, 'preview')
+  }
+})
+
+// Apply a previously previewed resolution using its fingerprint as a CAS guard.
+router.post('/:id/etsy-resolution/apply', async (req, res) => {
+  try {
+    const saleId = saleIdParamSchema.parse(req.params.id)
+    const body = etsySaleResolutionApplyBodySchema.parse(req.body)
+    const result = await applyEtsySaleResolution(
+      { saleId, resolution: body.resolution, fingerprint: body.fingerprint },
+      { db: etsySaleResolutionRepository },
+    )
+    return res.json(etsySaleResolutionApplyResultSchema.parse(result))
+  } catch (error) {
+    return sendEtsyResolutionError(res, error, 'apply')
   }
 })
 
@@ -530,7 +591,8 @@ router.get('/analytics/margins', async (req, res) => {
     })
 
     const unverifiedEtsySales = sales.filter(
-      (sale) => sale.saleChannel === 'etsy' && sale.etsyFeeReconciliationStatus !== 'STATEMENT_VERIFIED',
+      (sale) => sale.saleChannel === 'etsy'
+        && NEEDS_VERIFICATION_STATUSES.includes(sale.etsyFeeReconciliationStatus),
     ).length
 
     const totalRevenue = sales.reduce((sum, s) => sum + Number(s.grossRevenue), 0)

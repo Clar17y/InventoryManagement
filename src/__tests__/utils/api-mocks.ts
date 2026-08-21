@@ -18,8 +18,26 @@ import type { HampersListQuery, HampersListResponse } from '#contracts/routes/ha
 import type { Sale } from '../../lib/api/sales';
 import type { SalesListQuery, SalesListResponse } from '#contracts/routes/sales';
 import type { PaginatedResponse } from '#contracts/http/pagination';
+import type {
+  DashboardStats,
+  EtsyFeeConfig,
+  PackagingOverhead,
+  PackagingOverheadResponse,
+  PostageTier,
+  PostageTierMutationResponse,
+  SettingsAuditEntry,
+} from '../../lib/api/settings';
+import type { Supplier, SupplierMutationResponse, SupplierLowStockItem } from '../../lib/api/suppliers';
+import type {
+  PackagingOverheadCreateBody,
+  PackagingOverheadUpdateBody,
+  PostageTierCreateBody,
+  PostageTierUpdateBody,
+} from '#contracts/routes/settings';
+import type { SupplierCreateBody, SupplierUpdateBody } from '#contracts/routes/suppliers';
 
 type InventoryCategorySummary = { id: string; name: string; productCount: number; totalStock: number };
+type ArchivedListOptions = { includeArchived?: boolean };
 
 const emptyPaginatedResponse = <T>(): PaginatedResponse<T> => ({
   items: [],
@@ -115,13 +133,37 @@ export const mockExpenses = {
 
 // Settings mocks
 export const mockSettings = {
-  dashboardStats: vi.fn(),
-  getEtsyFees: vi.fn(),
+  dashboardStats: vi.fn<() => Promise<DashboardStats>>(),
+  getEtsyFees: vi.fn<() => Promise<EtsyFeeConfig[]>>(),
   createEtsyFees: vi.fn(),
-  getPackagingOverhead: vi.fn(),
-  createPackagingOverhead: vi.fn(),
-  updatePackagingOverhead: vi.fn(),
-  deletePackagingOverhead: vi.fn(),
+  getPackagingOverhead: vi.fn<(options?: ArchivedListOptions) => Promise<PackagingOverheadResponse>>(),
+  createPackagingOverhead: vi.fn<(data: PackagingOverheadCreateBody) => Promise<PackagingOverhead>>(),
+  updatePackagingOverhead: vi.fn<(
+    id: string,
+    data: PackagingOverheadUpdateBody,
+  ) => Promise<PackagingOverhead>>(),
+  deletePackagingOverhead: vi.fn<(id: string) => Promise<void>>(),
+  restorePackagingOverhead: vi.fn<(id: string) => Promise<PackagingOverhead>>(),
+  getPostageTiers: vi.fn<(options?: ArchivedListOptions) => Promise<PostageTier[]>>(),
+  createPostageTier: vi.fn<(data: PostageTierCreateBody) => Promise<PostageTierMutationResponse>>(),
+  updatePostageTier: vi.fn<(id: string, data: PostageTierUpdateBody) => Promise<PostageTier>>(),
+  deletePostageTier: vi.fn<(id: string) => Promise<void>>(),
+  restorePostageTier: vi.fn<(id: string) => Promise<PostageTier>>(),
+  getAuditHistory: vi.fn<() => Promise<SettingsAuditEntry[]>>(),
+};
+
+// Supplier mocks
+export const mockSuppliers = {
+  list: vi.fn<(options?: ArchivedListOptions) => Promise<Supplier[]>>(),
+  create: vi.fn<(data: SupplierCreateBody) => Promise<SupplierMutationResponse>>(),
+  update: vi.fn<(id: string, data: SupplierUpdateBody) => Promise<Supplier>>(),
+  delete: vi.fn<(id: string) => Promise<void>>(),
+  restore: vi.fn<(id: string) => Promise<Supplier>>(),
+  lowStock: vi.fn<(supplierId: string) => Promise<SupplierLowStockItem[]>>(),
+  getProductSuppliers: vi.fn<(productId: string) => Promise<string[]>>(),
+  setProductSuppliers: vi.fn<(productId: string, supplierIds: string[]) => Promise<string[]>>(),
+  getSupplierProducts: vi.fn<(supplierId: string) => Promise<string[]>>(),
+  setSupplierProducts: vi.fn<(supplierId: string, productIds: string[]) => Promise<string[]>>(),
 };
 
 // Etsy mocks
@@ -151,5 +193,6 @@ export const resetAllMocks = () => {
   Object.values(mockExpenses).forEach((fn) => fn.mockReset());
   mockExpenses.list.mockResolvedValue(emptyExpensesListResponse);
   Object.values(mockSettings).forEach((fn) => fn.mockReset());
+  Object.values(mockSuppliers).forEach((fn) => fn.mockReset());
   Object.values(mockEtsy).forEach((fn) => fn.mockReset());
 };

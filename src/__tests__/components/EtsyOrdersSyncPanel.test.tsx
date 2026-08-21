@@ -81,6 +81,7 @@ describe('EtsyOrdersSyncPanel', () => {
         PENDING: 0,
         PAYMENT_SYNCED: 0,
         STATEMENT_VERIFIED: 0,
+        MANUALLY_VERIFIED: 0,
         MANUAL_REVIEW: 0,
       },
     })

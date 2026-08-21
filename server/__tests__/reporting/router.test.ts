@@ -23,6 +23,7 @@ vi.mock('../../lib/prisma', () => ({
 import { prisma } from '../../lib/prisma'
 import analyticsRouter from '../../features/analytics/router'
 import salesRouter from '../../features/sales/router'
+import { buildSalesWhereClause } from '../../lib/sales/filters'
 
 const mockPrisma = prisma as unknown as {
   sale: {
@@ -68,6 +69,74 @@ beforeEach(() => {
 })
 
 describe('sales and analytics reporting routers', () => {
+  it('builds exact and combined verification status predicates', () => {
+    expect(buildSalesWhereClause({ verificationStatus: 'PENDING' })).toMatchObject({
+      etsyFeeReconciliationStatus: 'PENDING',
+    })
+    expect(buildSalesWhereClause({ verificationStatus: 'needs_verification' })).toMatchObject({
+      etsyFeeReconciliationStatus: {
+        in: ['PENDING', 'PAYMENT_SYNCED', 'MANUAL_REVIEW'],
+      },
+    })
+  })
+
+  it('applies the same status, date, and search predicate to sales and summary routes', async () => {
+    mockPrisma.sale.findMany.mockResolvedValue([])
+    mockPrisma.sale.count.mockResolvedValue(0)
+    mockPrisma.sale.aggregate.mockResolvedValue({
+      _count: { _all: 0 },
+      _sum: {
+        grossRevenue: null,
+        postageCharged: null,
+        postageCost: null,
+        etsyFees: null,
+        totalCost: null,
+        margin: null,
+      },
+    })
+    mockPrisma.sale.groupBy.mockResolvedValue([])
+    mockPrisma.saleLine.groupBy.mockResolvedValue([])
+    mockPrisma.hamper.findMany.mockResolvedValue([])
+    const baseUrl = await startServer()
+    const query = 'startDate=2026-08-01&endDate=2026-08-03&search=gift&verificationStatus=needs_verification'
+
+    const listResponse = await fetch(`${baseUrl}/api/sales?${query}`)
+    expect(listResponse.status).toBe(200)
+    const listWhere = mockPrisma.sale.findMany.mock.calls[0][0].where
+    expect(listWhere).toMatchObject({
+      saleDate: {
+        gte: new Date('2026-07-31T23:00:00.000Z'),
+        lt: new Date('2026-08-03T23:00:00.000Z'),
+      },
+      etsyFeeReconciliationStatus: {
+        in: ['PENDING', 'PAYMENT_SYNCED', 'MANUAL_REVIEW'],
+      },
+    })
+    expect(listWhere.OR).toHaveLength(3)
+    expect(mockPrisma.sale.count.mock.calls[0][0].where).toEqual(listWhere)
+
+    const summaryResponse = await fetch(`${baseUrl}/api/sales/summary?${query}`)
+    expect(summaryResponse.status).toBe(200)
+    const summaryWhere = mockPrisma.sale.aggregate.mock.calls[0][0].where
+    expect(summaryWhere).toEqual(listWhere)
+    expect(mockPrisma.sale.count.mock.calls[1][0].where).toEqual({
+      AND: [
+        summaryWhere,
+        { saleChannel: 'etsy' },
+        { etsyFeeReconciliationStatus: { in: ['PENDING', 'PAYMENT_SYNCED', 'MANUAL_REVIEW'] } },
+      ],
+    })
+  })
+
+  it('rejects invalid verification status queries with HTTP 400', async () => {
+    const baseUrl = await startServer()
+
+    for (const path of ['/api/sales?verificationStatus=invalid', '/api/sales/summary?verificationStatus=invalid']) {
+      const response = await fetch(`${baseUrl}${path}`)
+      expect(response.status).toBe(400)
+    }
+  })
+
   it('counts unverified Etsy sales with the summary period/search filters', async () => {
     mockPrisma.sale.aggregate.mockResolvedValue({
       _count: { _all: 0 },
@@ -109,7 +178,7 @@ describe('sales and analytics reporting routers', () => {
         AND: [
           expectedWhere,
           { saleChannel: 'etsy' },
-          { etsyFeeReconciliationStatus: { notIn: ['STATEMENT_VERIFIED', 'NOT_APPLICABLE'] } },
+          { etsyFeeReconciliationStatus: { in: ['PENDING', 'PAYMENT_SYNCED', 'MANUAL_REVIEW'] } },
         ],
       },
     })
@@ -127,6 +196,37 @@ describe('sales and analytics reporting routers', () => {
     expect(mockPrisma.sale.groupBy).not.toHaveBeenCalled()
     expect(mockPrisma.saleLine.groupBy).not.toHaveBeenCalled()
     expect(mockPrisma.hamper.findMany).not.toHaveBeenCalled()
+  })
+
+  it('counts only unresolved Etsy statuses in sales margin analytics', async () => {
+    const sale = (status: string, saleChannel = 'etsy') => ({
+      saleChannel,
+      etsyFeeReconciliationStatus: status,
+      grossRevenue: 10,
+      etsyFees: 1,
+      packagingOverhead: 0,
+      postageCharged: 0,
+      postageCost: 0,
+      totalCost: 2,
+      margin: 7,
+      lines: [],
+    })
+    mockPrisma.sale.findMany.mockResolvedValue([
+      sale('PENDING'),
+      sale('PAYMENT_SYNCED'),
+      sale('MANUAL_REVIEW'),
+      sale('STATEMENT_VERIFIED'),
+      sale('MANUALLY_VERIFIED'),
+      sale('NOT_APPLICABLE'),
+      sale('NOT_APPLICABLE', 'direct'),
+    ])
+    const baseUrl = await startServer()
+
+    const response = await fetch(`${baseUrl}/api/sales/analytics/margins?days=30`)
+    const body = await response.json() as { summary: { unverifiedEtsySales: number } }
+
+    expect(response.status).toBe(200)
+    expect(body.summary.unverifiedEtsySales).toBe(3)
   })
 
   it('maps Decimal and null Offsite Ads sums without changing existing profit totals', async () => {

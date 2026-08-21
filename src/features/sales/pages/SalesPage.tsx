@@ -1,4 +1,5 @@
-import { useState, useEffect } from 'react'
+import { useCallback, useState, useEffect, useRef } from 'react'
+import { needsVerification } from '#contracts/domain/etsyFees'
 import { useDateSearchFilter } from '../../../components/filters/DateSearchFilter'
 import { usePaginationSearchParams } from '../../../hooks/usePaginationSearchParams'
 import { usePaginatedList } from '../../../hooks/usePaginatedList'
@@ -6,20 +7,66 @@ import {
   sales,
   inventory,
   settings,
+  Sale,
+  type EtsySaleResolutionApplyResult,
   SalePreview,
   Hamper,
   CategoryLot,
   SaleChannel,
   type SalesSort,
   type SortDirection,
+  type SalesVerificationFilter,
   type PostageTier,
 } from '../../../lib/api'
 import SalesListView from '../components/SalesListView'
 import SalesRecordView from '../components/SalesRecordView'
+import EtsySaleResolutionModal from '../components/EtsySaleResolutionModal'
 import { getOverrideKey } from '../utils'
 import type { LotOverride, SaleLineInput } from '../types'
 
 type ViewMode = 'list' | 'record'
+
+
+function saleMatchesFilters(
+  sale: Sale,
+  filters: {
+    startDate: string
+    endDate: string
+    search: string
+    verificationStatus: SalesVerificationFilter | ''
+  },
+) {
+  if (filters.startDate) {
+    const start = new Date(`${filters.startDate}T00:00:00`).getTime()
+    if (new Date(sale.saleDate).getTime() < start) return false
+  }
+  if (filters.endDate) {
+    const end = new Date(`${filters.endDate}T23:59:59.999`).getTime()
+    if (new Date(sale.saleDate).getTime() > end) return false
+  }
+
+  if (filters.search.trim()) {
+    const searchTerm = filters.search.trim().toLowerCase()
+    const searchableText = [
+      sale.notes,
+      sale.etsyOrderId,
+      ...sale.lines.flatMap((line) => [line.description, line.hamper?.name]),
+    ]
+      .filter((value): value is string => typeof value === 'string')
+      .join(' ')
+      .toLowerCase()
+    if (!searchableText.includes(searchTerm)) return false
+  }
+
+  if (filters.verificationStatus) {
+    const statusMatches = filters.verificationStatus === 'needs_verification'
+      ? needsVerification(sale.etsyFeeReconciliationStatus)
+      : sale.etsyFeeReconciliationStatus === filters.verificationStatus
+    if (!statusMatches) return false
+  }
+
+  return true
+}
 
 export default function Sales() {
   const [hamperList, setHamperList] = useState<Hamper[]>([])
@@ -27,6 +74,8 @@ export default function Sales() {
   const [viewMode, setViewMode] = useState<ViewMode>('list')
   const [expandedId, setExpandedId] = useState<string | null>(null)
   const [showEtsyOrdersPanel, setShowEtsyOrdersPanel] = useState(false)
+  const [resolutionSale, setResolutionSale] = useState<Sale | null>(null)
+  const feeSummaryRefresh = useRef<(() => Promise<void>) | null>(null)
 
   // Summary and filter state
   const [showSummary, setShowSummary] = useState(false)
@@ -43,6 +92,7 @@ export default function Sales() {
     setEndDate: updateEndDate,
     setSearchQuery: updateSearchQuery,
   } = useDateSearchFilter()
+  const [verificationStatus, setVerificationStatus] = useState<SalesVerificationFilter | ''>('')
 
   const { page, pageSize, setPage, setPageSize, resetPage } = usePaginationSearchParams()
 
@@ -52,6 +102,7 @@ export default function Sales() {
     startDate: startDate || undefined,
     endDate: endDate || undefined,
     search: debouncedSearchQuery || undefined,
+    verificationStatus: verificationStatus || undefined,
     sort,
     direction,
   }
@@ -60,11 +111,12 @@ export default function Sales() {
     load: (signal) => sales.list(listParams, { signal }),
   })
   const summaryState = usePaginatedList({
-    queryKey: JSON.stringify({ startDate, endDate, search: debouncedSearchQuery }),
+    queryKey: JSON.stringify({ startDate, endDate, search: debouncedSearchQuery, verificationStatus }),
     load: (signal) => sales.summary({
       startDate: startDate || undefined,
       endDate: endDate || undefined,
       search: debouncedSearchQuery || undefined,
+      verificationStatus: verificationStatus || undefined,
     }, { signal }),
   })
 
@@ -103,7 +155,6 @@ export default function Sales() {
     listState.retry()
     summaryState.retry()
   }
-
   // Load postage tiers on mount and set default cost
   useEffect(() => {
     settings.getPostageTiers().then((tiers) => {
@@ -149,6 +200,11 @@ export default function Sales() {
   const setSalesDirection = (value: SortDirection) => {
     resetPage()
     setDirection(value)
+  }
+
+  const setSalesVerificationStatus = (value: SalesVerificationFilter | '') => {
+    resetPage()
+    setVerificationStatus(value)
   }
 
   // Load preview when lines change
@@ -376,6 +432,35 @@ export default function Sales() {
     setExpandedId(expandedId === id ? null : id)
   }
 
+  const registerFeeSummaryRefresh = useCallback((refresh: (() => Promise<void>) | null) => {
+    feeSummaryRefresh.current = refresh
+  }, [])
+
+  const handleResolutionResolved = async (result: EtsySaleResolutionApplyResult) => {
+    const affectedSaleIds = [...new Set(result.rows.map((row) => row.saleId))]
+    const targetSaleId = resolutionSale?.id
+    let refreshedSales: Sale[] = []
+    try {
+      refreshedSales = await Promise.all(affectedSaleIds.map((saleId) => sales.get(saleId)))
+      await feeSummaryRefresh.current?.()
+    } catch (refreshError) {
+      setError(refreshError instanceof Error
+        ? `Resolution applied, but Sale details could not be refreshed: ${refreshError.message}`
+        : 'Resolution applied, but Sale details could not be refreshed')
+    }
+
+    const refreshedTarget = refreshedSales.find((sale) => sale.id === targetSaleId)
+    if (refreshedTarget && !saleMatchesFilters(refreshedTarget, {
+      startDate,
+      endDate,
+      search: debouncedSearchQuery,
+      verificationStatus,
+    })) {
+      setExpandedId(null)
+    }
+    loadData()
+  }
+
   if (listState.isInitialLoading) {
     return <div className="text-center py-8 text-gray-500">Loading...</div>
   }
@@ -424,6 +509,7 @@ export default function Sales() {
   }
 
   return (
+    <>
     <SalesListView
       saleList={saleList}
       pagination={pagination}
@@ -445,12 +531,24 @@ export default function Sales() {
       direction={direction}
       setSort={setSalesSort}
       setDirection={setSalesDirection}
+      verificationStatus={verificationStatus}
+      setVerificationStatus={setSalesVerificationStatus}
       expandedId={expandedId}
       handleExpand={handleExpand}
       setViewMode={setViewMode}
+      onResolveSale={setResolutionSale}
+      registerFeeSummaryRefresh={registerFeeSummaryRefresh}
       loadData={loadData}
       onPageChange={setPage}
       onPageSizeChange={setPageSize}
     />
+    {resolutionSale && (
+      <EtsySaleResolutionModal
+        sale={resolutionSale}
+        onClose={() => setResolutionSale(null)}
+        onResolved={handleResolutionResolved}
+      />
+    )}
+    </>
   )
 }

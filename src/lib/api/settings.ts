@@ -1,12 +1,15 @@
 import { request, requestWithSchema } from './request'
+import { withArchived } from './query'
 import {
   dashboardStatsResponseSchema,
   etsyFeeConfigResponseSchema,
   etsyFeeConfigsResponseSchema,
   packagingOverheadItemResponseSchema,
   packagingOverheadResponseSchema,
+  postageTierMutationResponseSchema,
   postageTierResponseSchema,
   postageTiersResponseSchema,
+  settingsAuditEntriesResponseSchema,
   type DashboardStatsResponse,
   type EtsyFeeConfigResponse,
   type EtsyFeeCreateBody,
@@ -15,9 +18,11 @@ import {
   type PackagingOverheadResponse as ContractPackagingOverheadResponse,
   type PackagingOverheadUpdateBody,
   type PostageTierCreateBody,
+  type PostageTierMutationResponse,
   type PostageTierResponse,
   type PostageTierUpdateBody,
 } from '#contracts/routes/settings'
+import type { SettingsAuditEntry } from '#contracts/domain/settings'
 
 // Dashboard
 export type DashboardStats = DashboardStatsResponse
@@ -43,8 +48,11 @@ export const settings = {
       body: JSON.stringify(data),
     }),
   // Packaging Overhead
-  getPackagingOverhead: () =>
-    requestWithSchema('/settings/packaging-overhead', packagingOverheadResponseSchema),
+  getPackagingOverhead: (options?: { includeArchived?: boolean }) =>
+    requestWithSchema(
+      withArchived('/settings/packaging-overhead', options),
+      packagingOverheadResponseSchema,
+    ),
   createPackagingOverhead: (data: PackagingOverheadCreateBody) =>
     requestWithSchema('/settings/packaging-overhead', packagingOverheadItemResponseSchema, {
       method: 'POST',
@@ -57,11 +65,15 @@ export const settings = {
     }),
   deletePackagingOverhead: (id: string) =>
     request<void>(`/settings/packaging-overhead/${id}`, { method: 'DELETE' }),
+  restorePackagingOverhead: (id: string) =>
+    requestWithSchema(`/settings/packaging-overhead/${id}/restore`, packagingOverheadItemResponseSchema, {
+      method: 'POST',
+    }),
   // Postage Tiers
-  getPostageTiers: () =>
-    requestWithSchema('/settings/postage-tiers', postageTiersResponseSchema),
+  getPostageTiers: (options?: { includeArchived?: boolean }) =>
+    requestWithSchema(withArchived('/settings/postage-tiers', options), postageTiersResponseSchema),
   createPostageTier: (data: PostageTierCreateBody) =>
-    requestWithSchema('/settings/postage-tiers', postageTierResponseSchema, {
+    requestWithSchema('/settings/postage-tiers', postageTierMutationResponseSchema, {
       method: 'POST',
       body: JSON.stringify(data),
     }),
@@ -72,4 +84,12 @@ export const settings = {
     }),
   deletePostageTier: (id: string) =>
     request<void>(`/settings/postage-tiers/${id}`, { method: 'DELETE' }),
+  restorePostageTier: (id: string) =>
+    requestWithSchema(`/settings/postage-tiers/${id}/restore`, postageTierResponseSchema, {
+      method: 'POST',
+    }),
+  getAuditHistory: () =>
+    requestWithSchema('/settings/audit', settingsAuditEntriesResponseSchema),
 }
+
+export type { PostageTierMutationResponse, SettingsAuditEntry }

@@ -1,6 +1,11 @@
 import { z } from 'zod'
 import { cuidSchema } from '../http/primitives'
 import {
+  paginatedResponseSchema,
+  paginationQuerySchema,
+  queryBooleanSchema,
+} from '../http/pagination'
+import {
   categoryRefSchema,
   hamperBaseSchema,
   hamperListItemSchema,
@@ -12,7 +17,26 @@ export const hamperIdParamSchema = cuidSchema
 
 export const hamperResponseSchema = hamperBaseSchema
 
-export const hampersListResponseSchema = z.array(hamperListItemSchema)
+export const hamperSortSchema = z.enum([
+  'canmake-desc',
+  'canmake-asc',
+  'name-asc',
+  'name-desc',
+  'price-asc',
+  'price-desc',
+  'reqs-asc',
+  'reqs-desc',
+  'date-desc',
+  'date-asc',
+])
+
+export const hampersListQuerySchema = paginationQuerySchema.extend({
+  search: z.string().trim().max(200).optional(),
+  hideEtsyHidden: queryBooleanSchema.default(true),
+  sort: hamperSortSchema.default('canmake-desc'),
+})
+
+export const hampersListResponseSchema = paginatedResponseSchema(hamperListItemSchema)
 
 export const hamperRequirementDetailSchema = z.object({
   id: cuidSchema,
@@ -129,7 +153,9 @@ export const hamperVariantsListResponseSchema = z.array(hamperVariantSchema)
 
 export type HamperIdParam = z.infer<typeof hamperIdParamSchema>
 export type HamperResponse = z.infer<typeof hamperResponseSchema>
+export type HampersListQuery = z.input<typeof hampersListQuerySchema>
 export type HampersListResponse = z.infer<typeof hampersListResponseSchema>
+export type HamperSort = z.infer<typeof hamperSortSchema>
 export type HamperDetailResponse = z.infer<typeof hamperDetailResponseSchema>
 export type HampersCreateBody = z.input<typeof hampersCreateBodySchema>
 export type HampersUpdateBody = z.input<typeof hampersUpdateBodySchema>

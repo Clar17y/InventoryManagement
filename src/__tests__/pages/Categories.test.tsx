@@ -16,6 +16,7 @@ vi.mock('../../lib/api', () => ({
   },
   products: {
     list: vi.fn(),
+    listAll: vi.fn(),
   },
 }));
 
@@ -26,6 +27,7 @@ const mockList = vi.mocked(categories.list);
 const mockCreate = vi.mocked(categories.create);
 const mockDelete = vi.mocked(categories.delete);
 const mockProductsList = vi.mocked(products.list);
+const mockProductsListAll = vi.mocked(products.listAll);
 
 describe('Categories', () => {
   const sampleCategories = [
@@ -65,7 +67,14 @@ describe('Categories', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockList.mockResolvedValue(sampleCategories);
-    mockProductsList.mockResolvedValue(sampleProducts as any);
+    mockProductsList.mockResolvedValue({
+      items: sampleProducts,
+      pagination: { page: 1, pageSize: 25, totalItems: sampleProducts.length, totalPages: 1 },
+    } as any);
+    mockProductsListAll.mockResolvedValue({
+      items: sampleProducts,
+      pagination: { page: 1, pageSize: 25, totalItems: sampleProducts.length, totalPages: 1 },
+    } as any);
   });
 
   describe('loading state', () => {
@@ -119,6 +128,34 @@ describe('Categories', () => {
       await waitFor(() => {
         expect(screen.getByText('No categories yet')).toBeInTheDocument();
       });
+    });
+
+    it('loads and paginates only the expanded category', async () => {
+      const user = userEvent.setup();
+      mockProductsList.mockResolvedValue({
+        items: sampleProducts.slice(0, 5),
+        pagination: { page: 1, pageSize: 25, totalItems: 30, totalPages: 2 },
+      } as any);
+
+      render(<Categories />);
+
+      await waitFor(() => expect(screen.getByText('Chocolates')).toBeInTheDocument());
+      expect(mockProductsList).not.toHaveBeenCalled();
+      expect(mockProductsListAll).not.toHaveBeenCalled();
+
+      await user.click(screen.getByText('Chocolates'));
+
+      await waitFor(() => expect(mockProductsList).toHaveBeenCalledWith(
+        { categoryId: 'cat-1', page: 1, pageSize: 25, search: undefined },
+        { signal: expect.any(AbortSignal) },
+      ));
+      expect(screen.getByRole('navigation', { name: 'Pagination' })).toBeInTheDocument();
+
+      await user.click(screen.getByRole('button', { name: 'Next page' }));
+      await waitFor(() => expect(mockProductsList).toHaveBeenLastCalledWith(
+        { categoryId: 'cat-1', page: 2, pageSize: 25, search: undefined },
+        { signal: expect.any(AbortSignal) },
+      ));
     });
   });
 

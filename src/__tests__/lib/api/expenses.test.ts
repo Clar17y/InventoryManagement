@@ -38,7 +38,10 @@ describe('expenses API', () => {
 
   describe('list', () => {
     it('calls request with empty params', async () => {
-      mockRequestWithSchema.mockResolvedValue({ expenses: [sampleExpense], total: 1, limit: 20, offset: 0 });
+      mockRequestWithSchema.mockResolvedValue({
+        items: [sampleExpense],
+        pagination: { page: 1, pageSize: 25, totalItems: 1, totalPages: 1 },
+      });
 
       await expenses.list();
 
@@ -46,31 +49,55 @@ describe('expenses API', () => {
     });
 
     it('calls request with all filter params', async () => {
-      mockRequestWithSchema.mockResolvedValue({ expenses: [], total: 0, limit: 10, offset: 5 });
+      mockRequestWithSchema.mockResolvedValue({
+        items: [],
+        pagination: { page: 2, pageSize: 50, totalItems: 0, totalPages: 0 },
+      });
 
       await expenses.list({
+        page: 2,
+        pageSize: 50,
         category: 'STOCK',
-        startDate: '2024-01-01',
-        endDate: '2024-01-31',
+        startDate: '2024-01-01T00:00:00.000Z',
+        endDate: '2024-01-31T23:59:59.999Z',
         search: 'chocolate',
-        limit: 10,
-        offset: 5,
+        sort: 'amountIncVat',
+        direction: 'asc',
       });
 
       expect(mockRequestWithSchema).toHaveBeenCalledWith(
-        '/expenses?category=STOCK&startDate=2024-01-01&endDate=2024-01-31&search=chocolate&limit=10&offset=5',
+        '/expenses?page=2&pageSize=50&category=STOCK&startDate=2024-01-01T00%3A00%3A00.000Z&endDate=2024-01-31T23%3A59%3A59.999Z&search=chocolate&sort=amountIncVat&direction=asc',
         expensesListResponseSchema
       );
     });
 
     it('builds query string with partial params', async () => {
-      mockRequestWithSchema.mockResolvedValue({ expenses: [], total: 0, limit: 20, offset: 0 });
+      mockRequestWithSchema.mockResolvedValue({
+        items: [],
+        pagination: { page: 1, pageSize: 25, totalItems: 0, totalPages: 0 },
+      });
 
       await expenses.list({ category: 'ADVERTISING' });
 
       expect(mockRequestWithSchema).toHaveBeenCalledWith(
         '/expenses?category=ADVERTISING',
         expensesListResponseSchema
+      );
+    });
+
+    it('forwards an abort signal to the list request', async () => {
+      mockRequestWithSchema.mockResolvedValue({
+        items: [],
+        pagination: { page: 1, pageSize: 25, totalItems: 0, totalPages: 0 },
+      });
+      const signal = new AbortController().signal;
+
+      await expenses.list({ page: 2, pageSize: 25 }, { signal });
+
+      expect(mockRequestWithSchema).toHaveBeenCalledWith(
+        '/expenses?page=2&pageSize=25',
+        expensesListResponseSchema,
+        { signal },
       );
     });
   });
@@ -117,6 +144,19 @@ describe('expenses API', () => {
       expect(mockRequestWithSchema).toHaveBeenCalledWith(
         '/expenses/summary?startDate=2024-01-01&endDate=2024-01-31&search=wholesale',
         expensesSummaryResponseSchema
+      );
+    });
+
+    it('forwards an abort signal to the summary request', async () => {
+      mockRequestWithSchema.mockResolvedValue(sampleSummary);
+      const signal = new AbortController().signal;
+
+      await expenses.summary({ search: 'wholesale' }, { signal });
+
+      expect(mockRequestWithSchema).toHaveBeenCalledWith(
+        '/expenses/summary?search=wholesale',
+        expensesSummaryResponseSchema,
+        { signal },
       );
     });
   });

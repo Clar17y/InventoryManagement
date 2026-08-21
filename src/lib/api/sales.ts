@@ -15,9 +15,12 @@ import {
   type SalePreviewResponse,
   type SaleResponse,
   type SalesCreateBody,
+  type SalesListQuery,
+  type SalesSort as ContractSalesSort,
   type SalesMarginAnalyticsResponse,
   type SalesPreviewBody,
   type SalesSummaryResponse,
+  type SortDirection as ContractSortDirection,
 } from '#contracts/routes/sales'
 import type { SalesVerificationFilter as ContractSalesVerificationFilter } from '#contracts/routes/sales'
 
@@ -39,28 +42,23 @@ export type SaleCreateData = SalesCreateBody
 
 export type MarginAnalytics = SalesMarginAnalyticsResponse
 export type SalesSummary = SalesSummaryResponse
+export type SalesSort = ContractSalesSort
+export type SortDirection = ContractSortDirection
 export type EtsySaleResolutionPreview = ContractEtsySaleResolutionPreview
 export type EtsySaleResolutionApplyResult = ContractEtsySaleResolutionApplyResult
 export type EtsySaleResolutionPreviewBody = ContractEtsySaleResolutionPreviewBody
 export type EtsySaleResolutionApplyBody = ContractEtsySaleResolutionApplyBody
 
 export const sales = {
-  list: (params?: {
-    limit?: number
-    offset?: number
-    startDate?: string
-    endDate?: string
-    search?: string
-    verificationStatus?: SalesVerificationFilter
-  }) => {
+  list: (params: SalesListQuery = {}, options?: Pick<RequestInit, 'signal'>) => {
     const query = new URLSearchParams()
-    if (params?.limit) query.set('limit', String(params.limit))
-    if (params?.offset) query.set('offset', String(params.offset))
-    if (params?.startDate) query.set('startDate', params.startDate)
-    if (params?.endDate) query.set('endDate', params.endDate)
-    if (params?.search) query.set('search', params.search)
-    if (params?.verificationStatus) query.set('verificationStatus', params.verificationStatus)
-    return requestWithSchema(`/sales?${query.toString()}`, salesListResponseSchema)
+    for (const [key, value] of Object.entries(params)) {
+      if (value !== undefined && value !== '') query.set(key, String(value))
+    }
+    const path = `/sales?${query.toString()}`
+    return options
+      ? requestWithSchema(path, salesListResponseSchema, options)
+      : requestWithSchema(path, salesListResponseSchema)
   },
   get: (id: string) => requestWithSchema(`/sales/${id}`, saleResponseSchema),
   previewEtsyResolution: (saleId: string, body: EtsySaleResolutionPreviewBody) =>
@@ -83,18 +81,24 @@ export const sales = {
       method: 'POST',
       body: JSON.stringify(data),
     }),
-  summary: (params?: {
-    startDate?: string
-    endDate?: string
-    search?: string
-    verificationStatus?: SalesVerificationFilter
-  }) => {
+  summary: (
+    params?: {
+      startDate?: string
+      endDate?: string
+      search?: string
+      verificationStatus?: SalesVerificationFilter
+    },
+    options?: Pick<RequestInit, 'signal'>,
+  ) => {
     const query = new URLSearchParams()
     if (params?.startDate) query.set('startDate', params.startDate)
     if (params?.endDate) query.set('endDate', params.endDate)
     if (params?.search) query.set('search', params.search)
     if (params?.verificationStatus) query.set('verificationStatus', params.verificationStatus)
-    return requestWithSchema(`/sales/summary?${query.toString()}`, salesSummaryResponseSchema)
+    const path = `/sales/summary?${query.toString()}`
+    return options
+      ? requestWithSchema(path, salesSummaryResponseSchema, options)
+      : requestWithSchema(path, salesSummaryResponseSchema)
   },
   analytics: (days = 30) =>
     requestWithSchema(`/sales/analytics/margins?days=${days}`, salesMarginAnalyticsResponseSchema),

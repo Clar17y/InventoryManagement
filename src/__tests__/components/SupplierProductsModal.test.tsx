@@ -10,13 +10,20 @@ const mockProducts = [
   { id: 'p3', name: 'Hand Cream', category: { name: 'Skincare' }, categoryId: 'c2' },
 ];
 
-const mockListProducts = vi.fn().mockResolvedValue(mockProducts);
+const productListResponse = () => ({
+  items: mockProducts,
+  pagination: { page: 1, pageSize: 25 as const, totalItems: mockProducts.length, totalPages: 1 },
+});
+
+const mockListProducts = vi.fn().mockResolvedValue(productListResponse());
+const mockListAllProducts = vi.fn().mockResolvedValue(productListResponse());
 const mockGetSupplierProducts = vi.fn().mockResolvedValue(['p1']);
 const mockSetSupplierProducts = vi.fn().mockResolvedValue(['p1', 'p3']);
 
 vi.mock('../../lib/api', () => ({
   products: {
     list: (...args: unknown[]) => mockListProducts(...args),
+    listAll: (...args: unknown[]) => mockListAllProducts(...args),
   },
   suppliers: {
     getSupplierProducts: (...args: unknown[]) => mockGetSupplierProducts(...args),
@@ -36,7 +43,17 @@ const onClose = vi.fn();
 
 beforeEach(() => {
   vi.clearAllMocks();
-  mockListProducts.mockResolvedValue(mockProducts);
+  mockListProducts.mockImplementation(async (params: any) => {
+    const query = params?.search?.toLowerCase();
+    const items = query
+      ? mockProducts.filter((product) => product.name.toLowerCase().includes(query))
+      : mockProducts;
+    return {
+      items,
+      pagination: { page: params?.page ?? 1, pageSize: 25 as const, totalItems: items.length, totalPages: 1 },
+    };
+  });
+  mockListAllProducts.mockResolvedValue(productListResponse());
   mockGetSupplierProducts.mockResolvedValue(['p1']);
   mockSetSupplierProducts.mockResolvedValue(['p1', 'p3']);
 });
@@ -65,6 +82,44 @@ describe('SupplierProductsModal', () => {
     expect(screen.getByText('Vanilla Candle')).toBeInTheDocument();
     expect(screen.getByText('Rose Candle')).toBeInTheDocument();
     expect(screen.getByText('Hand Cream')).toBeInTheDocument();
+  });
+
+  it('retains selected IDs across pages and saves their union', async () => {
+    mockListProducts.mockImplementation(async (params: any) => ({
+      items: params?.page === 2 ? [mockProducts[2]] : mockProducts.slice(0, 2),
+      pagination: { page: params?.page ?? 1, pageSize: 25, totalItems: 3, totalPages: 2 },
+    }));
+    const user = userEvent.setup();
+
+    render(<SupplierProductsModal supplier={supplier} onClose={onClose} />);
+
+    await user.click(await screen.findByText('Rose Candle'));
+    await user.click(screen.getByRole('button', { name: 'Next page' }));
+    await user.click(await screen.findByText('Hand Cream'));
+    await user.click(screen.getByText('Save'));
+
+    await waitFor(() => expect(mockSetSupplierProducts).toHaveBeenCalledWith(
+      's1',
+      expect.arrayContaining(['p1', 'p2', 'p3']),
+    ));
+    expect(mockSetSupplierProducts.mock.calls[0]?.[1]).toHaveLength(3);
+    expect(mockListAllProducts).not.toHaveBeenCalled();
+  });
+
+  it('sends search to the paginated product endpoint', async () => {
+    const user = userEvent.setup();
+    mockListProducts.mockResolvedValue({
+      items: [mockProducts[2]],
+      pagination: { page: 1, pageSize: 25, totalItems: 1, totalPages: 1 },
+    });
+
+    render(<SupplierProductsModal supplier={supplier} onClose={onClose} />);
+    await user.type(screen.getByPlaceholderText('Search products...'), 'Hand');
+
+    await waitFor(() => expect(mockListProducts).toHaveBeenLastCalledWith(
+      { categoryId: undefined, page: 1, pageSize: 25, search: 'Hand' },
+      { signal: expect.any(AbortSignal) },
+    ));
   });
 
   it('pre-selects products already linked to supplier', async () => {

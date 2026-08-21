@@ -6,6 +6,7 @@ import {
   isPlausibleEtsyReceiptId,
 } from '../domain/etsyFees'
 import { saleChannelSchema, saleSchema } from '../domain/sale'
+import { paginatedResponseSchema, paginationQuerySchema } from '../http/pagination'
 
 export const saleIdParamSchema = cuidSchema
 
@@ -196,10 +197,25 @@ export const salesCreateBodySchema = z.object({
 
 export const saleResponseSchema = saleSchema
 
-export const salesListResponseSchema = z.object({
-  sales: z.array(saleSchema),
-  total: z.number().int().nonnegative(),
+const salesDateOnlySchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine((value) => {
+  const [year, month, day] = value.split('-').map(Number) as [number, number, number]
+  const date = new Date(Date.UTC(year, month - 1, day))
+  return date.getUTCFullYear() === year
+    && date.getUTCMonth() === month - 1
+    && date.getUTCDate() === day
+}, 'Invalid calendar date')
+
+export const salesSortSchema = z.enum(['saleDate', 'grossRevenue', 'margin'])
+export const sortDirectionSchema = z.enum(['asc', 'desc'])
+export const salesListQuerySchema = paginationQuerySchema.extend({
+  startDate: salesDateOnlySchema.optional(),
+  endDate: salesDateOnlySchema.optional(),
+  search: z.string().trim().max(200).optional(),
+  verificationStatus: salesVerificationFilterSchema.optional(),
+  sort: salesSortSchema.default('saleDate'),
+  direction: sortDirectionSchema.default('desc'),
 })
+export const salesListResponseSchema = paginatedResponseSchema(saleSchema)
 
 export const salesSummaryResponseSchema = z.object({
   unverifiedEtsySales: z.number().int().nonnegative(),
@@ -271,6 +287,9 @@ export type SalesPreviewBody = z.input<typeof salesPreviewBodySchema>
 export type SalePreviewResponse = z.infer<typeof salePreviewResponseSchema>
 export type SalesCreateBody = z.input<typeof salesCreateBodySchema>
 export type SaleResponse = z.infer<typeof saleResponseSchema>
+export type SalesListQuery = z.input<typeof salesListQuerySchema>
 export type SalesListResponse = z.infer<typeof salesListResponseSchema>
+export type SalesSort = z.infer<typeof salesSortSchema>
+export type SortDirection = z.infer<typeof sortDirectionSchema>
 export type SalesSummaryResponse = z.infer<typeof salesSummaryResponseSchema>
 export type SalesMarginAnalyticsResponse = z.infer<typeof salesMarginAnalyticsResponseSchema>

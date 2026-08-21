@@ -2,6 +2,8 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { screen, renderHook, act, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { render } from '../utils/test-utils';
+import { useEffect, useState } from 'react';
+import { useDebounce } from '../../hooks/useDebounce';
 import DateSearchFilter, { useDateSearchFilter } from '../../components/filters/DateSearchFilter';
 
 describe('DateSearchFilter', () => {
@@ -161,6 +163,66 @@ describe('DateSearchFilter', () => {
 
       expect(mockOnStartDateChange).toHaveBeenCalledWith('');
       expect(mockOnEndDateChange).toHaveBeenCalledWith('');
+    });
+
+    it('produces one debounced query transition per preset with both dates from prepopulated state', async () => {
+      vi.useFakeTimers();
+      const initialStartDate = '2025-12-01';
+      const initialEndDate = '2025-12-31';
+
+      function QueryKeyHarness() {
+        const [startDate, setStartDate] = useState(initialStartDate);
+        const [endDate, setEndDate] = useState(initialEndDate);
+        const debouncedStartDate = useDebounce(startDate, 400);
+        const debouncedEndDate = useDebounce(endDate, 400);
+        const [queryKeys, setQueryKeys] = useState<string[]>([]);
+
+        useEffect(() => {
+          setQueryKeys((keys) => [...keys, `${debouncedStartDate}|${debouncedEndDate}`]);
+        }, [debouncedStartDate, debouncedEndDate]);
+
+        return (
+          <>
+            <DateSearchFilter
+              {...defaultProps}
+              startDate={startDate}
+              endDate={endDate}
+              onStartDateChange={setStartDate}
+              onEndDateChange={setEndDate}
+            />
+            <output data-testid="query-keys">{queryKeys.join(',')}</output>
+          </>
+        );
+      }
+
+      try {
+        render(<QueryKeyHarness />);
+        const currentYear = new Date().getFullYear();
+        const presetTransitions = [
+          [`Q1 ${currentYear}`, `${currentYear}-01-01|${currentYear}-03-31`],
+          [`Q2 ${currentYear}`, `${currentYear}-04-01|${currentYear}-06-30`],
+          [`Q3 ${currentYear}`, `${currentYear}-07-01|${currentYear}-09-30`],
+          [`Q4 ${currentYear}`, `${currentYear}-10-01|${currentYear}-12-31`],
+          [String(currentYear), `${currentYear}-01-01|${currentYear}-12-31`],
+          [`FY ${currentYear - 1}/${currentYear}`, `${currentYear - 1}-04-01|${currentYear}-03-31`],
+          ['All Time', '|'],
+        ] as const;
+        const expectedQueryKeys = [`${initialStartDate}|${initialEndDate}`];
+
+        for (const [label, queryKey] of presetTransitions) {
+          act(() => {
+            fireEvent.click(screen.getByText(label));
+          });
+          act(() => {
+            vi.advanceTimersByTime(400);
+          });
+
+          expectedQueryKeys.push(queryKey);
+          expect(screen.getByTestId('query-keys')).toHaveTextContent(expectedQueryKeys.join(','));
+        }
+      } finally {
+        vi.useRealTimers();
+      }
     });
   });
 });

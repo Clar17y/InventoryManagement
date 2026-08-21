@@ -19,6 +19,7 @@ vi.mock('../../../lib/api/request', () => ({
 import {
   salePreviewResponseSchema,
   saleResponseSchema,
+  salesListQuerySchema,
   etsySaleResolutionApplyResultSchema,
   etsySaleResolutionPreviewSchema,
   salesListResponseSchema,
@@ -36,8 +37,8 @@ describe('sales API', () => {
   });
 
   const sampleSale: Sale = {
-    id: 'sale-1',
-    saleDate: '2024-01-15',
+    id: 'c12345678901234567890123',
+    saleDate: '2024-01-15T10:00:00.000Z',
     saleChannel: 'etsy',
     etsyOrderId: '123456',
     grossRevenue: 35,
@@ -96,37 +97,77 @@ describe('sales API', () => {
   };
 
   describe('list', () => {
-    it('calls request with empty params', async () => {
-      mockRequestWithSchema.mockResolvedValue({ sales: [sampleSale], total: 1 });
+    const sampleListResponse = {
+      items: [sampleSale],
+      pagination: { page: 1, pageSize: 25 as const, totalItems: 1, totalPages: 1 },
+    };
+
+    it('parses the shared sales query and paginated response contract', () => {
+      const query = {
+        page: 2,
+        pageSize: 25,
+        startDate: '2026-08-01',
+        endDate: '2026-08-20',
+        search: 'etsy',
+        sort: 'saleDate',
+        direction: 'desc',
+      } as const;
+
+      expect(salesListQuerySchema.parse(query)).toEqual(query);
+      expect(salesListResponseSchema.parse(sampleListResponse)).toEqual(sampleListResponse);
+    });
+
+    it('decodes manually verified Etsy fees in a paginated margin-sorted response', () => {
+      const query = {
+        page: 1,
+        pageSize: 25,
+        sort: 'margin',
+        direction: 'asc',
+      } as const;
+      const manuallyVerifiedSale = {
+        ...sampleSale,
+        etsyFeeReconciliationSource: 'MANUAL',
+        etsyFeeReconciliationStatus: 'MANUALLY_VERIFIED',
+      };
+      const response = {
+        items: [manuallyVerifiedSale],
+        pagination: { page: 1, pageSize: 25 as const, totalItems: 1, totalPages: 1 },
+      };
+
+      expect(salesListQuerySchema.parse(query)).toEqual(query);
+      expect(salesListResponseSchema.parse(response)).toEqual(response);
+    });
+
+    it('forwards the shared query and abort signal to the request', async () => {
+      mockRequestWithSchema.mockResolvedValue(sampleListResponse);
+      const signal = new AbortController().signal;
+
+      await sales.list({
+        page: 2,
+        pageSize: 25,
+        startDate: '2026-08-01',
+        endDate: '2026-08-20',
+        search: 'etsy',
+        sort: 'saleDate',
+        direction: 'desc',
+      }, { signal });
+
+      expect(mockRequestWithSchema).toHaveBeenCalledWith(
+        '/sales?page=2&pageSize=25&startDate=2026-08-01&endDate=2026-08-20&search=etsy&sort=saleDate&direction=desc',
+        salesListResponseSchema,
+        { signal },
+      );
+    });
+
+    it('builds a default query without legacy limit and offset parameters', async () => {
+      mockRequestWithSchema.mockResolvedValue({
+        items: [],
+        pagination: { page: 1, pageSize: 25 as const, totalItems: 0, totalPages: 0 },
+      });
 
       await sales.list();
 
       expect(mockRequestWithSchema).toHaveBeenCalledWith('/sales?', salesListResponseSchema);
-    });
-
-    it('calls request with all params', async () => {
-      mockRequestWithSchema.mockResolvedValue({ sales: [sampleSale], total: 1 });
-
-      await sales.list({
-        limit: 20,
-        offset: 10,
-        startDate: '2024-01-01',
-        endDate: '2024-01-31',
-        search: 'chocolate',
-      });
-
-      expect(mockRequestWithSchema).toHaveBeenCalledWith(
-        '/sales?limit=20&offset=10&startDate=2024-01-01&endDate=2024-01-31&search=chocolate',
-        salesListResponseSchema
-      );
-    });
-
-    it('builds query string with partial params', async () => {
-      mockRequestWithSchema.mockResolvedValue({ sales: [], total: 0 });
-
-      await sales.list({ limit: 10, search: 'test' });
-
-      expect(mockRequestWithSchema).toHaveBeenCalledWith('/sales?limit=10&search=test', salesListResponseSchema);
     });
 
     it('encodes the verification status filter', async () => {
@@ -262,6 +303,19 @@ describe('sales API', () => {
       );
     });
 
+    it('forwards an abort signal to the summary request', async () => {
+      mockRequestWithSchema.mockResolvedValue(sampleSummary);
+      const signal = new AbortController().signal;
+
+      await sales.summary({ search: 'chocolate' }, { signal });
+
+      expect(mockRequestWithSchema).toHaveBeenCalledWith(
+        '/sales/summary?search=chocolate',
+        salesSummaryResponseSchema,
+        { signal },
+      );
+    });
+
     it('encodes the verification status filter', async () => {
       mockRequestWithSchema.mockResolvedValue(sampleSummary);
 
@@ -342,7 +396,7 @@ describe('sales API', () => {
 
       await expect(sales.previewEtsyResolution('sale-1', { resolution })).rejects.toBe(error);
       expect(error.status).toBe(409);
-    });
+  });
   });
 
   describe('analytics', () => {

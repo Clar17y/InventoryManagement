@@ -8,7 +8,11 @@ import {
 import { needsVerification } from '#contracts/domain/etsyFees'
 import EtsyOrdersSyncPanel from '../../../components/EtsyOrdersSyncPanel'
 import DateSearchFilter from '../../../components/filters/DateSearchFilter'
-import type { Sale, SaleChannel, SalesSummary, SalesVerificationFilter } from '../../../lib/api'
+import UpdatingResults from '../../../components/ui/UpdatingResults'
+import PaginationControls from '../../../components/ui/PaginationControls'
+import type { PageSize, PaginationMeta } from '#contracts/http/pagination'
+import type { Sale, SaleChannel, SalesSort, SalesSummary, SortDirection } from '../../../lib/api'
+import type { SalesVerificationFilter } from '../../../lib/api'
 import { formatCurrency } from '../../../lib/formatting'
 import MarginBadge from './MarginBadge'
 import EtsyFeeDetails from './EtsyFeeDetails'
@@ -17,10 +21,10 @@ import { formatDate } from '../utils'
 
 export default function SalesListView({
   saleList,
-  totalSales,
-  loading,
-  loadingMore,
-  error,
+  pagination,
+  isUpdating,
+  listError,
+  onRetry,
   showEtsyOrdersPanel,
   setShowEtsyOrdersPanel,
   showSummary,
@@ -32,6 +36,10 @@ export default function SalesListView({
   setStartDate,
   setEndDate,
   setSearchQuery,
+  sort,
+  direction,
+  setSort,
+  setDirection,
   verificationStatus,
   setVerificationStatus,
   expandedId,
@@ -40,13 +48,14 @@ export default function SalesListView({
   onResolveSale,
   registerFeeSummaryRefresh,
   loadData,
-  loadMore,
+  onPageChange,
+  onPageSizeChange,
 }: {
   saleList: Sale[]
-  totalSales: number
-  loading: boolean
-  loadingMore: boolean
-  error: string | null
+  pagination: PaginationMeta
+  isUpdating: boolean
+  listError: string | null
+  onRetry: () => void
   showEtsyOrdersPanel: boolean
   setShowEtsyOrdersPanel: (value: boolean) => void
   showSummary: boolean
@@ -58,6 +67,10 @@ export default function SalesListView({
   setStartDate: (value: string) => void
   setEndDate: (value: string) => void
   setSearchQuery: (value: string) => void
+  sort: SalesSort
+  direction: SortDirection
+  setSort: (value: SalesSort) => void
+  setDirection: (value: SortDirection) => void
   verificationStatus: SalesVerificationFilter | ''
   setVerificationStatus: (value: SalesVerificationFilter | '') => void
   expandedId: string | null
@@ -66,10 +79,9 @@ export default function SalesListView({
   onResolveSale: (sale: Sale) => void
   registerFeeSummaryRefresh: (refresh: (() => Promise<void>) | null) => void
   loadData: (isInitialLoad?: boolean) => void
-  loadMore: () => void
+  onPageChange: (page: number) => void
+  onPageSizeChange: (pageSize: PageSize) => void
 }) {
-  const hasMore = saleList.length < totalSales
-
   // List View (default)
   return (
     <div className="space-y-4">
@@ -107,8 +119,6 @@ export default function SalesListView({
         onImportComplete={loadData}
         registerFeeSummaryRefresh={registerFeeSummaryRefresh}
       />
-
-      {error && <div className="alert-danger">{error}</div>}
 
       {(summary?.unverifiedEtsySales ?? 0) > 0 && (
         <div className="card border-amber-200 bg-amber-50 text-sm text-amber-800">
@@ -200,17 +210,47 @@ export default function SalesListView({
         </div>
       </div>
 
-      {loading ? (
-        <div className="text-center py-8 text-gray-500">Loading...</div>
-      ) : saleList.length === 0 ? (
-        <div className="card text-gray-500 text-center py-12">
-          <p className="mb-4">{startDate || endDate ? 'No sales found for this period' : 'No sales recorded yet'}</p>
-          <p className="text-sm">{startDate || endDate ? 'Try adjusting your date filter' : 'Record your first sale to start tracking margins'}</p>
-        </div>
+      <div className="flex flex-wrap items-center gap-3 text-sm">
+        <label className="flex items-center gap-2 text-gray-600">
+          <span>Sort by</span>
+          <select
+            aria-label="Sort sales"
+            value={sort}
+            onChange={(event) => setSort(event.target.value as SalesSort)}
+            className="rounded border border-gray-300 bg-white px-2 py-1.5"
+          >
+            <option value="saleDate">Sale date</option>
+            <option value="grossRevenue">Gross revenue</option>
+            <option value="margin">Margin</option>
+          </select>
+        </label>
+        <label className="flex items-center gap-2 text-gray-600">
+          <span>Direction</span>
+          <select
+            aria-label="Sort direction"
+            value={direction}
+            onChange={(event) => setDirection(event.target.value as SortDirection)}
+            className="rounded border border-gray-300 bg-white px-2 py-1.5"
+          >
+            <option value="desc">Descending</option>
+            <option value="asc">Ascending</option>
+          </select>
+        </label>
+      </div>
+
+      {saleList.length === 0 ? (
+        <UpdatingResults updating={false} error={listError} onRetry={onRetry}>
+          <div className="card text-gray-500 text-center py-12">
+            <p className="mb-4">{startDate || endDate ? 'No sales found for this period' : 'No sales recorded yet'}</p>
+            <p className="text-sm">{startDate || endDate ? 'Try adjusting your date filter' : 'Record your first sale to start tracking margins'}</p>
+          </div>
+        </UpdatingResults>
       ) : (
-        <div className="space-y-3">
-          {saleList.map((sale) => (
-            <div key={sale.id} className="card">
+        <>
+          <UpdatingResults updating={isUpdating} error={listError} onRetry={onRetry}>
+            <div className="space-y-3">
+              {saleList.map((sale) => (
+                <div key={sale.id} className="card">
               {/* Row 1: Full-width item names */}
               <button
                 onClick={() => handleExpand(sale.id)}
@@ -348,19 +388,17 @@ export default function SalesListView({
             </div>
           ))}
 
-          {/* Load More Button */}
-          {hasMore && (
-            <div className="text-center pt-2">
-              <button
-                onClick={loadMore}
-                disabled={loadingMore}
-                className="btn-secondary"
-              >
-                {loadingMore ? 'Loading...' : `Load More (${saleList.length} of ${totalSales})`}
-              </button>
             </div>
+          </UpdatingResults>
+          {pagination.totalItems > 0 && (
+            <PaginationControls
+              {...pagination}
+              loading={isUpdating}
+              onPageChange={onPageChange}
+              onPageSizeChange={onPageSizeChange}
+            />
           )}
-        </div>
+        </>
       )}
     </div>
   )

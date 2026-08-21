@@ -5,215 +5,37 @@ import {
   hamperVariantCreateBodySchema,
   hamperVariantUpdateBodySchema,
   hampersCreateBodySchema,
+  hampersListQuerySchema,
   hampersUpdateBodySchema,
 } from '#contracts/routes/hampers'
+import {
+  availabilityInputsFromLoadedHamper,
+  calculateAvailabilityMap,
+  calculateVariantAvailabilityMap,
+  loadAvailabilityInputs,
+} from '../../lib/hampers/availabilityBatch'
+import { listHampers } from '../../lib/hampers/list'
 
 const router = Router()
 
-type VariantAvailabilitySummary = {
-  variantId: string
-  name: string
-  etsySku: string | null
-  sellingPrice: number | null
-  etsyIsEnabled: boolean
-  indicativeQuantity: number | null
-  canMake: number
-}
-
-// Calculate how many hampers can be made based on stock (aggregated across category)
-async function calculateAvailability(hamperId: string): Promise<number> {
-  const hamper = await prisma.hamper.findUnique({
-    where: { id: hamperId },
-    include: {
-      requirements: {
-        where: { isOptional: false },
-        include: {
-          category: {
-            include: {
-              products: {
-                where: { isActive: true },
-                include: {
-                  lots: {
-                    where: { remaining: { gt: 0 } },
-                    select: { remaining: true },
-                  },
-                },
-              },
-            },
-          },
-        },
-      },
-    },
-  })
-
-  if (!hamper || hamper.requirements.length === 0) return 0
-
-  const availabilityPerRequirement = hamper.requirements.map((req) => {
-    // Sum all stock across all products in the category
-    const categoryStock = req.category.products.reduce((sum, product) => {
-      const productStock = product.lots.reduce(
-        (lotSum, lot) => lotSum + Number(lot.remaining),
-        0
-      )
-      return sum + productStock
-    }, 0)
-
-    // How many times can we fulfill this requirement
-    return Math.floor(categoryStock / Number(req.quantity))
-  })
-
-  // The hamper availability is the minimum across all requirements
-  return Math.min(...availabilityPerRequirement)
-}
-
-// Calculate availability for a specific variant
-// - For optional requirements: only check if variant has mappings for that category
-// - Multiple mappings per category = alternatives (any ONE of these products)
-// - Availability = sum of stock across all alternatives / quantity required
-async function calculateVariantAvailability(variantId: string): Promise<number> {
-  const variant = await prisma.hamperVariant.findUnique({
-    where: { id: variantId },
-    include: {
-      hamper: {
-        include: {
-          requirements: {
-            // Include ALL requirements (including optional) - we filter by mappings below
-            include: {
-              category: {
-                include: {
-                  products: {
-                    where: { isActive: true },
-                    include: {
-                      lots: {
-                        where: { remaining: { gt: 0 } },
-                        select: { remaining: true },
-                      },
-                    },
-                  },
-                },
-              },
-            },
-          },
-        },
-      },
-      mappings: {
-        orderBy: { priority: 'asc' },
-        include: {
-          category: true,
-          product: {
-            include: {
-              lots: {
-                where: { remaining: { gt: 0 } },
-                select: { remaining: true },
-              },
-            },
-          },
-        },
-      },
-    },
-  })
-
-  if (!variant || !variant.hamper) return 0
-
-  const requirements = variant.hamper.requirements
-  if (requirements.length === 0) return 0
-
-  // Group mappings by categoryId (multiple mappings = alternatives)
-  const mappingsByCategory = new Map<string, typeof variant.mappings>()
-  for (const mapping of variant.mappings) {
-    const existing = mappingsByCategory.get(mapping.categoryId) || []
-    mappingsByCategory.set(mapping.categoryId, [...existing, mapping])
-  }
-
-  const availabilityPerRequirement: number[] = []
-
-  for (const req of requirements) {
-    const categoryMappings = mappingsByCategory.get(req.categoryId) || []
-    const hasMappings = categoryMappings.length > 0
-
-    // Optional requirements: skip if no mappings for this variant
-    if (req.isOptional && !hasMappings) {
-      continue
-    }
-
-    if (hasMappings) {
-      // ALTERNATIVES MODEL: Sum stock across all alternative products
-      const totalAlternativeStock = categoryMappings.reduce((sum, mapping) => {
-        return sum + mapping.product.lots.reduce(
-          (lotSum: number, lot: { remaining: unknown }) => lotSum + Number(lot.remaining),
-          0
-        )
-      }, 0)
-      // How many can we make from total alternative pool?
-      availabilityPerRequirement.push(Math.floor(totalAlternativeStock / Number(req.quantity)))
-    } else {
-      // Non-optional, no mappings: fall back to category-wide aggregation
-      const categoryStock = req.category.products.reduce((sum: number, product) => {
-        const productStock = product.lots.reduce(
-          (lotSum: number, lot: { remaining: unknown }) => lotSum + Number(lot.remaining),
-          0
-        )
-        return sum + productStock
-      }, 0)
-      availabilityPerRequirement.push(Math.floor(categoryStock / Number(req.quantity)))
-    }
-  }
-
-  if (availabilityPerRequirement.length === 0) return 0
-  return Math.min(...availabilityPerRequirement)
-}
-
-// Get variant availability for all variants of a hamper
-async function getVariantAvailabilities(hamperId: string): Promise<VariantAvailabilitySummary[]> {
-  const variants = await prisma.hamperVariant.findMany({
-    where: { hamperId, isActive: true },
-    orderBy: { name: 'asc' },
-  })
-
-  return Promise.all(
-    variants.map(async (v) => ({
-      variantId: v.id,
-      name: v.name,
-      etsySku: v.etsySku,
-      sellingPrice: v.sellingPrice ? Number(v.sellingPrice) : null,
-      etsyIsEnabled: v.etsyIsEnabled,
-      indicativeQuantity: v.indicativeQuantity,
-      canMake: await calculateVariantAvailability(v.id),
-    }))
-  )
-}
-
 // GET all hampers with availability
-router.get('/', async (_, res) => {
+router.get('/', async (req, res) => {
   try {
-    const hampers = await prisma.hamper.findMany({
-      where: { isActive: true },
-      include: {
-        requirements: {
-          include: { category: true },
-        },
+    const query = hampersListQuerySchema.parse(req.query)
+    const result = await listHampers(query)
+    res.json({
+      items: result.items,
+      pagination: {
+        page: query.page,
+        pageSize: query.pageSize,
+        totalItems: result.totalItems,
+        totalPages: result.totalItems === 0 ? 0 : Math.ceil(result.totalItems / query.pageSize),
       },
-      orderBy: { name: 'asc' },
     })
-
-    // Calculate availability for each hamper
-    const hampersWithAvailability = await Promise.all(
-      hampers.map(async (hamper) => {
-        const canMake = await calculateAvailability(hamper.id)
-        const variantAvailability = hamper.hasVariants
-          ? await getVariantAvailabilities(hamper.id)
-          : undefined
-
-        return {
-          ...hamper,
-          canMake,
-          variantAvailability,
-        }
-      })
-    )
-
-    res.json(hampersWithAvailability)
   } catch (error) {
+    if (error instanceof z.ZodError) {
+      return res.status(400).json({ error: 'Validation failed', details: error.errors })
+    }
     console.error('Error fetching hampers:', error)
     res.status(500).json({ error: 'Failed to fetch hampers' })
   }
@@ -305,43 +127,48 @@ router.get('/:id', async (req, res) => {
       }
     })
 
-    const nonOptionalRequirements = requirementsWithStock.filter((r) => !r.isOptional)
-    const canMake = nonOptionalRequirements.length > 0
-      ? Math.min(...nonOptionalRequirements.map((r) => r.canFulfill))
-      : 0
-
     const estimatedCost = requirementsWithStock.reduce(
       (sum, r) => sum + r.estimatedCost,
       0
     )
 
+    const availabilityInputs = availabilityInputsFromLoadedHamper(hamper)
+    const canMake = calculateAvailabilityMap(availabilityInputs).get(hamper.id) ?? 0
+    const variantAvailabilityByHamper = hamper.hasVariants
+      ? calculateVariantAvailabilityMap(availabilityInputs).get(hamper.id) ?? []
+      : []
+    const availabilityByVariantId = new Map(
+      variantAvailabilityByHamper.map((variant) => [variant.variantId, variant]),
+    )
+
     // Calculate variant availability if hasVariants
     const variantAvailability = hamper.hasVariants
-      ? await Promise.all(
-        hamper.variants.map(async (v) => ({
-          variantId: v.id,
-          name: v.name,
-          etsySku: v.etsySku,
-          sellingPrice: v.sellingPrice ? Number(v.sellingPrice) : null,
-          etsyIsEnabled: v.etsyIsEnabled,
-          indicativeQuantity: v.indicativeQuantity,
-          canMake: await calculateVariantAvailability(v.id),
-          mappings: v.mappings.map((m) => {
-            const stock = m.product.lots?.reduce(
+      ? hamper.variants.map((variant) => {
+        const summary = availabilityByVariantId.get(variant.id)
+        return {
+          variantId: variant.id,
+          name: variant.name,
+          etsySku: variant.etsySku,
+          sellingPrice: variant.sellingPrice ? Number(variant.sellingPrice) : null,
+          etsyIsEnabled: variant.etsyIsEnabled,
+          indicativeQuantity: variant.indicativeQuantity,
+          canMake: summary?.canMake ?? 0,
+          mappings: variant.mappings.map((mapping) => {
+            const stock = mapping.product.lots?.reduce(
               (sum: number, lot: { remaining: unknown }) => sum + Number(lot.remaining),
-              0
+              0,
             ) ?? 0
             return {
-              categoryId: m.categoryId,
-              productId: m.productId,
-              priority: m.priority,
-              category: m.category,
-              product: { id: m.product.id, name: m.product.name },
+              categoryId: mapping.categoryId,
+              productId: mapping.productId,
+              priority: mapping.priority,
+              category: mapping.category,
+              product: { id: mapping.product.id, name: mapping.product.name },
               stock,
             }
           }),
-        }))
-      )
+        }
+      })
       : undefined
 
     res.json({
@@ -485,13 +312,12 @@ router.get('/:id/variants', async (req, res) => {
       orderBy: { name: 'asc' },
     })
 
-    // Calculate availability for each variant
-    const variantsWithAvailability = await Promise.all(
-      variants.map(async (v) => ({
-        ...v,
-        canMake: await calculateVariantAvailability(v.id),
-      }))
-    )
+    const availabilityInputs = await loadAvailabilityInputs([req.params.id])
+    const variantAvailability = calculateVariantAvailabilityMap(availabilityInputs).get(req.params.id) ?? []
+    const variantsWithAvailability = variants.map((variant) => ({
+      ...variant,
+      canMake: variantAvailability.find((item) => item.variantId === variant.id)?.canMake ?? 0,
+    }))
 
     res.json(variantsWithAvailability)
   } catch (error) {
@@ -607,9 +433,11 @@ router.post('/:id/variants', async (req, res) => {
       })
     }
 
+    const availabilityInputs = await loadAvailabilityInputs([hamperId])
+    const variantAvailability = calculateVariantAvailabilityMap(availabilityInputs).get(hamperId) ?? []
     res.status(201).json({
       ...variant,
-      canMake: await calculateVariantAvailability(variant.id),
+      canMake: variantAvailability.find((item) => item.variantId === variant.id)?.canMake ?? 0,
     })
   } catch (error) {
     if (error instanceof z.ZodError) {
@@ -722,9 +550,11 @@ router.put('/:id/variants/:variantId', async (req, res) => {
       },
     })
 
+    const availabilityInputs = await loadAvailabilityInputs([req.params.id])
+    const variantAvailability = calculateVariantAvailabilityMap(availabilityInputs).get(req.params.id) ?? []
     res.json({
       ...variant,
-      canMake: await calculateVariantAvailability(variant.id),
+      canMake: variantAvailability.find((item) => item.variantId === variant.id)?.canMake ?? 0,
     })
   } catch (error) {
     if (error instanceof z.ZodError) {

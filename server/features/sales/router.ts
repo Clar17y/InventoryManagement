@@ -6,6 +6,8 @@ import { allocateStockForRequirement, allocateStockForVariantRequirement, type A
 import { calculateEtsyFees, calculatePackagingOverhead } from '../../lib/sales/fees'
 import { buildSalesWhereClause, NEEDS_VERIFICATION_STATUSES } from '../../lib/sales/filters'
 import { groupSalesByChannel, groupSalesByHamper } from '../../lib/sales/grouping'
+import { getSalesSummary } from '../../lib/sales/summary'
+import { buildPaginationMeta, toPrismaPagination } from '../../lib/pagination'
 import {
   etsySaleResolutionApplyBodySchema,
   etsySaleResolutionApplyResultSchema,
@@ -13,8 +15,8 @@ import {
   etsySaleResolutionPreviewSchema,
   saleIdParamSchema,
   salesCreateBodySchema,
+  salesListQuerySchema,
   salesPreviewBodySchema,
-  salesVerificationFilterSchema,
 } from '#contracts/routes/sales'
 import {
   applyEtsySaleResolution,
@@ -44,6 +46,12 @@ function sendEtsyResolutionError(res: Response, error: unknown, operation: strin
   console.error(`Failed to ${operation} Etsy Sale resolution:`, error)
   return res.status(500).json({ error: `Failed to ${operation} Etsy Sale resolution` })
 }
+
+const salesSortFields = {
+  saleDate: 'saleDate',
+  grossRevenue: 'grossRevenue',
+  margin: 'margin',
+} as const
 
 export function getEtsyFeeReconciliationStatus(
   saleChannel: string,
@@ -447,14 +455,13 @@ router.post('/', async (req, res) => {
 // GET all sales
 router.get('/', async (req, res) => {
   try {
-    const { limit = '50', offset = '0', startDate, endDate, search, verificationStatus } = req.query
-    const parsedVerificationStatus = verificationStatus === undefined
-      ? undefined
-      : salesVerificationFilterSchema.parse(verificationStatus)
+    const query = salesListQuerySchema.parse(req.query)
+    const { skip, take } = toPrismaPagination(query)
+    const sortField = salesSortFields[query.sort]
 
-    const where = buildSalesWhereClause({ startDate, endDate, search, verificationStatus: parsedVerificationStatus })
+    const where = buildSalesWhereClause(query)
 
-    const [sales, total] = await Promise.all([
+    const [items, totalItems] = await Promise.all([
       prisma.sale.findMany({
         where,
         include: {
@@ -471,14 +478,14 @@ router.get('/', async (req, res) => {
             },
           },
         },
-        orderBy: { saleDate: 'desc' },
-        take: Number(limit),
-        skip: Number(offset),
+        orderBy: [{ [sortField]: query.direction }, { id: query.direction }],
+        take,
+        skip,
       }),
       prisma.sale.count({ where }),
     ])
 
-    res.json({ sales, total })
+    res.json({ items, pagination: buildPaginationMeta(query, totalItems) })
   } catch (error) {
     if (error instanceof z.ZodError) {
       return res.status(400).json({ error: 'Validation failed', details: error.errors })
@@ -491,56 +498,10 @@ router.get('/', async (req, res) => {
 // GET sales summary (like expenses summary)
 router.get('/summary', async (req, res) => {
   try {
-    const { startDate, endDate, search, verificationStatus } = req.query
-    const parsedVerificationStatus = verificationStatus === undefined
-      ? undefined
-      : salesVerificationFilterSchema.parse(verificationStatus)
+    const { startDate, endDate, search, verificationStatus } = salesListQuerySchema.parse(req.query)
 
-    const where = buildSalesWhereClause({ startDate, endDate, search, verificationStatus: parsedVerificationStatus })
-    const unverifiedWhere = {
-      ...where,
-      saleChannel: 'etsy' as const,
-    }
-    if (where.etsyFeeReconciliationStatus === undefined) {
-      unverifiedWhere.etsyFeeReconciliationStatus = { in: NEEDS_VERIFICATION_STATUSES }
-    } else {
-      delete unverifiedWhere.etsyFeeReconciliationStatus
-      unverifiedWhere.AND = [
-        { etsyFeeReconciliationStatus: where.etsyFeeReconciliationStatus },
-        { etsyFeeReconciliationStatus: { in: NEEDS_VERIFICATION_STATUSES } },
-      ]
-    }
-
-    const [sales, unverifiedEtsySales] = await Promise.all([
-      prisma.sale.findMany({
-        where,
-        include: {
-          lines: {
-            include: { hamper: true },
-          },
-        },
-      }),
-      prisma.sale.count({
-        where: unverifiedWhere,
-      }),
-    ])
-
-    const totals = {
-      salesCount: sales.length,
-      totalRevenue: sales.reduce((sum, s) => sum + Number(s.grossRevenue), 0),
-      totalPostageCharged: sales.reduce((sum, s) => sum + Number(s.postageCharged), 0),
-      totalPostageCost: sales.reduce((sum, s) => sum + Number(s.postageCost), 0),
-      totalFees: sales.reduce((sum, s) => sum + Number(s.etsyFees), 0),
-      totalCost: sales.reduce((sum, s) => sum + Number(s.totalCost), 0),
-      totalMargin: sales.reduce((sum, s) => sum + Number(s.margin), 0),
-    }
-
-    res.json({
-      unverifiedEtsySales,
-      totals,
-      byChannel: groupSalesByChannel(sales),
-      byHamper: groupSalesByHamper(sales),
-    })
+    const where = buildSalesWhereClause({ startDate, endDate, search, verificationStatus })
+    res.json(await getSalesSummary(where))
   } catch (error) {
     if (error instanceof z.ZodError) {
       return res.status(400).json({ error: 'Validation failed', details: error.errors })

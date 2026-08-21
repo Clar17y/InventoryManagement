@@ -38,6 +38,7 @@ export default function SalesRecordView({
   handleAddLine,
   handleRemoveLine,
   handleUpdateLine,
+  handleSelectHamper,
   handleSubmit,
   handleStartOverride,
   handleClearOverride,
@@ -73,6 +74,7 @@ export default function SalesRecordView({
   handleAddLine: (bespoke?: boolean) => void
   handleRemoveLine: (index: number) => void
   handleUpdateLine: (index: number, updates: Partial<SaleLineInput>) => void
+  handleSelectHamper: (index: number, hamper: Hamper) => void
   handleSubmit: () => void
   handleStartOverride: (hamperIdx: number, categoryId: string) => void
   handleClearOverride: (hamperIdx: number, categoryId: string) => void
@@ -126,6 +128,7 @@ export default function SalesRecordView({
         handleAddLine={handleAddLine}
         handleRemoveLine={handleRemoveLine}
         handleUpdateLine={handleUpdateLine}
+        handleSelectHamper={handleSelectHamper}
       />
 
       {/* Postage */}

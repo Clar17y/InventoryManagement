@@ -1,8 +1,23 @@
 import { vi } from 'vitest';
 import type { Category } from '../../lib/api/categories';
-import type { Product } from '../../lib/api/products';
-import type { InventoryLot, CategoryLot, LowStockProduct } from '../../lib/api/inventory';
+import type { Product, ProductsListQuery, ProductsListResponse } from '../../lib/api/products';
+import type {
+  InventoryLot,
+  CategoryLot,
+  LowStockProduct,
+  InventoryProductsQuery,
+  InventoryProductsResponse,
+} from '../../lib/api/inventory';
 import type { Hamper, HamperDetail } from '../../lib/api/hampers';
+import type {
+  BusinessExpense,
+  ExpenseListQuery,
+  ExpenseListResponse,
+} from '../../lib/api/expenses';
+import type { HampersListQuery, HampersListResponse } from '#contracts/routes/hampers';
+import type { Sale } from '../../lib/api/sales';
+import type { SalesListQuery, SalesListResponse } from '#contracts/routes/sales';
+import type { PaginatedResponse } from '#contracts/http/pagination';
 import type {
   DashboardStats,
   EtsyFeeConfig,
@@ -24,6 +39,20 @@ import type { SupplierCreateBody, SupplierUpdateBody } from '#contracts/routes/s
 type InventoryCategorySummary = { id: string; name: string; productCount: number; totalStock: number };
 type ArchivedListOptions = { includeArchived?: boolean };
 
+const emptyPaginatedResponse = <T>(): PaginatedResponse<T> => ({
+  items: [],
+  pagination: { page: 1, pageSize: 25, totalItems: 0, totalPages: 0 },
+});
+
+export const emptyProductsListResponse: ProductsListResponse = emptyPaginatedResponse<Product>();
+export const emptyInventoryProductsResponse: InventoryProductsResponse = {
+  ...emptyPaginatedResponse<InventoryProductsResponse['items'][number]>(),
+  totals: { totalUnitItems: 0, totalLots: 0 },
+};
+export const emptyHampersListResponse: HampersListResponse = emptyPaginatedResponse<Hamper>();
+export const emptySalesListResponse: SalesListResponse = emptyPaginatedResponse<Sale>();
+export const emptyExpensesListResponse: ExpenseListResponse = emptyPaginatedResponse<BusinessExpense>();
+
 // Mock request function
 export const mockRequest = vi.fn();
 
@@ -38,7 +67,10 @@ export const mockCategories = {
 
 // Product mocks
 export const mockProducts = {
-  list: vi.fn<(categoryId?: string) => Promise<Product[]>>(),
+  list: vi.fn<(
+    params?: ProductsListQuery,
+    options?: Pick<RequestInit, 'signal'>,
+  ) => Promise<ProductsListResponse>>().mockResolvedValue(emptyProductsListResponse),
   get: vi.fn<(id: string) => Promise<Product>>(),
   getByBarcode: vi.fn<(barcode: string) => Promise<Product | null>>(),
   create: vi.fn(),
@@ -50,6 +82,10 @@ export const mockProducts = {
 
 // Inventory mocks
 export const mockInventory = {
+  list: vi.fn<(
+    params?: InventoryProductsQuery,
+    options?: Pick<RequestInit, 'signal'>,
+  ) => Promise<InventoryProductsResponse>>().mockResolvedValue(emptyInventoryProductsResponse),
   byCategory: vi.fn<() => Promise<InventoryCategorySummary[]>>(),
   lots: vi.fn<(productId: string) => Promise<InventoryLot[]>>(),
   lotsByCategory: vi.fn<(categoryId: string) => Promise<CategoryLot[]>>(),
@@ -62,7 +98,10 @@ export const mockInventory = {
 
 // Hamper mocks
 export const mockHampers = {
-  list: vi.fn<() => Promise<Hamper[]>>(),
+  list: vi.fn<(
+    params?: HampersListQuery,
+    options?: Pick<RequestInit, 'signal'>,
+  ) => Promise<HampersListResponse>>().mockResolvedValue(emptyHampersListResponse),
   get: vi.fn<(id: string) => Promise<HamperDetail>>(),
   create: vi.fn(),
   update: vi.fn(),
@@ -71,7 +110,10 @@ export const mockHampers = {
 
 // Sales mocks
 export const mockSales = {
-  list: vi.fn(),
+  list: vi.fn<(
+    params?: SalesListQuery,
+    options?: Pick<RequestInit, 'signal'>,
+  ) => Promise<SalesListResponse>>().mockResolvedValue(emptySalesListResponse),
   get: vi.fn(),
   preview: vi.fn(),
   create: vi.fn(),
@@ -81,7 +123,10 @@ export const mockSales = {
 
 // Expenses mocks
 export const mockExpenses = {
-  list: vi.fn(),
+  list: vi.fn<(
+    params?: ExpenseListQuery,
+    options?: Pick<RequestInit, 'signal'>,
+  ) => Promise<ExpenseListResponse>>().mockResolvedValue(emptyExpensesListResponse),
   get: vi.fn(),
   summary: vi.fn(),
   create: vi.fn(),
@@ -141,10 +186,15 @@ export const mockEtsy = {
 export const resetAllMocks = () => {
   Object.values(mockCategories).forEach((fn) => fn.mockReset());
   Object.values(mockProducts).forEach((fn) => fn.mockReset());
+  mockProducts.list.mockResolvedValue(emptyProductsListResponse);
   Object.values(mockInventory).forEach((fn) => fn.mockReset());
+  mockInventory.list.mockResolvedValue(emptyInventoryProductsResponse);
   Object.values(mockHampers).forEach((fn) => fn.mockReset());
+  mockHampers.list.mockResolvedValue(emptyHampersListResponse);
   Object.values(mockSales).forEach((fn) => fn.mockReset());
+  mockSales.list.mockResolvedValue(emptySalesListResponse);
   Object.values(mockExpenses).forEach((fn) => fn.mockReset());
+  mockExpenses.list.mockResolvedValue(emptyExpensesListResponse);
   Object.values(mockSettings).forEach((fn) => fn.mockReset());
   Object.values(mockSuppliers).forEach((fn) => fn.mockReset());
   Object.values(mockEtsy).forEach((fn) => fn.mockReset());

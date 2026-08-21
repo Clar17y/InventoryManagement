@@ -8,9 +8,10 @@ vi.mock('../../../lib/api/request', () => ({
 import {
   productBarcodeResponseSchema,
   productResponseSchema,
+  productsListQuerySchema,
   productsListResponseSchema,
 } from '#contracts/routes/products';
-import { products, Product } from '../../../lib/api/products';
+import { listAllProducts, products, Product } from '../../../lib/api/products';
 import { request, requestWithSchema } from '../../../lib/api/request';
 
 const mockRequest = vi.mocked(request);
@@ -47,31 +48,98 @@ describe('products API', () => {
   };
 
   describe('list', () => {
-    it('calls request without categoryId', async () => {
-      mockRequestWithSchema.mockResolvedValue([sampleProduct]);
+    it('serializes and validates paginated filters', async () => {
+      const categoryId = `c${'1'.repeat(24)}`;
+      const params = {
+        page: 2,
+        pageSize: 50 as const,
+        categoryId,
+        search: 'tea',
+        sort: 'name' as const,
+        direction: 'asc' as const,
+      };
+      const response = {
+        items: [sampleProduct],
+        pagination: { page: 2, pageSize: 50 as const, totalItems: 51, totalPages: 2 },
+      };
+      mockRequestWithSchema.mockResolvedValue(response);
 
-      await products.list();
+      expect(productsListQuerySchema.parse({
+        ...params,
+        page: '2',
+        pageSize: '50',
+        search: ' tea ',
+      })).toEqual({ ...params, search: 'tea' });
+      expect(() => productsListQuerySchema.parse({ pageSize: '10' })).toThrow();
 
-      expect(mockRequestWithSchema).toHaveBeenCalledWith('/products', productsListResponseSchema);
-    });
-
-    it('calls request with categoryId filter', async () => {
-      mockRequestWithSchema.mockResolvedValue([sampleProduct]);
-
-      await products.list('cat-1');
+      const controller = new AbortController();
+      await products.list(params, { signal: controller.signal });
 
       expect(mockRequestWithSchema).toHaveBeenCalledWith(
-        '/products?categoryId=cat-1',
-        productsListResponseSchema
+        `/products?page=2&pageSize=50&categoryId=${categoryId}&search=tea&sort=name&direction=asc`,
+        productsListResponseSchema,
+        { signal: controller.signal },
       );
     });
 
-    it('returns array of products', async () => {
-      mockRequestWithSchema.mockResolvedValue([sampleProduct]);
+    it('calls request without filters and returns the shared response envelope', async () => {
+      const response = {
+        items: [sampleProduct],
+        pagination: { page: 1, pageSize: 25 as const, totalItems: 1, totalPages: 1 },
+      };
+      mockRequestWithSchema.mockResolvedValue(response);
 
       const result = await products.list();
 
-      expect(result).toEqual([sampleProduct]);
+      expect(mockRequestWithSchema).toHaveBeenCalledWith('/products', productsListResponseSchema);
+      expect(result).toEqual(response);
+    });
+  });
+
+  describe('listAllProducts', () => {
+    it('follows every page at the compatibility limit and preserves pagination metadata', async () => {
+      const pageOne = {
+        items: Array.from({ length: 100 }, (_, index) => ({ ...sampleProduct, id: `prod-${index}` })),
+        pagination: { page: 1, pageSize: 100 as const, totalItems: 101, totalPages: 2 },
+      };
+      const pageTwo = {
+        items: [{ ...sampleProduct, id: 'prod-100' }],
+        pagination: { page: 2, pageSize: 100 as const, totalItems: 101, totalPages: 2 },
+      };
+      mockRequestWithSchema.mockResolvedValueOnce(pageOne).mockResolvedValueOnce(pageTwo);
+      const controller = new AbortController();
+
+      const result = await listAllProducts({}, { signal: controller.signal });
+
+      expect(result.items).toHaveLength(101);
+      expect(result.pagination).toEqual(pageOne.pagination);
+      expect(mockRequestWithSchema).toHaveBeenNthCalledWith(
+        1,
+        '/products?page=1&pageSize=100',
+        productsListResponseSchema,
+        { signal: controller.signal },
+      );
+      expect(mockRequestWithSchema).toHaveBeenNthCalledWith(
+        2,
+        '/products?page=2&pageSize=100',
+        productsListResponseSchema,
+        { signal: controller.signal },
+      );
+    });
+
+    it('stops before merging when its signal is aborted', async () => {
+      const controller = new AbortController();
+      const pageOne = {
+        items: [{ ...sampleProduct, id: 'prod-1' }],
+        pagination: { page: 1, pageSize: 100 as const, totalItems: 101, totalPages: 2 },
+      };
+      mockRequestWithSchema.mockImplementationOnce(async () => {
+        controller.abort();
+        return pageOne;
+      });
+
+      await expect(listAllProducts({}, { signal: controller.signal })).rejects.toThrow('aborted');
+      expect(mockRequestWithSchema).toHaveBeenCalledTimes(1);
     });
   });
 

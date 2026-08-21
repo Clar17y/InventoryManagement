@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 import { categories, inventory, products, type Category, type Product } from '../../../lib/api'
 import BarcodeScanner from '../../../components/scanner/BarcodeScanner'
-import { useDebounce } from '../../../hooks/useDebounce'
+import { useProductSearch } from '../../products/hooks/useProductSearch'
 import AddStockDetailsView from './AddStockDetailsView'
 import AddStockLinkBarcodeView from './AddStockLinkBarcodeView'
 import AddStockNewProductView from './AddStockNewProductView'
@@ -17,16 +17,13 @@ type FormMode = 'select' | 'scan' | 'form' | 'newProduct' | 'linkBarcode'
 
 export default function AddStockForm({ onSuccess, onClose }: AddStockFormProps) {
   const [mode, setMode] = useState<FormMode>('select')
-  const [allProducts, setAllProducts] = useState<Product[]>([])
-  const [searchQuery, setSearchQuery] = useState('')
-  const debouncedSearchQuery = useDebounce(searchQuery, 300)
+  const productSearch = useProductSearch({})
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null)
   const [quantity, setQuantity] = useState('')
   const [costValue, setCostValue] = useState('')
   const [costMode, setCostMode] = useState<'total' | 'unit'>('total')
   const [excludesVAT, setExcludesVAT] = useState(false)
   const [expiresAt, setExpiresAt] = useState('')
-  const [isLoading, setIsLoading] = useState(false)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [scanError, setScanError] = useState<string | null>(null)
@@ -90,15 +87,11 @@ export default function AddStockForm({ onSuccess, onClose }: AddStockFormProps) 
   }
 
   const loadData = async () => {
-    setIsLoading(true)
     try {
-      const [productsData, categoriesData] = await Promise.all([products.list(), categories.list()])
-      setAllProducts(productsData)
+      const categoriesData = await categories.list()
       setAllCategories(categoriesData)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load data')
-    } finally {
-      setIsLoading(false)
     }
   }
 
@@ -120,7 +113,7 @@ export default function AddStockForm({ onSuccess, onClose }: AddStockFormProps) 
   const handleProductSelect = (product: Product) => {
     setSelectedProduct(product)
     setMode('form')
-    setSearchQuery('')
+    productSearch.setSearch('')
   }
 
   const handleSubmit = async (e: FormEvent) => {
@@ -208,28 +201,19 @@ export default function AddStockForm({ onSuccess, onClose }: AddStockFormProps) 
     setError(null)
 
     try {
-      await products.addBarcode(product.id, scannedBarcode)
-
-      const updatedProducts = await products.list()
-      setAllProducts(updatedProducts)
-
-      const updatedProduct = updatedProducts.find((p) => p.id === product.id)
-      if (updatedProduct) {
-        setSelectedProduct(updatedProduct)
-        setMode('form')
-      }
+      const linkedBarcode = await products.addBarcode(product.id, scannedBarcode)
+      setSelectedProduct({
+        ...product,
+        barcode: product.barcode ?? scannedBarcode,
+        barcodes: [...(product.barcodes ?? []), linkedBarcode],
+      })
+      setMode('form')
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to link barcode')
     } finally {
       setIsSubmitting(false)
     }
   }
-
-  const filteredProducts = allProducts.filter(
-    (p) =>
-      p.name.toLowerCase().includes(debouncedSearchQuery.toLowerCase()) ||
-      p.barcode?.toLowerCase().includes(debouncedSearchQuery.toLowerCase())
-  )
 
   if (mode === 'scan') {
     return (
@@ -287,10 +271,16 @@ export default function AddStockForm({ onSuccess, onClose }: AddStockFormProps) 
               handleHandheldSubmit={handleHandheldSubmit}
               isProcessingHandheld={isProcessingHandheld}
               onUseCamera={() => setMode('scan')}
-              searchQuery={searchQuery}
-              setSearchQuery={setSearchQuery}
-              isLoading={isLoading}
-              filteredProducts={filteredProducts}
+              searchQuery={productSearch.search}
+              setSearchQuery={productSearch.setSearch}
+              isInitialLoading={productSearch.isInitialLoading}
+              isUpdating={productSearch.isUpdating}
+              error={productSearch.error}
+              retry={productSearch.retry}
+              products={productSearch.items}
+              pagination={productSearch.pagination}
+              setPage={productSearch.setPage}
+              setPageSize={productSearch.setPageSize}
               handleProductSelect={handleProductSelect}
             />
           )}
@@ -354,14 +344,20 @@ export default function AddStockForm({ onSuccess, onClose }: AddStockFormProps) 
           {mode === 'linkBarcode' && (
             <AddStockLinkBarcodeView
               scannedBarcode={scannedBarcode}
-              searchQuery={searchQuery}
-              setSearchQuery={setSearchQuery}
-              isLoading={isLoading}
-              filteredProducts={filteredProducts}
+              searchQuery={productSearch.search}
+              setSearchQuery={productSearch.setSearch}
+              isInitialLoading={productSearch.isInitialLoading}
+              isUpdating={productSearch.isUpdating}
+              error={productSearch.error}
+              retry={productSearch.retry}
+              products={productSearch.items}
+              pagination={productSearch.pagination}
+              setPage={productSearch.setPage}
+              setPageSize={productSearch.setPageSize}
               isSubmitting={isSubmitting}
               handleLinkBarcodeToProduct={handleLinkBarcodeToProduct}
               onBack={() => {
-                setSearchQuery('')
+                productSearch.setSearch('')
                 setMode('newProduct')
               }}
             />

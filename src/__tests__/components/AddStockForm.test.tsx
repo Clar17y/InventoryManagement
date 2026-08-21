@@ -6,6 +6,7 @@ import { render } from '../utils/test-utils';
 vi.mock('../../lib/api', () => ({
   products: {
     list: vi.fn(),
+    listAll: vi.fn(),
     getByBarcode: vi.fn(),
     create: vi.fn(),
     addBarcode: vi.fn(),
@@ -32,6 +33,7 @@ import AddStockForm from '../../components/inventory/AddStockForm';
 import { products, categories, inventory } from '../../lib/api';
 
 const mockProductsList = vi.mocked(products.list);
+const mockProductsListAll = vi.mocked(products.listAll);
 const mockGetByBarcode = vi.mocked(products.getByBarcode);
 const mockCategoriesList = vi.mocked(categories.list);
 const mockAddLot = vi.mocked(inventory.addLot);
@@ -68,7 +70,20 @@ describe('AddStockForm', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    mockProductsList.mockResolvedValue(sampleProducts as any);
+    mockProductsList.mockImplementation(async (params: any) => {
+      const query = params?.search?.toLowerCase();
+      const items = query
+        ? sampleProducts.filter((product) => product.name.toLowerCase().includes(query))
+        : sampleProducts;
+      return {
+        items,
+        pagination: { page: params?.page ?? 1, pageSize: 25, totalItems: items.length, totalPages: 1 },
+      } as any;
+    });
+    mockProductsListAll.mockResolvedValue({
+      items: sampleProducts,
+      pagination: { page: 1, pageSize: 25, totalItems: sampleProducts.length, totalPages: 1 },
+    } as any);
     mockCategoriesList.mockResolvedValue(sampleCategories as any);
   });
 
@@ -152,6 +167,29 @@ describe('AddStockForm', () => {
       await waitFor(() => {
         expect(screen.getByText('No products found')).toBeInTheDocument();
       });
+    });
+
+    it('searches and paginates products on the server without a full-catalogue request', async () => {
+      mockProductsList.mockResolvedValue({
+        items: [sampleProducts[0]],
+        pagination: { page: 1, pageSize: 25, totalItems: 30, totalPages: 2 },
+      } as any);
+      const user = userEvent.setup();
+
+      render(<AddStockForm onSuccess={mockOnSuccess} onClose={mockOnClose} />);
+      const searchInput = await screen.findByPlaceholderText('Search products...');
+      await user.type(searchInput, 'Dark');
+
+      await waitFor(() => expect(mockProductsList).toHaveBeenLastCalledWith(
+        { categoryId: undefined, page: 1, pageSize: 25, search: 'Dark' },
+        { signal: expect.any(AbortSignal) },
+      ));
+      await user.click(screen.getByRole('button', { name: 'Next page' }));
+      await waitFor(() => expect(mockProductsList).toHaveBeenLastCalledWith(
+        { categoryId: undefined, page: 2, pageSize: 25, search: 'Dark' },
+        { signal: expect.any(AbortSignal) },
+      ));
+      expect(mockProductsListAll).not.toHaveBeenCalled();
     });
 
     it('selects product when clicked', async () => {
@@ -260,6 +298,25 @@ describe('AddStockForm', () => {
         expect(screen.getByText('Enter Details')).toBeInTheDocument();
         expect(screen.getByText('Dark Chocolate')).toBeInTheDocument();
       });
+    });
+
+    it('selects a barcode match that is absent from the current product page', async () => {
+      const user = userEvent.setup();
+      mockProductsList.mockResolvedValue({
+        items: [sampleProducts[1]],
+        pagination: { page: 1, pageSize: 25, totalItems: 1, totalPages: 1 },
+      } as any);
+      mockGetByBarcode.mockResolvedValue(sampleProducts[0] as any);
+
+      render(<AddStockForm onSuccess={mockOnSuccess} onClose={mockOnClose} />);
+      const handheldInput = await screen.findByPlaceholderText('Scan with handheld or type barcode...');
+      await user.type(handheldInput, '1234567890123{Enter}');
+
+      await waitFor(() => {
+        expect(screen.getByText('Enter Details')).toBeInTheDocument();
+        expect(screen.getByText('Dark Chocolate')).toBeInTheDocument();
+      });
+      expect(mockProductsListAll).not.toHaveBeenCalled();
     });
 
     it('moves to new product mode when unknown barcode entered via handheld input', async () => {

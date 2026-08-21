@@ -6,12 +6,16 @@ import {
   inventoryLotsResponseSchema,
   inventoryLotResponseSchema,
   inventoryLowStockResponseSchema,
+  inventoryProductsResponseSchema,
   type InventoryAddLotBody,
   type InventoryByCategoryResponse,
   type InventoryExpiringResponse,
   type InventoryLotResponse,
   type InventoryLotsByCategoryResponse,
   type InventoryLowStockProduct,
+  type InventoryProduct,
+  type InventoryProductsQuery,
+  type InventoryProductsResponse,
   type InventoryUpdateLotBody,
 } from '#contracts/routes/inventory'
 
@@ -20,8 +24,20 @@ export type InventoryLot = InventoryLotResponse
 export type CategoryLot = InventoryLotsByCategoryResponse[number]
 export type LowStockProduct = InventoryLowStockProduct
 export type ExpiringLot = InventoryExpiringResponse[number]
+export type { InventoryProduct, InventoryProductsQuery, InventoryProductsResponse }
 
 export const inventory = {
+  list: (params: InventoryProductsQuery = {}, options?: Pick<RequestInit, 'signal'>) => {
+    const query = new URLSearchParams()
+    for (const [key, value] of Object.entries(params)) {
+      if (value !== undefined && value !== '') query.set(key, String(value))
+    }
+    const queryString = query.toString()
+    const path = `/inventory/products${queryString ? `?${queryString}` : ''}`
+    return options
+      ? requestWithSchema(path, inventoryProductsResponseSchema, options)
+      : requestWithSchema(path, inventoryProductsResponseSchema)
+  },
   byCategory: () => requestWithSchema('/inventory/by-category', inventoryByCategoryResponseSchema),
   lots: (productId: string) =>
     requestWithSchema(`/inventory/lots/${productId}`, inventoryLotsResponseSchema),

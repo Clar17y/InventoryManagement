@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { screen, waitFor, within } from '@testing-library/react';
+import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { render } from '../utils/test-utils';
 
@@ -124,6 +124,21 @@ describe('Sales', () => {
     byHamper: [],
   };
 
+  const listResponse = (
+    items: any[] = sampleSales,
+    totalItems = items.length,
+    page = 1,
+    pageSize: 25 | 50 | 100 = 25,
+  ) => ({
+    items,
+    pagination: {
+      page,
+      pageSize,
+      totalItems,
+      totalPages: totalItems === 0 ? 0 : Math.ceil(totalItems / pageSize),
+    },
+  });
+
   const samplePreview = {
     lines: [
       {
@@ -172,10 +187,14 @@ describe('Sales', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    mockSalesList.mockResolvedValue({ sales: sampleSales, total: 1 });
+    window.history.pushState({}, '', '/');
+    mockSalesList.mockResolvedValue(listResponse());
     mockSalesSummary.mockResolvedValue(sampleSummary);
+    mockHampersList.mockResolvedValue({
+      items: sampleHampers,
+      pagination: { page: 1, pageSize: 25, totalItems: sampleHampers.length, totalPages: 1 },
+    } as any);
     mockSalesGet.mockResolvedValue(sampleSales[0]);
-    mockHampersList.mockResolvedValue(sampleHampers as any);
     mockSalesPreview.mockResolvedValue(samplePreview as any);
     mockPreviewEtsyResolution.mockResolvedValue({
       resolution: { type: 'reclassify', channel: 'direct' },
@@ -210,9 +229,10 @@ describe('Sales', () => {
   });
 
   describe('loading state', () => {
-    it('shows loading message initially', () => {
+    it('shows loading message initially', async () => {
       render(<Sales />);
       expect(screen.getByText('Loading...')).toBeInTheDocument();
+      await waitFor(() => expect(screen.queryByText('Loading...')).not.toBeInTheDocument());
     });
 
     it('hides loading after data loads', async () => {
@@ -267,7 +287,7 @@ describe('Sales', () => {
     });
 
     it('shows empty state when no sales', async () => {
-      mockSalesList.mockResolvedValue({ sales: [], total: 0 });
+      mockSalesList.mockResolvedValue(listResponse([], 0));
       render(<Sales />);
       await waitFor(() => {
         expect(screen.getByText('No sales recorded yet')).toBeInTheDocument();
@@ -299,13 +319,13 @@ describe('Sales', () => {
 
       await waitFor(() => {
         expect(mockSalesList).toHaveBeenCalledWith(expect.objectContaining({
-          limit: 20,
-          offset: 0,
+          page: 1,
+          pageSize: 25,
           verificationStatus: 'PENDING',
-        }));
+        }), expect.anything());
         expect(mockSalesSummary).toHaveBeenCalledWith(expect.objectContaining({
           verificationStatus: 'PENDING',
-        }));
+        }), expect.anything());
       });
     });
 
@@ -318,8 +338,8 @@ describe('Sales', () => {
       await user.selectOptions(filter, 'needs_verification');
 
       await waitFor(() => {
-        expect(mockSalesList).toHaveBeenCalledWith(expect.objectContaining({ verificationStatus: 'needs_verification' }));
-        expect(mockSalesSummary).toHaveBeenCalledWith(expect.objectContaining({ verificationStatus: 'needs_verification' }));
+        expect(mockSalesList).toHaveBeenCalledWith(expect.objectContaining({ verificationStatus: 'needs_verification' }), expect.anything());
+        expect(mockSalesSummary).toHaveBeenCalledWith(expect.objectContaining({ verificationStatus: 'needs_verification' }), expect.anything());
       });
       const listParams = mockSalesList.mock.calls[mockSalesList.mock.calls.length - 1]?.[0];
       const summaryParams = mockSalesSummary.mock.calls[mockSalesSummary.mock.calls.length - 1]?.[0];
@@ -331,7 +351,7 @@ describe('Sales', () => {
       render(<Sales />);
       const filter = await screen.findByLabelText('Verification status');
       await user.selectOptions(filter, 'PENDING');
-      await waitFor(() => expect(mockSalesSummary).toHaveBeenCalledWith(expect.objectContaining({ verificationStatus: 'PENDING' })));
+      await waitFor(() => expect(mockSalesSummary).toHaveBeenCalledWith(expect.objectContaining({ verificationStatus: 'PENDING' }), expect.anything()));
 
       const search = screen.getByPlaceholderText('Search sales...');
       await user.type(search, 'gift');
@@ -340,7 +360,7 @@ describe('Sales', () => {
         expect(mockSalesSummary).toHaveBeenCalledWith(expect.objectContaining({
           search: 'gift',
           verificationStatus: 'PENDING',
-        }));
+        }), expect.anything());
       }, { timeout: 2000 });
       expect(filter).toHaveValue('PENDING');
     });
@@ -350,16 +370,16 @@ describe('Sales', () => {
       render(<Sales />);
       const filter = await screen.findByLabelText('Verification status');
 
-      const pendingList = deferred<{ sales: any[]; total: number }>();
+      const pendingList = deferred<ReturnType<typeof listResponse>>();
       const pendingSummary = deferred<typeof sampleSummary>();
-      const manualList = deferred<{ sales: any[]; total: number }>();
+      const manualList = deferred<ReturnType<typeof listResponse>>();
       const manualSummary = deferred<typeof sampleSummary>();
       mockSalesList.mockClear();
       mockSalesSummary.mockClear();
       mockSalesList.mockImplementation((params) => {
         if (params?.verificationStatus === 'PENDING') return pendingList.promise;
         if (params?.verificationStatus === 'MANUAL_REVIEW') return manualList.promise;
-        return Promise.resolve({ sales: sampleSales, total: 1 });
+        return Promise.resolve(listResponse());
       });
       mockSalesSummary.mockImplementation((params) => {
         if (params?.verificationStatus === 'PENDING') return pendingSummary.promise;
@@ -368,17 +388,17 @@ describe('Sales', () => {
       });
 
       await user.selectOptions(filter, 'PENDING');
-      await waitFor(() => expect(mockSalesList).toHaveBeenCalledWith(expect.objectContaining({ verificationStatus: 'PENDING' })));
+      await waitFor(() => expect(mockSalesList).toHaveBeenCalledWith(expect.objectContaining({ verificationStatus: 'PENDING' }), expect.anything()));
       await user.selectOptions(filter, 'MANUAL_REVIEW');
-      await waitFor(() => expect(mockSalesList).toHaveBeenCalledWith(expect.objectContaining({ verificationStatus: 'MANUAL_REVIEW' })));
+      await waitFor(() => expect(mockSalesList).toHaveBeenCalledWith(expect.objectContaining({ verificationStatus: 'MANUAL_REVIEW' }), expect.anything()));
 
-      manualList.resolve({ sales: [saleFor('manual-sale', 'Manual sale', 75)], total: 1 });
+      manualList.resolve(listResponse([saleFor('manual-sale', 'Manual sale', 75)]));
       manualSummary.resolve(summaryFor(75));
       await waitFor(() => expect(screen.getByText('Manual sale ×1')).toBeInTheDocument());
       await user.click(screen.getByTitle('Toggle summary'));
       await waitFor(() => expect(screen.getAllByText('£75.00')).not.toHaveLength(0));
 
-      pendingList.resolve({ sales: [saleFor('pending-sale', 'Pending sale', 15)], total: 1 });
+      pendingList.resolve(listResponse([saleFor('pending-sale', 'Pending sale', 15)]));
       pendingSummary.resolve(summaryFor(15));
       await waitFor(() => expect(screen.getByText('Manual sale ×1')).toBeInTheDocument());
       expect(screen.queryByText('Pending sale ×1')).not.toBeInTheDocument();
@@ -386,29 +406,29 @@ describe('Sales', () => {
       expect(filter).toHaveValue('MANUAL_REVIEW');
     });
 
-    it('does not append an old Load More response after the verification filter changes', async () => {
+    it('does not apply an old page response after the verification filter changes', async () => {
       const user = userEvent.setup();
-      const moreSales = deferred<{ sales: any[]; total: number }>();
+      const moreSales = deferred<ReturnType<typeof listResponse>>();
       const initialSale = saleFor('initial-sale', 'Initial sale', 35);
       const filteredSale = saleFor('filtered-sale', 'Filtered sale', 45);
       const staleSale = saleFor('stale-sale', 'Stale sale', 55);
       mockSalesList.mockImplementation((params) => {
-        if (params?.offset === 1 && !params?.verificationStatus) return moreSales.promise;
-        if (params?.verificationStatus === 'PENDING') return Promise.resolve({ sales: [filteredSale], total: 2 });
-        return Promise.resolve({ sales: [initialSale], total: 2 });
+        if (params?.page === 2 && !params?.verificationStatus) return moreSales.promise;
+        if (params?.verificationStatus === 'PENDING') return Promise.resolve(listResponse([filteredSale], 26));
+        return Promise.resolve(listResponse([initialSale], 26));
       });
       render(<Sales />);
       await waitFor(() => expect(screen.getByText('Initial sale ×1')).toBeInTheDocument());
 
-      await user.click(screen.getByRole('button', { name: 'Load More (1 of 2)' }));
-      await waitFor(() => expect(mockSalesList).toHaveBeenCalledWith(expect.objectContaining({ offset: 1 })));
+      await user.click(screen.getByRole('button', { name: '2' }));
+      await waitFor(() => expect(mockSalesList).toHaveBeenCalledWith(expect.objectContaining({ page: 2 }), expect.anything()));
 
       const filter = screen.getByLabelText('Verification status');
       await user.selectOptions(filter, 'PENDING');
       await waitFor(() => expect(screen.getByText('Filtered sale ×1')).toBeInTheDocument());
 
-      moreSales.resolve({ sales: [staleSale], total: 2 });
-      await waitFor(() => expect(screen.getByRole('button', { name: 'Load More (1 of 2)' })).toBeEnabled());
+      moreSales.resolve(listResponse([staleSale], 2, 2));
+      await waitFor(() => expect(screen.getByText('Filtered sale ×1')).toBeInTheDocument());
       expect(screen.getByText('Filtered sale ×1')).toBeInTheDocument();
       expect(screen.queryByText('Stale sale ×1')).not.toBeInTheDocument();
     });
@@ -434,7 +454,7 @@ describe('Sales', () => {
 
     it('shows not checked attribution without turning unknown fees into zero', async () => {
       const user = userEvent.setup();
-      mockSalesList.mockResolvedValue({ sales: [saleWithFeeEvidence()], total: 1 });
+      mockSalesList.mockResolvedValue(listResponse([saleWithFeeEvidence()]));
       render(<Sales />);
 
       await waitFor(() => {
@@ -448,17 +468,14 @@ describe('Sales', () => {
 
     it('shows verified no attribution and statement source', async () => {
       const user = userEvent.setup();
-      mockSalesList.mockResolvedValue({
-        sales: [saleWithFeeEvidence({
+      mockSalesList.mockResolvedValue(listResponse([saleWithFeeEvidence({
           offsiteAdsAttributed: false,
           offsiteAdsFee: 0,
           vatOnOffsiteAdsFee: 0,
           etsyFeeReconciliationStatus: 'STATEMENT_VERIFIED',
           etsyFeeReconciliationSource: 'ETSY_STATEMENT',
           etsyFeeReconciledAt: '2024-02-01T10:00:00Z',
-        })],
-        total: 1,
-      });
+        })]));
       render(<Sales />);
 
       await waitFor(() => {
@@ -475,17 +492,14 @@ describe('Sales', () => {
 
     it('shows verified attribution with Offsite fee, VAT, and Payment source', async () => {
       const user = userEvent.setup();
-      mockSalesList.mockResolvedValue({
-        sales: [saleWithFeeEvidence({
+      mockSalesList.mockResolvedValue(listResponse([saleWithFeeEvidence({
           offsiteAdsAttributed: true,
           offsiteAdsFee: 4.8,
           vatOnOffsiteAdsFee: 0.96,
           etsyFeeReconciliationStatus: 'PAYMENT_SYNCED',
           etsyFeeReconciliationSource: 'ETSY_PAYMENT_API',
           etsyFeeReconciledAt: '2024-02-01T10:00:00Z',
-        })],
-        total: 1,
-      });
+        })]));
       render(<Sales />);
 
       await waitFor(() => {
@@ -502,10 +516,9 @@ describe('Sales', () => {
 
     it('shows the optional manual resolution note in Etsy fee details', async () => {
       const user = userEvent.setup();
-      mockSalesList.mockResolvedValue({
-        sales: [saleWithFeeEvidence({ etsyManualResolutionNote: 'Checked against the receipt detail' })],
-        total: 1,
-      });
+      mockSalesList.mockResolvedValue(listResponse([
+        saleWithFeeEvidence({ etsyManualResolutionNote: 'Checked against the receipt detail' }),
+      ]));
       render(<Sales />);
 
       await user.click(await screen.findByText(/Chocolate Lovers/));
@@ -514,7 +527,7 @@ describe('Sales', () => {
 
     it('shows guarded Etsy resolution only for unresolved Etsy sales', async () => {
       const user = userEvent.setup();
-      mockSalesList.mockResolvedValue({ sales: [saleWithFeeEvidence()], total: 1 });
+      mockSalesList.mockResolvedValue(listResponse([saleWithFeeEvidence()]));
       render(<Sales />);
 
       await user.click(await screen.findByText(/Chocolate Lovers/));
@@ -530,7 +543,7 @@ describe('Sales', () => {
       ];
 
       for (const candidate of cases) {
-        mockSalesList.mockResolvedValue({ sales: [candidate], total: 1 });
+        mockSalesList.mockResolvedValue(listResponse([candidate]));
         const { unmount } = render(<Sales />);
         await user.click(await screen.findByText(/Chocolate Lovers/));
         expect(screen.queryByRole('button', { name: 'Resolve Etsy sale' })).not.toBeInTheDocument();
@@ -541,13 +554,13 @@ describe('Sales', () => {
     it('refreshes filtered list, summary, and expanded detail after resolution', async () => {
       const user = userEvent.setup();
       const unresolved = saleWithFeeEvidence();
-      mockSalesList.mockResolvedValue({ sales: [unresolved], total: 1 });
+      mockSalesList.mockResolvedValue(listResponse([unresolved]));
       mockSalesGet.mockResolvedValue({ ...unresolved, margin: 12 } as any);
       render(<Sales />);
 
       const filter = await screen.findByLabelText('Verification status');
       await user.selectOptions(filter, 'PENDING');
-      await waitFor(() => expect(mockSalesList).toHaveBeenCalledWith(expect.objectContaining({ verificationStatus: 'PENDING' })));
+      await waitFor(() => expect(mockSalesList).toHaveBeenCalledWith(expect.objectContaining({ verificationStatus: 'PENDING' }), expect.anything()));
       await user.click(screen.getByText(/Chocolate Lovers/));
       await user.click(screen.getByRole('button', { name: 'Resolve Etsy sale' }));
       await user.click(screen.getByRole('radio', { name: 'This was not an Etsy sale' }));
@@ -566,7 +579,7 @@ describe('Sales', () => {
       const user = userEvent.setup();
       const unresolved = saleWithFeeEvidence();
       const resolved = { ...unresolved, saleChannel: 'direct', etsyFeeReconciliationStatus: 'NOT_APPLICABLE' };
-      mockSalesList.mockResolvedValue({ sales: [unresolved], total: 1 });
+      mockSalesList.mockResolvedValue(listResponse([unresolved]));
       mockSalesGet.mockResolvedValue(resolved as any);
       mockEtsyGetStatus.mockResolvedValue({ connected: true, shopId: 'shop-1', shopName: 'Savvy Hampers' });
       mockEtsyFeeSummary
@@ -605,9 +618,9 @@ describe('Sales', () => {
 
     it('preserves an expanded loaded sale beyond the refreshed first page', async () => {
       const user = userEvent.setup();
-      const firstPage = Array.from({ length: 20 }, (_, index) => saleFor(`sale-${index + 1}`, `Sale ${index + 1}`, 35));
+      const firstPage = Array.from({ length: 25 }, (_, index) => saleFor(`sale-${index + 1}`, `Sale ${index + 1}`, 35));
       const loadedSale = saleWithFeeEvidence({
-        id: 'sale-21',
+        id: 'sale-26',
         lines: [{
           ...sampleSales[0].lines[0],
           hamper: { ...sampleSales[0].lines[0].hamper, name: 'Sale 21' },
@@ -616,15 +629,15 @@ describe('Sales', () => {
       const refreshedSale = { ...loadedSale, margin: 12 };
 
       mockSalesList.mockImplementation(async (params) => {
-        if (params?.offset === 20) return { sales: [loadedSale], total: 21 };
-        return { sales: firstPage, total: 21 };
+        if (params?.page === 2) return listResponse([refreshedSale], 26, 2);
+        return listResponse(firstPage, 26);
       });
       mockSalesGet.mockResolvedValue(refreshedSale as any);
       mockApplyEtsyResolution.mockResolvedValue({ rows: [{ saleId: loadedSale.id }] } as any);
       render(<Sales />);
 
       await waitFor(() => expect(screen.getByText('Sale 1 ×1')).toBeInTheDocument());
-      await user.click(screen.getByRole('button', { name: 'Load More (20 of 21)' }));
+      await user.click(screen.getByRole('button', { name: '2' }));
       await waitFor(() => expect(screen.getByText('Sale 21 ×1')).toBeInTheDocument());
       await user.click(screen.getByText('Sale 21 ×1'));
       await user.click(screen.getByRole('button', { name: 'Resolve Etsy sale' }));
@@ -633,7 +646,7 @@ describe('Sales', () => {
       await screen.findByText('Preview ready');
       await user.click(screen.getByRole('button', { name: 'Confirm resolution' }));
 
-      await waitFor(() => expect(mockSalesGet).toHaveBeenCalledWith('sale-21'));
+      await waitFor(() => expect(mockSalesGet).toHaveBeenCalledWith('sale-26'));
       expect(screen.getByText('Sale 21 ×1')).toBeInTheDocument();
       expect(screen.getByText('Etsy fee verification')).toBeInTheDocument();
       expect(screen.getByText('Net Margin')).toBeInTheDocument();
@@ -641,16 +654,16 @@ describe('Sales', () => {
 
     it('refreshes and removes an affected page-two sibling under the active status filter', async () => {
       const user = userEvent.setup();
-      const firstPage = Array.from({ length: 20 }, (_, index) => saleFor(`sale-${index + 1}`, `Sale ${index + 1}`, 35));
+      const firstPage = Array.from({ length: 25 }, (_, index) => saleFor(`sale-${index + 1}`, `Sale ${index + 1}`, 35));
       const target = saleWithFeeEvidence({
-        id: 'sale-21',
+        id: 'sale-26',
         lines: [{
           ...sampleSales[0].lines[0],
           hamper: { ...sampleSales[0].lines[0].hamper, name: 'Sale 21' },
         }],
       });
       const sibling = saleWithFeeEvidence({
-        id: 'sale-22',
+        id: 'sale-27',
         lines: [{
           ...sampleSales[0].lines[0],
           hamper: { ...sampleSales[0].lines[0].hamper, name: 'Sale 22' },
@@ -658,26 +671,34 @@ describe('Sales', () => {
       });
       const resolvedTarget = { ...target, saleChannel: 'direct', etsyFeeReconciliationStatus: 'NOT_APPLICABLE' };
       const resolvedSibling = { ...sibling, saleChannel: 'direct', etsyFeeReconciliationStatus: 'NOT_APPLICABLE' };
+      let resolutionApplied = false;
 
       mockSalesList.mockImplementation(async (params) => {
-        if (params?.offset === 20) return { sales: [target, sibling], total: 22 };
-        return { sales: firstPage, total: 22 };
+        if (params?.page === 2) {
+          return resolutionApplied
+            ? listResponse([], 25, 2)
+            : listResponse([target, sibling], 27, 2);
+        }
+        return listResponse(firstPage, 27);
       });
       mockSalesGet.mockImplementation(async (id) => {
         if (id === target.id) return resolvedTarget as any;
         if (id === sibling.id) return resolvedSibling as any;
         return target as any;
       });
-      mockApplyEtsyResolution.mockResolvedValue({
-        applied: true,
-        rows: [{ saleId: target.id }, { saleId: sibling.id }],
-      } as any);
+      mockApplyEtsyResolution.mockImplementation(async () => {
+        resolutionApplied = true;
+        return {
+          applied: true,
+          rows: [{ saleId: target.id }, { saleId: sibling.id }],
+        } as any;
+      });
       render(<Sales />);
 
       const filter = await screen.findByLabelText('Verification status');
       await user.selectOptions(filter, 'PENDING');
-      await waitFor(() => expect(mockSalesList).toHaveBeenCalledWith(expect.objectContaining({ verificationStatus: 'PENDING' })));
-      await user.click(screen.getByRole('button', { name: 'Load More (20 of 22)' }));
+      await waitFor(() => expect(mockSalesList).toHaveBeenCalledWith(expect.objectContaining({ verificationStatus: 'PENDING' }), expect.anything()));
+      await user.click(screen.getByRole('button', { name: '2' }));
       await waitFor(() => expect(screen.getByText('Sale 22 ×1')).toBeInTheDocument());
       await user.click(screen.getByText('Sale 21 ×1'));
       await user.click(screen.getByRole('button', { name: 'Resolve Etsy sale' }));
@@ -767,7 +788,7 @@ describe('Sales', () => {
       expect(screen.getByRole('button', { name: 'Fair/Market' })).toBeInTheDocument();
     });
 
-    it('has hamper selection dropdown', async () => {
+    it('has a searchable Hamper lookup', async () => {
       const user = userEvent.setup();
       render(<Sales />);
 
@@ -778,7 +799,7 @@ describe('Sales', () => {
       await user.click(screen.getByRole('button', { name: /record sale/i }));
 
       expect(screen.getByText('Items')).toBeInTheDocument();
-      expect(screen.getByText('Select hamper...')).toBeInTheDocument();
+      expect(screen.getByRole('searchbox', { name: 'Search hampers' })).toBeInTheDocument();
     });
 
     it('has postage inputs', async () => {
@@ -806,13 +827,60 @@ describe('Sales', () => {
 
       await user.click(screen.getByRole('button', { name: /record sale/i }));
 
-      // Select a hamper
-      const hamperSelect = screen.getByRole('combobox');
-      await user.selectOptions(hamperSelect, 'ham-1');
+      const hamperSearch = screen.getByRole('searchbox', { name: 'Search hampers' });
+      await user.click(hamperSearch);
+      await user.click(await screen.findByRole('button', { name: 'Select Chocolate Lovers' }));
 
       await waitFor(() => {
-        expect(mockSalesPreview).toHaveBeenCalled();
+        expect(mockSalesPreview).toHaveBeenCalledWith(expect.objectContaining({
+          lines: [expect.objectContaining({ hamperId: 'ham-1' })],
+        }));
       });
+    });
+
+    it('reaches Hampers beyond the first 100 through local numbered pages', async () => {
+      const target = { ...sampleHampers[0]!, id: 'ham-101', name: 'Hamper 101' };
+      mockHampersList.mockImplementation((params) => Promise.resolve({
+        items: params?.page === 2 ? [target] : sampleHampers,
+        pagination: { page: params?.page ?? 1, pageSize: 25, totalItems: 101, totalPages: 5 },
+      } as any));
+      const user = userEvent.setup();
+      render(<Sales />);
+
+      await user.click(await screen.findByRole('button', { name: /record sale/i }));
+      await user.click(screen.getByRole('searchbox', { name: 'Search hampers' }));
+      await waitFor(() => expect(mockHampersList).toHaveBeenCalledWith(
+        { page: 1, pageSize: 25, search: undefined, hideEtsyHidden: false, sort: 'name-asc' },
+        { signal: expect.any(AbortSignal) },
+      ));
+      await user.click(await screen.findByRole('button', { name: '2' }));
+      await user.click(await screen.findByRole('button', { name: 'Select Hamper 101' }));
+
+      expect(screen.getByText('Selected: Hamper 101')).toBeInTheDocument();
+      expect(window.location.search).toBe('');
+    });
+
+    it('server-searches all eligible Hampers without changing the Sales URL', async () => {
+      const target = { ...sampleHampers[0]!, id: 'ham-rare', name: 'Rare Hamper' };
+      mockHampersList.mockImplementation((params) => Promise.resolve({
+        items: params?.search === 'rare' ? [target] : sampleHampers,
+        pagination: { page: 1, pageSize: 25, totalItems: params?.search === 'rare' ? 1 : 101, totalPages: params?.search === 'rare' ? 1 : 5 },
+      } as any));
+      const user = userEvent.setup();
+      render(<Sales />);
+
+      await user.click(await screen.findByRole('button', { name: /record sale/i }));
+      const search = screen.getByRole('searchbox', { name: 'Search hampers' });
+      await user.click(search);
+      await user.type(search, 'rare');
+
+      await waitFor(() => expect(mockHampersList).toHaveBeenCalledWith(
+        expect.objectContaining({ page: 1, pageSize: 25, search: 'rare' }),
+        { signal: expect.any(AbortSignal) },
+      ));
+      await user.click(await screen.findByRole('button', { name: 'Select Rare Hamper' }));
+      expect(screen.getByText('Selected: Rare Hamper')).toBeInTheDocument();
+      expect(window.location.search).toBe('');
     });
 
     it('has cancel button', async () => {
@@ -867,6 +935,158 @@ describe('Sales', () => {
       await waitFor(() => {
         expect(screen.getByPlaceholderText('Search sales...')).toBeInTheDocument();
       });
+    });
+  });
+
+  describe('pagination and request lifecycle', () => {
+    it('loads the sales list once on initial render', async () => {
+      render(<Sales />);
+
+      await waitFor(() => expect(mockSalesList).toHaveBeenCalled());
+
+      expect(mockSalesList).toHaveBeenCalledTimes(1);
+    });
+
+    it('reloads the list and summary for a date change without reloading hampers', async () => {
+      render(<Sales />);
+
+      await waitFor(() => expect(screen.getByText(/Chocolate Lovers/)).toBeInTheDocument());
+      const startDateInput = document.querySelector('input[type="date"]');
+      expect(startDateInput).not.toBeNull();
+      fireEvent.change(startDateInput!, { target: { value: '2026-08-01' } });
+
+      await waitFor(() => {
+        expect(mockSalesList).toHaveBeenCalledTimes(2);
+        expect(mockSalesSummary).toHaveBeenCalledTimes(2);
+      });
+      expect(mockHampersList).not.toHaveBeenCalled();
+    });
+
+    it('changes only the list query when moving to page two', async () => {
+      mockSalesList.mockResolvedValue(listResponse(sampleSales, 51));
+      render(<Sales />);
+
+      await waitFor(() => expect(screen.getByRole('button', { name: '2' })).toBeInTheDocument());
+      await userEvent.click(screen.getByRole('button', { name: '2' }));
+
+      await waitFor(() => expect(mockSalesList).toHaveBeenCalledTimes(2));
+      expect(mockSalesSummary).toHaveBeenCalledTimes(1);
+      expect(mockSalesList.mock.calls[1]?.[0]).toEqual(expect.objectContaining({ page: 2 }));
+    });
+
+    it('retains the previous row and announces updates while page two is pending', async () => {
+      let resolvePageTwo: ((value: ReturnType<typeof listResponse>) => void) | undefined;
+      mockSalesList.mockImplementation((params) => {
+        if (params?.page === 2) {
+          return new Promise((resolve) => {
+            resolvePageTwo = resolve;
+          });
+        }
+        return Promise.resolve(listResponse(sampleSales, 51));
+      });
+      render(<Sales />);
+
+      await waitFor(() => expect(screen.getByText(/Chocolate Lovers/)).toBeInTheDocument());
+      await userEvent.click(screen.getByRole('button', { name: '2' }));
+
+      expect(screen.getByText(/Chocolate Lovers/)).toBeInTheDocument();
+      expect(screen.getByRole('status')).toHaveTextContent('Updating results…');
+
+      resolvePageTwo?.(listResponse([], 51, 2));
+      await waitFor(() => expect(screen.queryByRole('status')).not.toBeInTheDocument());
+    });
+
+    it('keeps old rows and exposes Retry when the current page request rejects', async () => {
+      mockSalesList.mockImplementation((params) => {
+        if (params?.page === 2) return Promise.reject(new Error('Page failed'));
+        return Promise.resolve(listResponse(sampleSales, 51));
+      });
+      render(<Sales />);
+
+      await waitFor(() => expect(screen.getByText(/Chocolate Lovers/)).toBeInTheDocument());
+      await userEvent.click(screen.getByRole('button', { name: '2' }));
+
+      await waitFor(() => expect(screen.getByRole('button', { name: /retry/i })).toBeInTheDocument());
+      expect(screen.getByText(/Chocolate Lovers/)).toBeInTheDocument();
+      expect(screen.getByRole('alert')).toHaveTextContent('Page failed');
+    });
+
+    it('does not let an earlier filter response overwrite the latest response', async () => {
+      const saleA = { ...sampleSales[0], id: 'sale-a', etsyOrderId: 'order-a' };
+      const saleB = { ...sampleSales[0], id: 'sale-b', etsyOrderId: 'order-b' };
+      let resolveA: ((value: ReturnType<typeof listResponse>) => void) | undefined;
+      let resolveB: ((value: ReturnType<typeof listResponse>) => void) | undefined;
+      mockSalesList.mockImplementation((params) => {
+        if (params?.startDate === '2026-08-01') {
+          return new Promise((resolve) => {
+            resolveA = resolve;
+          });
+        }
+        if (params?.startDate === '2026-08-02') {
+          return new Promise((resolve) => {
+            resolveB = resolve;
+          });
+        }
+        return Promise.resolve(listResponse(sampleSales));
+      });
+      render(<Sales />);
+
+      await waitFor(() => expect(screen.getByText(/Chocolate Lovers/)).toBeInTheDocument());
+      const startDateInput = document.querySelector('input[type="date"]');
+      expect(startDateInput).not.toBeNull();
+      fireEvent.change(startDateInput!, { target: { value: '2026-08-01' } });
+      fireEvent.change(startDateInput!, { target: { value: '2026-08-02' } });
+
+      await waitFor(() => expect(mockSalesList).toHaveBeenCalledTimes(3));
+      resolveB?.(listResponse([saleB]));
+      await waitFor(() => expect(mockSalesList).toHaveBeenCalledTimes(3));
+      resolveA?.(listResponse([saleA]));
+
+      await waitFor(() => expect(screen.getByText(/#order-b/)).toBeInTheDocument());
+      expect(screen.queryByText(/#order-a/)).not.toBeInTheDocument();
+    });
+
+    it('aborts an obsolete summary request when filters change', async () => {
+      const signals: AbortSignal[] = [];
+      mockSalesSummary.mockImplementation((_params, options) => {
+        if (options?.signal) signals.push(options.signal);
+        return Promise.resolve(sampleSummary);
+      });
+      render(<Sales />);
+
+      await waitFor(() => expect(signals).toHaveLength(1));
+      const startDateInput = document.querySelector('input[type="date"]');
+      expect(startDateInput).not.toBeNull();
+      fireEvent.change(startDateInput!, { target: { value: '2026-08-01' } });
+
+      await waitFor(() => expect(signals).toHaveLength(2));
+      expect(signals[0]?.aborted).toBe(true);
+      expect(signals[1]?.aborted).toBe(false);
+    });
+
+    it('replaces Load More with a visible result range', async () => {
+      mockSalesList.mockResolvedValue(listResponse(sampleSales, 51));
+      render(<Sales />);
+
+      await waitFor(() => expect(screen.getByText('Showing 1–25 of 51')).toBeInTheDocument());
+
+      expect(screen.queryByRole('button', { name: /load more/i })).not.toBeInTheDocument();
+    });
+
+    it('corrects a stale high page with one request for the final page', async () => {
+      window.history.pushState({}, '', '/sales?page=999&pageSize=25');
+      mockSalesList.mockImplementation((params) => {
+        if (params?.page === 999) return Promise.resolve(listResponse([], 51, 999));
+        if (params?.page === 3) return Promise.resolve(listResponse(sampleSales, 51, 3));
+        return Promise.reject(new Error(`Unexpected page ${params?.page}`));
+      });
+
+      render(<Sales />);
+
+      await waitFor(() => expect(screen.getByText(/Chocolate Lovers/)).toBeInTheDocument());
+      expect(mockSalesList).toHaveBeenCalledTimes(2);
+      expect(mockSalesList.mock.calls.map(([params]) => params?.page)).toEqual([999, 3]);
+      expect(new URLSearchParams(window.location.search).get('page')).toBe('3');
     });
   });
 

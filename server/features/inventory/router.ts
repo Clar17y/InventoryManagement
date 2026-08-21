@@ -3,10 +3,25 @@ import { z } from 'zod'
 import { prisma } from '../../lib/prisma'
 import {
   inventoryAddLotBodySchema,
+  inventoryProductsQuerySchema,
   inventoryUpdateLotBodySchema,
 } from '#contracts/routes/inventory'
+import { listInventoryProducts } from '../../lib/inventory/productList'
 
 const router = Router()
+
+router.get('/products', async (req, res) => {
+  try {
+    const query = inventoryProductsQuerySchema.parse(req.query)
+    res.json(await listInventoryProducts(prisma, query))
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      return res.status(400).json({ error: 'Validation failed', details: error.errors })
+    }
+    console.error('Error fetching inventory products:', error)
+    res.status(500).json({ error: 'Failed to fetch inventory products' })
+  }
+})
 
 // GET inventory summary by category
 router.get('/by-category', async (_, res) => {

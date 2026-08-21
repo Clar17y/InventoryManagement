@@ -7,6 +7,11 @@ import {
 } from '../domain/inventory'
 import { categorySchema } from '../domain/category'
 import { productSchema } from '../domain/product'
+import {
+  paginatedResponseSchema,
+  paginationQuerySchema,
+  queryBooleanSchema,
+} from '../http/pagination'
 
 export const inventoryCategoryIdParamSchema = cuidSchema
 
@@ -45,6 +50,38 @@ export const inventoryLowStockProductSchema = productSchema.extend({
 
 export const inventoryLowStockResponseSchema = z.array(inventoryLowStockProductSchema)
 
+export const inventorySortSchema = z.enum([
+  'category',
+  'stock-desc',
+  'stock-asc',
+  'name-asc',
+  'name-desc',
+  'cost-asc',
+  'cost-desc',
+  'newest',
+  'oldest',
+])
+
+export const inventoryProductsQuerySchema = paginationQuerySchema.extend({
+  categoryId: cuidSchema.optional(),
+  search: z.string().trim().max(200).optional(),
+  lowStockOnly: queryBooleanSchema.default(false),
+  sort: inventorySortSchema.default('category'),
+})
+
+export const inventoryProductSchema = inventoryLowStockProductSchema.extend({
+  currentCost: z.number().finite().nonnegative().nullable(),
+})
+
+export const inventoryProductsTotalsSchema = z.object({
+  totalUnitItems: z.number().finite().nonnegative(),
+  totalLots: z.number().int().nonnegative(),
+})
+
+export const inventoryProductsResponseSchema = paginatedResponseSchema(inventoryProductSchema).extend({
+  totals: inventoryProductsTotalsSchema,
+})
+
 export const inventoryExpiringResponseSchema = z.array(inventoryLotSchema)
 
 export type InventoryCategoryIdParam = z.infer<typeof inventoryCategoryIdParamSchema>
@@ -58,4 +95,10 @@ export type InventoryAddLotBody = z.input<typeof inventoryAddLotBodySchema>
 export type InventoryUpdateLotBody = z.input<typeof inventoryUpdateLotBodySchema>
 export type InventoryLowStockProduct = z.infer<typeof inventoryLowStockProductSchema>
 export type InventoryLowStockResponse = z.infer<typeof inventoryLowStockResponseSchema>
+export type InventorySort = z.infer<typeof inventorySortSchema>
+export type InventoryProductsQuery = z.input<typeof inventoryProductsQuerySchema>
+export type ParsedInventoryProductsQuery = z.infer<typeof inventoryProductsQuerySchema>
+export type InventoryProduct = z.infer<typeof inventoryProductSchema>
+export type InventoryProductsTotals = z.infer<typeof inventoryProductsTotalsSchema>
+export type InventoryProductsResponse = z.infer<typeof inventoryProductsResponseSchema>
 export type InventoryExpiringResponse = z.infer<typeof inventoryExpiringResponseSchema>

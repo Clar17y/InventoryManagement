@@ -4,6 +4,7 @@ import {
   hamperResponseSchema,
   hamperVariantResponseSchema,
   hamperVariantsListResponseSchema,
+  type HampersListQuery,
   hampersListResponseSchema,
   type HamperDetailResponse,
   type HamperVariantCreateBody,
@@ -17,7 +18,7 @@ import type {
   HamperVariantAvailability as DomainHamperVariantAvailability,
 } from '#contracts/domain/hamper'
 
-export type Hamper = HampersListResponse[number]
+export type Hamper = HampersListResponse['items'][number]
 export type HamperDetail = HamperDetailResponse
 export type HamperCreateData = HampersCreateBody
 export type HamperUpdateData = HampersUpdateBody
@@ -27,7 +28,13 @@ export type HamperVariantUpdateData = HamperVariantUpdateBody
 export type HamperVariantAvailability = DomainHamperVariantAvailability
 
 export const hampers = {
-  list: () => requestWithSchema('/hampers', hampersListResponseSchema),
+  list: (params: HampersListQuery = {}, options?: Pick<RequestInit, 'signal'>) => {
+    const query = new URLSearchParams()
+    for (const [key, value] of Object.entries(params)) {
+      if (value !== undefined && value !== '') query.set(key, String(value))
+    }
+    return requestWithSchema(`/hampers?${query}`, hampersListResponseSchema, options)
+  },
   get: (id: string) => requestWithSchema(`/hampers/${id}`, hamperDetailResponseSchema),
   create: (data: HamperCreateData) =>
     requestWithSchema('/hampers', hamperResponseSchema, {

@@ -1,32 +1,31 @@
 import { z } from 'zod'
 import { cuidSchema, isoDateTimeSchema } from '../http/primitives'
 import { businessExpenseSchema, expenseCategorySchema } from '../domain/expense'
+import { paginatedResponseSchema, paginationQuerySchema } from '../http/pagination'
 
 export const expenseIdParamSchema = cuidSchema
 
-export const expensesListQuerySchema = z.object({
+export const expenseSortSchema = z.enum(['date', 'amountIncVat'])
+export const expenseSortDirectionSchema = z.enum(['asc', 'desc'])
+
+export const expensesListQuerySchema = paginationQuerySchema.extend({
   category: expenseCategorySchema.optional(),
   startDate: isoDateTimeSchema.optional(),
   endDate: isoDateTimeSchema.optional(),
-  search: z.string().optional(),
-  limit: z.coerce.number().int().positive().default(50),
-  offset: z.coerce.number().int().nonnegative().default(0),
+  search: z.string().trim().max(200).optional(),
+  sort: expenseSortSchema.default('date'),
+  direction: expenseSortDirectionSchema.default('desc'),
 })
 
 export const expensesSummaryQuerySchema = z.object({
   startDate: isoDateTimeSchema.optional(),
   endDate: isoDateTimeSchema.optional(),
-  search: z.string().optional(),
+  search: z.string().trim().max(200).optional(),
 })
 
 export const expenseResponseSchema = businessExpenseSchema
 
-export const expensesListResponseSchema = z.object({
-  expenses: z.array(businessExpenseSchema),
-  total: z.number().int().nonnegative(),
-  limit: z.number().int().positive(),
-  offset: z.number().int().nonnegative(),
-})
+export const expensesListResponseSchema = paginatedResponseSchema(businessExpenseSchema)
 
 export const expensesCreateBodySchema = z.object({
   date: isoDateTimeSchema.optional(),
@@ -66,6 +65,8 @@ export const expensesSummaryResponseSchema = z.object({
 export type ExpenseIdParam = z.infer<typeof expenseIdParamSchema>
 export type ExpensesListQuery = z.input<typeof expensesListQuerySchema>
 export type ExpensesSummaryQuery = z.input<typeof expensesSummaryQuerySchema>
+export type ExpenseSort = z.infer<typeof expenseSortSchema>
+export type ExpenseSortDirection = z.infer<typeof expenseSortDirectionSchema>
 export type ExpenseResponse = z.infer<typeof expenseResponseSchema>
 export type ExpensesListResponse = z.infer<typeof expensesListResponseSchema>
 export type ExpensesCreateBody = z.input<typeof expensesCreateBodySchema>

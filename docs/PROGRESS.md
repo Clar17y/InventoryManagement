@@ -328,6 +328,7 @@ npm run test:server:run   # Single run (server only)
 | 2026-08-20 | Codex subagent | Task 9 review fix round 1: reachable Sales Hamper lookup and executable SQL evidence | Done | codex/site-pagination-filter-performance |
 | 2026-08-20 | Codex + subagents | Task 10: Audit and verify the site pagination rollout | Done — browser limited | codex/site-pagination-filter-performance |
 | 2026-08-21 | Codex + subagents | Final simplify pass: bound relation reads and preserve summary semantics | Done | codex/site-pagination-filter-performance |
+| 2026-08-21 | Codex + subagents | Integrate latest origin/main and restore Prisma enum compatibility | In Progress | codex/site-pagination-filter-performance |
 
 
 ---

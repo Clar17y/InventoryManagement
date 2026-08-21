@@ -508,7 +508,7 @@ describe('listInventoryProducts', () => {
           return hydrated ? [hydrated] : []
         })
       ))
-      const db = { $queryRaw: queryRaw, product: { findMany } } as Parameters<typeof listInventoryProducts>[0]
+      const db = { $queryRaw: queryRaw, product: { findMany } } as unknown as Parameters<typeof listInventoryProducts>[0]
       const query = {
         pageSize: 25 as const,
         search: 'Keep',
